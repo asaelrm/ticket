@@ -1,4 +1,5 @@
 import db from '../db.js';
+import { getSlaHours } from './sla.js';
 
 // Valores por defecto de las listas configurables del flujo de resolución.
 export const DEFAULT_RESOLUTION_CATEGORIES = [
@@ -68,11 +69,33 @@ export function requireResolutionToClose() {
   return !['0', 'false', 'no', 'off'].includes(String(raw).toLowerCase());
 }
 
+// Configuración de reglas de escalación automática (con valores por defecto).
+export function getRuleSettings() {
+  const num = (key, fallback) => {
+    const n = parseInt(String(getSetting(key) ?? ''), 10);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  return {
+    rule_unassigned_hours: num('rule_unassigned_hours', 8),
+    rule_unassigned_priority: String(getSetting('rule_unassigned_priority') || 'HIGH').toUpperCase(),
+    rule_critical_hours: num('rule_critical_hours', 12),
+  };
+}
+
+export function isCsatEnabled() {
+  const raw = getSetting('enable_csat');
+  if (raw === null || raw === undefined || raw === '') return true;
+  return !['0', 'false', 'no', 'off'].includes(String(raw).toLowerCase());
+}
+
 export function getWorkflowOptions() {
   return {
     resolution_categories: getResolutionCategories(),
     root_causes: getRootCauses(),
     pending_reasons: getPendingReasons(),
     require_resolution_to_close: requireResolutionToClose(),
+    csat_enabled: isCsatEnabled(),
+    rules: getRuleSettings(),
+    sla_hours: getSlaHours(),
   };
 }

@@ -54,6 +54,35 @@ export function runMigrations() {
     ensureColumn('ticket_comments', 'is_internal', 'is_internal INTEGER NOT NULL DEFAULT 0');
     db.exec('CREATE INDEX IF NOT EXISTS idx_comments_internal ON ticket_comments(ticket_id, is_internal)');
 
+    // Cancelación con motivo (flujo de cancelación).
+    ensureColumn('tickets', 'cancel_reason', 'cancel_reason TEXT');
+    ensureColumn('tickets', 'cancelled_by', 'cancelled_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
+    ensureColumn('tickets', 'cancelled_at', 'cancelled_at TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_by ON tickets(cancelled_by)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_at ON tickets(cancelled_at)');
+
+    // Encuesta de satisfacción (CSAT).
+    ensureColumn('tickets', 'csat_rating', 'csat_rating INTEGER');
+    ensureColumn('tickets', 'csat_comment', 'csat_comment TEXT');
+    ensureColumn('tickets', 'csat_answered_at', 'csat_answered_at TEXT');
+
+    // Notificaciones in-app.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        ticket_id  INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+        type       TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        body       TEXT,
+        link       TEXT,
+        read_at    TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at)');
+
     // Backfill: fecha límite SLA para tickets abiertos históricos (reglas por defecto).
     db.exec(`
       UPDATE tickets SET sla_due_at =

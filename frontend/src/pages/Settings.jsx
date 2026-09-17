@@ -49,6 +49,7 @@ export default function Settings() {
         notify_on_assign: form.notify_on_assign ? '1' : '0',
         notify_on_comment: form.notify_on_comment ? '1' : '0',
         notify_on_resolve: form.notify_on_resolve ? '1' : '0',
+        enable_csat: form.enable_csat ? '1' : '0',
       };
       const data = await api.patch('/api/settings', payload);
       setForm(normalize(data.data));
@@ -177,6 +178,80 @@ export default function Settings() {
             <EmailLog emails={emails} />
           </div>
 
+          <div className="border-t border-slate-200 pt-5">
+            <h3 className="text-sm font-semibold text-slate-800">Encuesta de satisfacción (CSAT)</h3>
+            <p className="mb-4 text-sm text-slate-500">
+              Permite que el reportante califique la atención (1–5 estrellas) cuando su ticket queda resuelto o cerrado.
+            </p>
+            <CheckToggle
+              label="Activar encuesta de satisfacción"
+              hint="Al cerrar un ticket, se notifica al reportante para calificar la atención."
+              value={form.enable_csat}
+              onChange={(v) => set('enable_csat', v)}
+            />
+          </div>
+
+          <div className="border-t border-slate-200 pt-5">
+            <h3 className="text-sm font-semibold text-slate-800">Escalación automática</h3>
+            <p className="mb-4 text-sm text-slate-500">
+              Reglas que ejecuta el sistema periódicamente para alertar o subir prioridad de tickets que nadie atendió.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="label">
+                Escalar sin asignar después de
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    max="720"
+                    className="input !pr-12"
+                    value={form.rule_unassigned_hours ?? ''}
+                    onChange={(e) => set('rule_unassigned_hours', e.target.value)}
+                    placeholder="8"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">horas</span>
+                </div>
+                <span className="mt-1 block text-xs font-normal text-slate-400">
+                  Sube la prioridad de tickets abiertos sin asignar. 0 desactiva la regla.
+                </span>
+              </label>
+              <label className="label">
+                Prioridad al escalar
+                <select
+                  className="input"
+                  value={form.rule_unassigned_priority || 'HIGH'}
+                  onChange={(e) => set('rule_unassigned_priority', e.target.value)}
+                >
+                  <option value="LOW">Baja</option>
+                  <option value="MEDIUM">Media</option>
+                  <option value="HIGH">Alta</option>
+                  <option value="CRITICAL">Crítica</option>
+                </select>
+                <span className="mt-1 block text-xs font-normal text-slate-400">
+                  Solo se escala si el ticket tiene menor prioridad que la elegida.
+                </span>
+              </label>
+              <label className="label">
+                Alertar crítico abierto después de
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    max="720"
+                    className="input !pr-12"
+                    value={form.rule_critical_hours ?? ''}
+                    onChange={(e) => set('rule_critical_hours', e.target.value)}
+                    placeholder="12"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">horas</span>
+                </div>
+                <span className="mt-1 block text-xs font-normal text-slate-400">
+                  Notifica a los administradores si un CRITICAL lleva mucho tiempo abierto. 0 desactiva la regla.
+                </span>
+              </label>
+            </div>
+          </div>
+
           {error && <ErrorBox message={error} />}
           {success && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
@@ -236,6 +311,7 @@ function normalize(data) {
     notify_on_assign: flag(data.notify_on_assign),
     notify_on_comment: flag(data.notify_on_comment),
     notify_on_resolve: flag(data.notify_on_resolve),
+    enable_csat: flag(data.enable_csat),
   };
 }
 

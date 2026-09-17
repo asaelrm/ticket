@@ -52,6 +52,11 @@ export default function TicketDetail() {
   const [pendingOpen, setPendingOpen] = useState(false);
   const [pendingReason, setPendingReason] = useState('');
   const [pendingDetail, setPendingDetail] = useState('');
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [csatRating, setCsatRating] = useState(0);
+  const [csatComment, setCsatComment] = useState('');
+  const [csatSent, setCsatSent] = useState(false);
 
   const editorRef = useRef(null);
   const textareaRef = useRef(null);
@@ -309,6 +314,36 @@ export default function TicketDetail() {
     }
   }
 
+  async function submitCancel() {
+    setSaving(true);
+    setError('');
+    try {
+      await api.post(`/api/tickets/${t.id}/cancel`, { reason: cancelReason.trim() });
+      setCancelOpen(false);
+      setCancelReason('');
+      await load();
+    } catch (err) {
+      setError(err.message || 'No se pudo cancelar el ticket');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitCsat() {
+    if (!csatRating) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.post(`/api/tickets/${t.id}/csat`, { rating: csatRating, comment: csatComment.trim() || undefined });
+      setCsatSent(true);
+      await load();
+    } catch (err) {
+      setError(err.message || 'No se pudo enviar la calificación');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function onSubmitComment(e) {
     e.preventDefault();
     if (!message.trim() && files.length === 0) return;
@@ -382,9 +417,14 @@ export default function TicketDetail() {
               Resolver ticket
             </button>
           )}
-          {can.close && !['CLOSED', 'CANCELLED'].includes(t.status) && (
+          {can.close && t.status !== 'CLOSED' && (
             <button className="btn-secondary" onClick={() => setCloseOpen(true)}>
               Cerrar
+            </button>
+          )}
+          {can.cancel && !['CLOSED', 'CANCELLED', 'RESOLVED'].includes(t.status) && (
+            <button className="btn-secondary !text-red-600" onClick={() => setCancelOpen(true)}>
+              Cancelar ticket
             </button>
           )}
           {can.reopen && ['RESOLVED', 'CLOSED'].includes(t.status) && (
@@ -429,6 +469,51 @@ export default function TicketDetail() {
       </div>
 
       {error && <ErrorBox message={error} />}
+
+      {isReporter && ['RESOLVED', 'CLOSED'].includes(t.status) && !t.csat_answered_at && options?.csat_enabled !== false && (
+        <div className="card border-brand-200 bg-brand-50/50 p-5">
+          <h3 className="text-sm font-semibold text-slate-800">¿Cómo fue la atención recibida?</h3>
+          <p className="mt-0.5 text-sm text-slate-500">Su opinión nos ayuda a mejorar el servicio.</p>
+          <div className="mt-3 flex items-center gap-1.5">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                aria-label={`${n} estrellas`}
+                onClick={() => setCsatRating(n)}
+                className={`text-3xl leading-none transition ${n <= csatRating ? 'text-amber-400' : 'text-slate-300 hover:text-amber-300'}`}
+              >
+                ★
+              </button>
+            ))}
+            {csatRating > 0 && <span className="ml-2 text-sm font-medium text-slate-600">{csatRating}/5</span>}
+          </div>
+          <textarea
+            className="input mt-3 min-h-[70px] resize-y"
+            placeholder="Comentario (opcional)…"
+            value={csatComment}
+            onChange={(e) => setCsatComment(e.target.value)}
+            maxLength={2000}
+          />
+          <div className="mt-3 flex justify-end">
+            <button className="btn-primary" onClick={submitCsat} disabled={!csatRating || saving || csatSent}>
+              {saving && <Spinner className="h-4 w-4 text-white" />}
+              {csatSent ? '¡Gracias!' : 'Enviar calificación'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {t.csat_answered_at && (
+        <div className="card p-4">
+          <p className="text-sm text-slate-600">
+            <span className="font-medium">Satisfacción del usuario:</span>{' '}
+            <span className="text-amber-500">{'★'.repeat(t.csat_rating || 0)}{'☆'.repeat(5 - (t.csat_rating || 0))}</span>{' '}
+            <span className="font-semibold text-slate-700">{t.csat_rating}/5</span>
+            {t.csat_comment ? ` — ${t.csat_comment}` : ''}
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* Columna principal */}

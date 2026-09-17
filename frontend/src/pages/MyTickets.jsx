@@ -19,6 +19,7 @@ export default function MyTickets() {
         if (v !== '' && v != null) params.append(k, v);
       }
       params.append('perPage', f.perPage || 15);
+      params.append('own', '1');
       const data = await api.get(`/api/tickets?${params}`);
       setList(data);
     } catch (err) {

@@ -221,6 +221,31 @@ export function notifyResolved(ticket, resolverName, resolution) {
   });
 }
 
+export function notifyCancelled(ticket, actorName, reason) {
+  if (!isNotifyEnabled('resolve')) return;
+  if (!ticket.reporter_email) return;
+  if (ticket.reporter_id === null) return;
+
+  const subject = `[${ticket.ticket_number}] Su ticket fue cancelado: ${ticket.title}`;
+  const text = [
+    `Hola:`,
+    ``,
+    `El ticket ${ticket.ticket_number} “${ticket.title}” que usted reportó fue cancelado por ${actorName}.`,
+    ``,
+    reason ? `Motivo: ${reason}` : '',
+    ``,
+    `Puede consultar el detalle desde la aplicación o reportar una nueva incidencia.`,
+  ].join('\n');
+  return sendMail({
+    to: ticket.reporter_email,
+    subject,
+    text,
+    html: wrapHtml(subject, textHtml(text)),
+    kind: 'cancel',
+    ticketId: ticket.id,
+  });
+}
+
 export function notifyPasswordReset(user, token, resetUrlBase) {
   if (!user?.email) return;
   const resetUrl = `${resetUrlBase || ''}/reset-password?token=${token}`;

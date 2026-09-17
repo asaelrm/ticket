@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
+import { api, download, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
-import { LoadingScreen, ErrorBox, Spinner } from '../components/ui';
+import { LoadingScreen, ErrorBox, Spinner, Menu } from '../components/ui';
 
 const DEFAULTS = { sort: 'created_at', dir: 'desc', perPage: 15, page: 1 };
 
@@ -137,11 +137,15 @@ export default function Tickets() {
     }
   }
 
-  async function changeStatus(t, status) {
+  async function changeStatus(t, status, body = {}) {
     setBusy(true);
     setError('');
     try {
-      await api.patch(`/api/tickets/${t.id}`, { status });
+      if (status === 'CANCELLED') {
+        await api.post(`/api/tickets/${t.id}/cancel`, body);
+      } else {
+        await api.patch(`/api/tickets/${t.id}`, { status });
+      }
       await reload();
     } catch (err) {
       setError(err.message || 'No se pudo actualizar el estado');
@@ -150,16 +154,15 @@ export default function Tickets() {
     }
   }
 
-  function exportCsv() {
+  function exportTickets(format = 'csv') {
     const sp = new URLSearchParams();
     for (const [k, v] of Object.entries(filters)) {
       if (v === '' || v == null) continue;
       if (['page', 'perPage', 'sort', 'dir'].includes(k)) continue;
       sp.set(k, String(v));
     }
-    const a = document.createElement('a');
-    a.href = `/api/tickets/export?${sp}`;
-    a.click();
+    if (format !== 'csv') sp.set('format', format);
+    download(`/api/tickets/export?${sp}`);
   }
 
   const hasAnyFilter = query.length > 0;
@@ -280,12 +283,21 @@ export default function Tickets() {
             </svg>
           </button>
           {canExport && (
-            <button type="button" className="btn-secondary" onClick={exportCsv}>
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-              </svg>
-              Exportar CSV
-            </button>
+            <Menu
+              label={
+                <span className="inline-flex items-center gap-1.5">
+                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+                  </svg>
+                  Exportar
+                </span>
+              }
+              items={[
+                { key: 'csv', label: 'CSV', onClick: () => exportTickets('csv') },
+                { key: 'xlsx', label: 'Excel (XLSX)', onClick: () => exportTickets('xlsx') },
+                { key: 'pdf', label: 'PDF', onClick: () => exportTickets('pdf') },
+              ]}
+            />
           )}
           <Link to="/app/new-ticket" className="btn-primary">
             + Reportar

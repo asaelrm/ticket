@@ -7,9 +7,15 @@ import { uploadMiddleware, uploadSizeError } from '../middleware/upload.js';
 import { validateFile, persistUpload } from '../utils/fileType.js';
 import { nextTicketNumber } from '../utils/ticketNumber.js';
 import { computeSlaDue, OPEN_STATUSES } from '../utils/sla.js';
-import { getWorkflowOptions, requireResolutionToClose } from '../utils/options.js';
+import { getWorkflowOptions, requireResolutionToClose, isCsatEnabled } from '../utils/options.js';
 import { emitTicketEvent, onTicketEvent } from '../utils/ticketBus.js';
-import { notifyAssigned, notifyComment, notifyResolved } from '../utils/mailer.js';
+import { notifyAssigned, notifyComment, notifyResolved, notifyCancelled } from '../utils/mailer.js';
+import {
+  createNotification,
+  createNotifications,
+  notifyTicketParticipants,
+  notifyAdmins,
+} from '../utils/notifications.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -281,6 +287,13 @@ function buildConditions(req, viewOnlyOwn) {
     }
   }
 
+  // Bandeja de soporte: solo pendientes de atención (excluye resueltos,
+  // cerrados y cancelados). Se combina con cualquier vista/filtro.
+  if (isTruthyFlag(q.active)) {
+    conds.push(`t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`);
+    params.push(...OPEN_STATUSES);
+  }
+
   if (q.search) {
     const like = `%${escapeLike(q.search)}%`;
     const parts = [
@@ -543,11 +556,14 @@ router.post(
 );
 
 router.get('/', (req, res) => {
-  const viewOnlyOwn = !hasPerm(req.user, 'ticket.view.all');
+  // "Mis tickets" (frontend) pasa own=1 para forzar el scope al reportante,
+  // incluso para usuarios con permiso ticket.view.all (admin/técnicos).
+  const forceOwn = String(req.query.own) === '1';
+  const viewOnlyOwn = forceOwn || !hasPerm(req.user, 'ticket.view.all');
   res.json(listQuery(req, viewOnlyOwn));
 });
 
-router.get('/export', requirePermission('ticket.export'), (req, res) => {
+router.get('/export', requirePermission('ticket.export'), async (req, res) => {
   const { conds, params } = buildConditions(req, false);
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
   const rows = db.prepare(`${LIST_SQL} ${where} ORDER BY t.created_at DESC LIMIT 5000`).all(...params);
@@ -581,8 +597,112 @@ router.get('/export', requirePermission('ticket.export'), (req, res) => {
       esc(r.is_overdue ? 'Sí' : 'No'),
     ].join(sep));
   }
+
+  const format = String(req.query.format || 'csv').toLowerCase();
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  if (format === 'xlsx') {
+    const { default: ExcelJS } = await import('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const sheet = wb.addWorksheet('Tickets');
+    sheet.columns = cols.map((c) => ({ header: c, key: c.replace(/\s+/g, '_') }));
+    sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+    sheet.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + cols.length)}1` };
+    for (const r of rows) {
+      sheet.addRow([
+        r.ticket_number, r.title, STATUS_LABEL[r.status] || r.status,
+        PRIORITY_LABEL[r.priority] || r.priority, r.category_name, r.department_name,
+        r.reporter_name, r.reporter_email || '', r.assigned_name, r.team_name,
+        r.created_at, r.updated_at || '', r.resolved_at || '', r.closed_at || '',
+        r.resolved_at || r.closed_at || '', r.sla_due_at || '', r.is_overdue ? 'Sí' : 'No',
+      ]);
+    }
+    sheet.eachRow((row) => {
+      row.eachCell((cell) => {
+        cell.alignment = { vertical: 'top', wrapText: true };
+      });
+    });
+    sheet.columns.forEach((c) => {
+      c.width = Math.max(10, Math.min(32, (c.header.length + 8)));
+    });
+    res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.set('Content-Disposition', `attachment; filename="tickets-${stamp}.xlsx"`);
+    await wb.xlsx.write(res);
+    return res.end();
+  }
+
+  if (format === 'pdf') {
+    const PDFDocument = (await import('pdfkit')).default;
+    const doc = new PDFDocument({ size: 'LETTER', margin: 36 });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    doc.on('end', () => {
+      res.set('Content-Type', 'application/pdf');
+      res.set('Content-Disposition', `attachment; filename="tickets-${stamp}.pdf"`);
+      res.send(Buffer.concat(chunks));
+    });
+
+    doc.fontSize(16).text('Reporte de tickets', { align: 'center' });
+    doc.moveDown(0.4);
+    doc.fontSize(9).fillColor('#64748b').text(`Generado el ${new Date().toLocaleString('es-ES')} · ${rows.length} registros`, { align: 'center' });
+    doc.moveDown(0.8);
+    doc.fillColor('#111827');
+
+    const cell = (x, y, w, text, bold = false) => {
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(7.5).fillColor(bold ? '#ffffff' : '#111827');
+      if (bold) {
+        doc.text(String(text ?? ''), x + 2, y + 2, { width: w - 4, ellipsis: true });
+      } else {
+        doc.text(String(text ?? ''), x + 2, y, { width: w - 4, height: 18, ellipsis: true, lineBreak: false });
+      }
+    };
+
+    const headerTexts = ['N°', 'Título', 'Estado', 'Prioridad', 'Categoría', 'Reportado por', 'Asignado a', 'Creado'];
+    const widths = [62, 170, 62, 55, 70, 90, 90, 82];
+    const rowH = 18;
+    let y = doc.y;
+
+    // Encabezado de tabla
+    doc.rect(36, y, 36 + widths.reduce((a, b) => a + b, 0), rowH).fill('#2563eb');
+    let x = 36;
+    headerTexts.forEach((h, i) => {
+      cell(x, y, widths[i], h, true);
+      x += widths[i];
+    });
+    y += rowH;
+
+    for (const r of rows) {
+      if (y + rowH > doc.page.height - 40) {
+        doc.addPage();
+        y = 36;
+        doc.rect(36, y, 36 + widths.reduce((a, b) => a + b, 0), rowH).fill('#2563eb');
+        x = 36;
+        headerTexts.forEach((h, i) => {
+          cell(x, y, widths[i], h, true);
+          x += widths[i];
+        });
+        y += rowH;
+      }
+      x = 36;
+      doc.rect(36, y, 36 + widths.reduce((a, b) => a + b, 0), rowH).fill(y % 36 === 0 ? '#f1f5f9' : '#ffffff');
+      const cells = [
+        r.ticket_number, r.title, STATUS_LABEL[r.status] || r.status,
+        PRIORITY_LABEL[r.priority] || r.priority, r.category_name || '',
+        r.reporter_name, r.assigned_name, String(r.created_at).slice(0, 10),
+      ];
+      cells.forEach((c, i) => {
+        cell(x, y, widths[i], c);
+        x += widths[i];
+      });
+      y += rowH;
+    }
+    doc.end();
+    return;
+  }
+
   res.set('Content-Type', 'text/csv; charset=utf-8');
-  res.set('Content-Disposition', `attachment; filename="tickets-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.set('Content-Disposition', `attachment; filename="tickets-${stamp}.csv"`);
   res.send('\uFEFF' + lines.join('\n'));
 });
 
@@ -621,6 +741,7 @@ router.get('/:id', (req, res) => {
     note: canSeeInternal,
     assign: hasPerm(req.user, 'ticket.assign'),
     manage: hasPerm(req.user, 'ticket.update.any'),
+    cancel: hasPerm(req.user, 'ticket.update.any'),
     comment: hasPerm(req.user, 'ticket.comment'),
   };
 
@@ -737,6 +858,12 @@ router.patch('/:id', (req, res) => {
         sets.push({ col: 'closed_at = ?', val: nowIso() });
         sets.push({ col: 'closed_by = ?', val: req.user.id });
         sets.push({ col: 'pending_reason = ?', val: null });
+      } else if (body.status === 'CANCELLED') {
+        sets.push({ col: 'cancelled_at = ?', val: nowIso() });
+        sets.push({ col: 'cancelled_by = ?', val: req.user.id });
+        sets.push({ col: 'cancel_reason = ?', val: safeStr(body.cancel_reason) || null });
+        sets.push({ col: 'closed_at = ?', val: null });
+        sets.push({ col: 'pending_reason = ?', val: null });
       } else if (body.status !== 'PENDING') {
         sets.push({ col: 'pending_reason = ?', val: null });
       }
@@ -835,7 +962,21 @@ router.patch('/:id', (req, res) => {
   for (const e of entries) recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
 
   const updated = getTicket(id);
-  if (changedAssign) notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
+  if (changedAssign) {
+    notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
+    notifyTicketParticipants(updated, {
+      type: 'ASSIGNED',
+      actorId: req.user.id,
+      titleForReporter: `Ticket asignado: ${updated.ticket_number}`,
+      titleForAssignee: `Ticket asignado a usted: ${updated.ticket_number}`,
+    });
+  }
+  if (updated.status === 'CANCELLED') {
+    notifyCancelled(updated, `${req.user.name} ${req.user.last_name}`, updated.cancel_reason);
+    notifyTicketCancelled(updated, req.user.id, updated.cancel_reason);
+  } else if (updated.status === 'CLOSED') {
+    notifyTicketClosed(updated, req.user.id, null);
+  }
   emitTicketEvent(id, 'refresh');
   res.json({ ticket: updated });
 });
@@ -910,6 +1051,13 @@ function processComment(req, res, attachOnly) {
 
   if (!isInternal) {
     notifyComment(ticket, comment, `${req.user.name} ${req.user.last_name}`);
+    const title = `Nuevo comentario: ${ticket.ticket_number}`;
+    notifyTicketParticipants(ticket, {
+      type: 'COMMENT',
+      actorId: req.user.id,
+      titleForReporter: title,
+      titleForAssignee: title,
+    });
   }
 
   return res.status(201).json({
@@ -977,6 +1125,12 @@ router.post('/:id/assign', (req, res) => {
   const updated = getTicket(id);
   if (updates.some((u) => u.col.startsWith('assigned_to_id'))) {
     notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
+    notifyTicketParticipants(updated, {
+      type: 'ASSIGNED',
+      actorId: req.user.id,
+      titleForReporter: `Ticket asignado: ${updated.ticket_number}`,
+      titleForAssignee: `Ticket asignado a usted: ${updated.ticket_number}`,
+    });
   }
   if (updates.length) emitTicketEvent(id, 'refresh');
   res.json({ ticket: updated });
@@ -985,6 +1139,79 @@ router.post('/:id/assign', (req, res) => {
 // ---------------------------------------------------------------------------
 // Flujo de resolución: resolver / cerrar / reabrir
 // ---------------------------------------------------------------------------
+
+function notifyTicketClosed(ticket, actorId, note) {
+  const link = `/app/tickets/${ticket.id}`;
+  const ids = [];
+  const suffix = note ? ` ${note}` : '';
+  if (ticket.reporter_id && Number(ticket.reporter_id) !== Number(actorId)) {
+    ids.push(
+      createNotification({
+        userId: ticket.reporter_id,
+        ticketId: ticket.id,
+        type: 'CLOSED',
+        title: `Ticket cerrado: ${ticket.ticket_number}`,
+        body: `"${ticket.title}" fue cerrado.${suffix}`,
+        link,
+      })
+    );
+  }
+  if (ticket.assigned_to_id && Number(ticket.assigned_to_id) !== Number(actorId)) {
+    ids.push(
+      createNotification({
+        userId: ticket.assigned_to_id,
+        ticketId: ticket.id,
+        type: 'CLOSED',
+        title: `Ticket cerrado: ${ticket.ticket_number}`,
+        body: `"${ticket.title}" fue cerrado.`,
+        link,
+      })
+    );
+  }
+  if (ticket.reporter_id && isCsatEnabled()) {
+    ids.push(
+      createNotification({
+        userId: ticket.reporter_id,
+        ticketId: ticket.id,
+        type: 'CSAT',
+        title: '¿Cómo fue la atención?',
+        body: `Califique su experiencia en el ticket ${ticket.ticket_number}.`,
+        link,
+      })
+    );
+  }
+  return ids;
+}
+
+function notifyTicketCancelled(ticket, actorId, reason) {
+  const link = `/app/tickets/${ticket.id}`;
+  const ids = [];
+  if (ticket.reporter_id && Number(ticket.reporter_id) !== Number(actorId)) {
+    ids.push(
+      createNotification({
+        userId: ticket.reporter_id,
+        ticketId: ticket.id,
+        type: 'CANCELLED',
+        title: `Ticket cancelado: ${ticket.ticket_number}`,
+        body: `"${ticket.title}" fue cancelado${reason ? `. Motivo: ${reason}` : ''}.`,
+        link,
+      })
+    );
+  }
+  if (ticket.assigned_to_id && Number(ticket.assigned_to_id) !== Number(actorId)) {
+    ids.push(
+      createNotification({
+        userId: ticket.assigned_to_id,
+        ticketId: ticket.id,
+        type: 'CANCELLED',
+        title: `Ticket cancelado: ${ticket.ticket_number}`,
+        body: `"${ticket.title}" fue cancelado.`,
+        link,
+      })
+    );
+  }
+  return ids;
+}
 
 function isTruthyFlag(value) {
   return ['1', 'true', 'on', 'si', 'sí', 'yes'].includes(String(value ?? '').toLowerCase());
@@ -1067,6 +1294,16 @@ router.post(
       );
       notifyResolved(ticket, `${req.user.name} ${req.user.last_name}`, resolution);
     }
+    if (ticket.reporter_id && Number(ticket.reporter_id) !== Number(req.user.id)) {
+      createNotification({
+        userId: ticket.reporter_id,
+        ticketId: id,
+        type: 'RESOLVED',
+        title: `Ticket resuelto: ${ticket.ticket_number}`,
+        body: `"${ticket.title}" fue resuelto. ${resolution.slice(0, 160)}`,
+        link: `/app/tickets/${id}`,
+      });
+    }
 
     emitTicketEvent(id, 'refresh');
     return res.json({ ticket: getTicket(id), attachments });
@@ -1078,9 +1315,8 @@ router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
   const ticket = getTicket(id);
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (ticket.status === 'CLOSED') return res.status(400).json({ error: 'El ticket ya está cerrado' });
-  if (ticket.status === 'CANCELLED') return res.status(400).json({ error: 'Un ticket cancelado no puede cerrarse' });
 
-  if (requireResolutionToClose() && !ticket.resolved_at && !ticket.resolution) {
+  if (requireResolutionToClose() && ticket.status !== 'CANCELLED' && !ticket.resolved_at && !ticket.resolution) {
     return res.status(400).json({ error: 'Debe registrar una resolución antes de cerrar el ticket.' });
   }
 
@@ -1098,8 +1334,104 @@ router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
     ticket.status,
     'CLOSED'
   );
+  const updated = getTicket(id);
+  notifyTicketClosed(updated, req.user.id, note);
   emitTicketEvent(id, 'refresh');
-  res.json({ ticket: getTicket(id) });
+  res.json({ ticket: updated });
+});
+
+// Cancelar con motivo obligatorio: notifica al reportante y audita la acción.
+router.post('/:id/cancel', (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const ticket = getTicket(id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (!hasPerm(req.user, 'ticket.update.any')) {
+    return res.status(403).json({ error: 'No tiene permiso para cancelar tickets' });
+  }
+  if (ticket.status === 'CANCELLED') return res.status(400).json({ error: 'El ticket ya está cancelado' });
+  if (['RESOLVED', 'CLOSED'].includes(ticket.status)) {
+    return res.status(400).json({ error: 'No puede cancelar un ticket resuelto o cerrado' });
+  }
+
+  const reason = safeStr(req.body?.reason);
+  validate({ reason: rules.required(reason, 'Motivo de cancelación') + rules.max(reason, 2000, 'Motivo de cancelación') });
+
+  const now = nowIso();
+  db.prepare(
+    `UPDATE tickets
+       SET status = 'CANCELLED', cancel_reason = ?, cancelled_by = ?, cancelled_at = ?,
+           closed_at = NULL, closed_by = NULL, resolved_at = NULL,
+           pending_reason = NULL, updated_at = ?
+     WHERE id = ?`
+  ).run(reason, req.user.id, now, now, id);
+
+  recordHistory(
+    id,
+    req.user.id,
+    'CANCELLED',
+    `Ticket cancelado: ${STATUS_LABEL[ticket.status] || ticket.status} → Cancelado${reason ? `. Motivo: ${reason}` : ''}`,
+    ticket.status,
+    'CANCELLED'
+  );
+  touchTicket(id);
+
+  const updated = getTicket(id);
+  notifyCancelled(updated, `${req.user.name} ${req.user.last_name}`, reason);
+  notifyTicketCancelled(updated, req.user.id, reason);
+  emitTicketEvent(id, 'refresh');
+  res.json({ ticket: updated });
+});
+
+// Encuesta de satisfacción (solo el reportante, una vez por ticket).
+router.post('/:id/csat', (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const ticket = getTicket(id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (ticket.reporter_id !== req.user.id) {
+    return res.status(403).json({ error: 'Solo el reportante puede calificar este ticket' });
+  }
+  if (!['CLOSED', 'RESOLVED'].includes(ticket.status)) {
+    return res.status(400).json({ error: 'Solo puede calificar tickets cerrados o resueltos' });
+  }
+  if (ticket.csat_answered_at) {
+    return res.status(400).json({ error: 'Ya calificó este ticket' });
+  }
+  if (!isCsatEnabled()) {
+    return res.status(400).json({ error: 'La encuesta de satisfacción está desactivada' });
+  }
+
+  const rating = parseIntSafe(req.body?.rating);
+  if (!rating || rating < 1 || rating > 5) {
+    return res.status(400).json({ error: 'Calificación inválida (1-5)' });
+  }
+  const comment = safeStr(req.body?.comment).slice(0, 2000) || null;
+
+  const now = nowIso();
+  db.prepare(
+    `UPDATE tickets SET csat_rating = ?, csat_comment = ?, csat_answered_at = ?, updated_at = ? WHERE id = ?`
+  ).run(rating, comment, now, now, id);
+
+  recordHistory(
+    id,
+    req.user.id,
+    'CSAT_RATED',
+    `Encuesta de satisfacción: ${rating}${comment ? ` / ${comment}` : ''}`
+  );
+
+  if (ticket.resolved_by) {
+    createNotification({
+      userId: ticket.resolved_by,
+      ticketId: id,
+      type: 'CSAT_RATED',
+      title: `Calificación recibida: ${rating}/5`,
+      body: ticket.title,
+      link: `/app/tickets/${id}`,
+    });
+  }
+
+  const updated = getTicket(id);
+  emitTicketEvent(id, 'refresh');
+  res.json({ ticket: updated });
 });
 
 router.post('/:id/reopen', requirePermission('ticket.reopen'), (req, res) => {

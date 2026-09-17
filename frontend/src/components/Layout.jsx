@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, can } from '../context/AuthContext';
+import Notifications from './Notifications';
 
 const ICONS = {
   home: (
@@ -57,6 +58,16 @@ const ICONS = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7.4 7.4 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.4 7.4 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5a7.4 7.4 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-1a7.4 7.4 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.4 7.4 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.1-.4.1-.8.1-1.2z" />
     </svg>
   ),
+  inbox: (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-2 4l-5 4-5-4" />
+    </svg>
+  ),
+  audit: (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9l2 2 4-4" />
+    </svg>
+  ),
 };
 
 const TITLES = {
@@ -72,6 +83,8 @@ const TITLES = {
   '/app/reports': 'Reportes',
   '/app/settings': 'Configuración',
   '/app/profile': 'Mi cuenta',
+  '/app/inbox': 'Bandeja',
+  '/app/audit': 'Auditoría',
 };
 
 export default function Layout() {
@@ -87,6 +100,7 @@ export default function Layout() {
   const items = [];
   if (can(user, 'ticket.create')) items.push({ to: '/app/new-ticket', label: 'Reportar incidencia', icon: ICONS.add });
   items.push({ to: '/app/my-tickets', label: 'Mis tickets', icon: ICONS.tickets });
+  if (can(user, 'ticket.view.all')) items.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox });
   if (can(user, 'dashboard.view')) items.push({ to: '/app/dashboard', label: 'Dashboard', icon: ICONS.home });
   if (can(user, 'ticket.view.all')) items.push({ to: '/app/tickets', label: 'Tickets', icon: ICONS.tickets });
   if (can(user, 'user.view')) items.push({ to: '/app/users', label: 'Usuarios', icon: ICONS.users });
@@ -96,6 +110,7 @@ export default function Layout() {
   if (can(user, 'role.manage')) items.push({ to: '/app/roles', label: 'Roles', icon: ICONS.roles });
   if (can(user, 'report.view')) items.push({ to: '/app/reports', label: 'Reportes', icon: ICONS.reports });
   if (can(user, 'settings.manage')) items.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });
+  if (can(user, 'settings.manage')) items.push({ to: '/app/audit', label: 'Auditoría', icon: ICONS.audit });
 
   const currentTitle = TITLES[location.pathname] || 'Ticket Flow';
   const initials = user
@@ -124,7 +139,7 @@ export default function Layout() {
           <NavLink
             key={item.to}
             to={item.to}
-            end={item.to === '/app/dashboard' || item.to === '/app/my-tickets'}
+            end={item.to === '/app/dashboard' || item.to === '/app/my-tickets' || item.to === '/app/inbox'}
             className={({ isActive }) =>
               `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
                 isActive
@@ -192,6 +207,7 @@ export default function Layout() {
           </button>
           <h1 className="text-lg font-semibold text-slate-800">{currentTitle}</h1>
           <div className="ml-auto flex items-center gap-2">
+            <Notifications />
             <button
               onClick={() => navigate('/app/profile')}
               className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"

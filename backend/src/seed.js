@@ -125,6 +125,7 @@ function ensureUsers() {
   const deptRh = getDept.get('Recursos Humanos');
   const roleAdmin = getRole.get('ADMIN').id;
   const roleEmployee = getRole.get('EMPLOYEE').id;
+  const roleTechnician = getRole.get('TECHNICIAN').id;
 
   const admin = getBy.get('admin', 'admin@empresa.com');
   if (!admin) {
@@ -158,6 +159,24 @@ function ensureUsers() {
       deptRh?.id ?? null,
       'Analista',
       roleEmployee,
+      new Date().toISOString()
+    );
+  }
+
+  const tech = getBy.get('tecnico', 'tecnico@empresa.com');
+  if (!tech) {
+    db.prepare(
+      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+    ).run(
+      'Técnico',
+      'Soporte',
+      'tecnico',
+      'tecnico@empresa.com',
+      bcrypt.hashSync('Tecnico1234!', 12),
+      deptTech?.id ?? null,
+      'Soporte Técnico',
+      roleTechnician,
       new Date().toISOString()
     );
   }

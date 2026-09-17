@@ -70,24 +70,44 @@ CREATE INDEX IF NOT EXISTS idx_users_active ON users(active);
 
 -- 4. Tickets
 CREATE TABLE IF NOT EXISTS tickets (
-  id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  ticket_number  TEXT NOT NULL UNIQUE,
-  title          TEXT NOT NULL,
-  description    TEXT NOT NULL,
-  reporter_id    INTEGER NOT NULL REFERENCES users(id),
-  assigned_to_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  category_id    INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-  department_id  INTEGER REFERENCES departments(id) ON DELETE SET NULL,
-  priority       TEXT NOT NULL DEFAULT 'MEDIUM' CHECK (priority IN ('LOW','MEDIUM','HIGH','CRITICAL')),
-  status         TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','ASSIGNED','IN_PROGRESS','PENDING','RESOLVED','CLOSED','CANCELLED')),
-  resolved_at    TEXT,
-  closed_at      TEXT,
-  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-  updated_at     TEXT
+  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_number           TEXT NOT NULL UNIQUE,
+  title                   TEXT NOT NULL,
+  description             TEXT NOT NULL,
+  reporter_id             INTEGER NOT NULL REFERENCES users(id),
+  assigned_to_id          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  assigned_team_id        INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  category_id             INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+  department_id           INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+  priority                TEXT NOT NULL DEFAULT 'MEDIUM' CHECK (priority IN ('LOW','MEDIUM','HIGH','CRITICAL')),
+  status                  TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','ASSIGNED','IN_PROGRESS','PENDING','RESOLVED','CLOSED','CANCELLED')),
+  sla_due_at              TEXT,
+  resolution              TEXT,
+  resolution_category     TEXT,
+  root_cause              TEXT,
+  time_spent_minutes      INTEGER,
+  resolved_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  resolved_at             TEXT,
+  closed_by               INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  closed_at               TEXT,
+  reopened_at             TEXT,
+  reopened_by             INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  reopen_reason           TEXT,
+  pending_reason          TEXT,
+  resolution_notified     INTEGER NOT NULL DEFAULT 0,
+  cancel_reason           TEXT,
+  cancelled_by            INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  cancelled_at            TEXT,
+  csat_rating             INTEGER,
+  csat_comment            TEXT,
+  csat_answered_at        TEXT,
+  created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at              TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tickets_number ON tickets(ticket_number);
 CREATE INDEX IF NOT EXISTS idx_tickets_reporter ON tickets(reporter_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_assigned ON tickets(assigned_to_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_assigned_team ON tickets(assigned_team_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_category ON tickets(category_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_department ON tickets(department_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_priority ON tickets(priority);
@@ -96,6 +116,11 @@ CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_at);
 CREATE INDEX IF NOT EXISTS idx_tickets_updated ON tickets(updated_at);
 CREATE INDEX IF NOT EXISTS idx_tickets_resolved ON tickets(resolved_at);
 CREATE INDEX IF NOT EXISTS idx_tickets_closed ON tickets(closed_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_sla_due ON tickets(sla_due_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_resolved_by ON tickets(resolved_by);
+CREATE INDEX IF NOT EXISTS idx_tickets_closed_by ON tickets(closed_by);
+CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_by ON tickets(cancelled_by);
+CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_at ON tickets(cancelled_at);
 
 -- 4b. Equipos de trabajo
 CREATE TABLE IF NOT EXISTS teams (
@@ -120,11 +145,13 @@ CREATE TABLE IF NOT EXISTS ticket_comments (
   ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
   user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
   message    TEXT NOT NULL,
+  is_internal INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_comments_ticket ON ticket_comments(ticket_id);
 CREATE INDEX IF NOT EXISTS idx_comments_created ON ticket_comments(created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_internal ON ticket_comments(ticket_id, is_internal);
 
 CREATE TABLE IF NOT EXISTS ticket_attachments (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -187,3 +214,18 @@ CREATE TABLE IF NOT EXISTS email_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_email_logs_created ON email_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_email_logs_ticket ON email_logs(ticket_id);
+
+-- 8. Notificaciones in-app
+CREATE TABLE IF NOT EXISTS notifications (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  ticket_id  INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+  type       TEXT NOT NULL,
+  title      TEXT NOT NULL,
+  body       TEXT,
+  link       TEXT,
+  read_at    TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);

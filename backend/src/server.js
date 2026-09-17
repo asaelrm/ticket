@@ -2,11 +2,13 @@ import { createApp } from './app.js';
 import config from './config.js';
 import { runMigrations } from './db.js';
 import { seed } from './seed.js';
+import { startJobs } from './utils/jobs.js';
 
 runMigrations();
 seed();
 
 const app = createApp();
+startJobs();
 
 app.listen(config.port, () => {
   console.log(`[ticket-flow] API escuchando en http://localhost:${config.port} (${config.env})`);

@@ -8,6 +8,8 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import NewTicket from './pages/NewTicket';
 import MyTickets from './pages/MyTickets';
+import Inbox from './pages/Inbox';
+import Audit from './pages/Audit';
 import TicketDetail from './pages/TicketDetail';
 import Dashboard from './pages/Dashboard';
 import Tickets from './pages/Tickets';
@@ -48,6 +50,8 @@ export default function App() {
         <Route index element={<HomeRedirect />} />
         <Route path="new-ticket" element={<NewTicket />} />
         <Route path="my-tickets" element={<MyTickets />} />
+        <Route path="inbox" element={<Protected permission="ticket.view.all"><Inbox /></Protected>} />
+        <Route path="audit" element={<Protected permission="settings.manage"><Audit /></Protected>} />
         <Route path="tickets/:id" element={<TicketDetail />} />
         <Route path="my-tickets/:id" element={<TicketDetail />} />
         <Route path="tickets" element={<Protected permission="ticket.view.all"><Tickets /></Protected>} />

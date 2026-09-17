@@ -27,12 +27,24 @@ const KEYS = {
   notify_on_assign: 'Correo al asignar un ticket',
   notify_on_comment: 'Correo con comentarios nuevos',
   notify_on_resolve: 'Correo al resolver un ticket',
+  enable_csat: 'Encuesta de satisfacción (CSAT) al cerrar',
+  rule_unassigned_hours: 'Horas antes de escalar ticket sin asignar',
+  rule_unassigned_priority: 'Prioridad de escalación por falta de asignación',
+  rule_critical_hours: 'Horas de ticket crítico abierto antes de alertar',
 };
 
 // Claves que se guardan como lista (JSON) en la tabla settings.
 const LIST_KEYS = ['resolution_categories', 'root_causes', 'pending_reasons'];
-const BOOL_KEYS = ['require_resolution_to_close', 'notify_on_assign', 'notify_on_comment', 'notify_on_resolve'];
+const BOOL_KEYS = ['require_resolution_to_close', 'notify_on_assign', 'notify_on_comment', 'notify_on_resolve', 'enable_csat'];
 const DEFAULT_PREFIX = 'TCK';
+
+// Valores por defecto para las claves numéricas y de texto.
+const DEFAULTS = {
+  ticket_prefix: 'TCK',
+  rule_unassigned_hours: '8',
+  rule_unassigned_priority: 'HIGH',
+  rule_critical_hours: '12',
+};
 
 function boolSetting(raw, fallback) {
   if (raw === null || raw === undefined || raw === '') return fallback ? '1' : '0';
@@ -46,7 +58,7 @@ function readSettings() {
   for (const key of Object.keys(KEYS)) {
     if (LIST_KEYS.includes(key)) continue;
     if (BOOL_KEYS.includes(key)) settings[key] = boolSetting(raw[key], true);
-    else settings[key] = raw[key] || '';
+    else settings[key] = raw[key] || DEFAULTS[key] || '';
   }
   settings.resolution_categories = getResolutionCategories().join(', ');
   settings.root_causes = getRootCauses().join(', ');

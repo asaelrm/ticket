@@ -8,10 +8,16 @@ Sistema empresarial de gestión de tickets e incidencias. Backend `Node.js (Expr
 - **RBAC** con roles iniciales **Empleado** y **Administrador**, y estructura lista para **Técnico / Soporte**.
 - **Tickets**: creación con adjuntos (imágenes y documentos), categorías, prioridades, estados, historial completo y auditoría.
 - **Adjuntos**: validación por contenido (magic bytes), nombres internos únicos, descarga protegida por permisos.
-- **Notificaciones por correo** (SMTP): asignación, comentarios nuevos y resolución; con bitácora de envíos en `email_logs` y toggles en Configuración.
+- **Notificaciones por correo** (SMTP): asignación, comentarios nuevos, cancelación y resolución; con bitácora de envíos en `email_logs` y toggles en Configuración.
+- **Notificaciones in-app**: campana en el header con alertas de asignación, comentarios, resolución, cierre, cancelación, CSAT y SLA (marcar como leídas / limpiar).
+- **Bandeja de soporte** (Técnicos/Admin): vistas *asignados a mí*, *mi equipo*, *abiertos* y *sin asignar*, con autoasignación.
+- **Cancelación con motivo obligatorio**, con notificación por correo y auditoría del flujo.
+- **Encuesta de satisfacción (CSAT)**: el reportante califica (1–5 ☆) un ticket resuelto o cerrado; configurable desde Configuración.
+- **Escalación automática**: jobs periódicos que detectan tickets sin asignar y críticos sin resolver según reglas configurables (horas y prioridad).
+- **Auditoría global** (`/api/audit`): historial de cambios sobre tickets con búsqueda, filtros por usuario/acción/fecha y paginación.
 - **Dashboard** administrativo con métricas y gráficos en SQL.
 - **Filtros combinados** (fecha, período, categoría, departamento, usuario, prioridad, estado, búsqueda).
-- **Exportación CSV** de tickets.
+- **Exportación CSV, Excel (XLSX) y PDF** de tickets y reportes CSV.
 - Recuperación de contraseña por token (en modo desarrollo se muestra el token en pantalla).
 
 ## Requisitos
@@ -48,6 +54,7 @@ La primera vez que arranca, el backend aplica migraciones y crea el seed automá
 | Rol        | Usuario  | Contraseña      |
 | ---------- | -------- | --------------- |
 | Admin      | `admin`  | `Admin1234!`    |
+| Técnico    | `tecnico`| `Tecnico1234!`  |
 | Empleado   | `empleado`| `Empleado1234!` |
 
 > Cambie estas contraseñas tras el primer inicio.
@@ -86,24 +93,28 @@ ticket/
 ├── backend/
 │   ├── src/
 │   │   ├── app.js            # Configuración de Express, sesiones, CSRF, rate limit
-│   │   ├── server.js         # Bootstrap: migraciones + seed + listener
+│   │   ├── server.js         # Bootstrap: migraciones + seed + jobs + listener
 │   │   ├── config.js         # Variables de entorno
 │   │   ├── db.js             # SQLite (node:sqlite), migraciones, transacciones
-│   │   ├── schema.sql        # Esquema de base de datos
+│   │   ├── schema.sql        # Esquema de base de datos (sinónimo de db.js)
 │   │   ├── seed.js           # Roles, permisos, categorías, departamentos, usuarios
 │   │   ├── middleware/       # auth (RBAC), csrf, upload, errors
 │   │   ├── routes/           # auth, users, roles, tickets, categories,
-│   │   │                     # departments, files, dashboard, reports, settings
+│   │   │                     # departments, files, dashboard, reports, settings,
+│   │   │                     # notifications (in-app), audit (historial global)
 │   │   └── utils/            # password, validation, rateLimit, sessionStore,
-│   │                         # fileType (magic bytes), ticketNumber
+│   │                         # fileType (magic bytes), ticketNumber, sla, mailer,
+│   │                         # notifications (in-app), jobs (escalación/SLA)
 │   └── test/                 # Tests con node:test + supertest
 └── frontend/
     └── src/
         ├── context/AuthContext.jsx   # Sesión y permisos
         ├── lib/api.js                # Cliente fetch + CSRF
-        ├── components/               # Layout, UI, filtros, tabla tickets
+        ├── components/               # Layout, UI, filtros, tabla tickets,
+        │                             # Notifications (campana)
         └── pages/                    # Login, Dashboard, Tickets, TicketDetail,
-                                      # NewTicket, Users, Categorías, Roles, etc.
+                                      # NewTicket, Inbox, Audit, Users, Categorías,
+                                      # Roles, Configuración, etc.
 ```
 
 ## Base de datos
@@ -112,11 +123,25 @@ Relaciones principales:
 
 - `users` → `roles` (N:1), `users` → `departments` (N:1)
 - `roles` ↔ `permissions` vía `role_permissions`
-- `tickets` → `reporter_id` (users), `assigned_to_id` (users), `category_id`, `department_id`
+- `tickets` → `reporter_id` (users), `assigned_to_id` (users), `assigned_team_id` (teams), `category_id`, `department_id`
+  - Flujo de trabajo: `resolution*`, `root_cause`, `time_spent_minutes`, `resolved_by`, `closed_by`, `reopened_by`, `pending_reason`, `resolution_notified`
+  - Cancelación: `cancel_reason`, `cancelled_by`, `cancelled_at`
+  - Encuesta CSAT: `csat_rating`, `csat_comment`, `csat_answered_at`
 - `ticket_comments`, `ticket_attachments`, `ticket_history` → `tickets` (N:1)
+- `notifications` → `users` (N:1, campana in-app) y `tickets` (opcional)
 - `sessions` y `sequences` (numeración `TCK-000001`)
 
 Los usuarios no se borran físicamente; se desactivan para preservar el historial (integridad referencial).
+
+## Automatización y escalación
+
+El servidor ejecuta un job cada **10 minutos** (`src/utils/jobs.js`) que:
+
+- Detecta tickets **vencidos en SLA** y notifica al responsable.
+- **Escala tickets sin asignar**: si llevan más de `rule_unassigned_hours` sin asignación, sube su prioridad a `rule_unassigned_priority` (solo si la tienen inferior) y alerta a los administradores.
+- **Alerta críticos sin resolver** llevan más de `rule_critical_hours` abiertos.
+
+Los valores se configuran en **Configuración → Escalación automática** (`0` horas desactiva la regla). Para probar la escalación en desarrollo se puede invocar `runMaintenance()` manualmente.
 
 ## Seguridad
 
@@ -129,4 +154,4 @@ Los usuarios no se borran físicamente; se desactivan para preservar el historia
 
 ## Extensibilidad
 
-La arquitectura queda lista para: asignación automática, encuestas, exportación Excel/PDF, inventario, integración LDAP/AD y multiempresa sin rehacer el núcleo.
+La arquitectura queda lista para: flujos de aprobación, encuestas avanzadas, inventario, integración LDAP/AD y multiempresa sin rehacer el núcleo.
