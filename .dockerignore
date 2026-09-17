@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+**/dist
+backend/data
+backend/uploads
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.git
+.env
+.env.local
+*.log
+README.md
+.github
+.vscode
+.idea
