@@ -120,6 +120,15 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
   res.status(201).json({ user: publicUser(row) });
 });
 
+router.get('/assignable', (req, res) => {
+  const rows = db
+    .prepare(`SELECT id, name, last_name, position, department_name FROM users u
+              LEFT JOIN departments d ON d.id = u.department_id
+              WHERE u.active = 1 ORDER BY u.name, u.last_name`)
+    .all();
+  res.json({ data: rows });
+});
+
 router.get('/:id', requirePermission('user.view'), (req, res) => {
   const id = parseIntSafe(req.params.id);
   const row = db.prepare(LIST_SQL.replace(' WHERE 1=1\n  AND', ' AND')).get(id);

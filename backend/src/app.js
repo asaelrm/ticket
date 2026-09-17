@@ -17,6 +17,8 @@ import categoriesRoutes from './routes/categories.js';
 import departmentsRoutes from './routes/departments.js';
 import filesRoutes from './routes/files.js';
 import dashboardRoutes from './routes/dashboard.js';
+import reportsRoutes from './routes/reports.js';
+import settingsRoutes from './routes/settings.js';
 
 export function createApp() {
   const app = express();
@@ -73,6 +75,8 @@ export function createApp() {
   app.use('/api/departments', departmentsRoutes);
   app.use('/api/files', filesRoutes);
   app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/reports', reportsRoutes);
+  app.use('/api/settings', settingsRoutes);
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 

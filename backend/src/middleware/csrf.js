@@ -34,7 +34,7 @@ export function csrfProtect(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   // Endpoints públicos sin sesión previa (recuperación/cambio de contraseña),
   // cubiertos por rate limiting y validación de token de recuperación.
-  if (req.path === '/auth/login' || req.path === '/auth/reset-password') return next();
+  if (req.path === '/auth/login' || req.path === '/auth/logout' || req.path === '/auth/forgot-password' || req.path === '/auth/reset-password') return next();
 
   const cookies = parseCookies(req.headers.cookie);
   const cookieVal = cookies.tf_csrf;

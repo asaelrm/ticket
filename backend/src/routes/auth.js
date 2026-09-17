@@ -50,10 +50,43 @@ router.post('/login', authRateLimit(), (req, res) => {
 
 router.post('/logout', (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie('connect.sid');
+    res.clearCookie('tf_sid');
     res.clearCookie('tf_csrf');
     res.json({ ok: true });
   });
+});
+
+router.post('/forgot-password', authRateLimit(), (req, res) => {
+  const account = safeStr(req.body.account);
+
+  validate({ account: rules.required(account, 'Usuario o correo') });
+
+  const user = db
+    .prepare(`SELECT id, name, username, email, active FROM users
+              WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)`)
+    .get(account, account);
+
+  // No revelar si la cuenta existe: la respuesta es idéntica en ambos casos.
+  if (!user || !user.active) {
+    return res.json({ ok: true, message: 'Si la cuenta existe, recibirá un enlace para restablecer su contraseña.' });
+  }
+
+  const token = crypto.randomBytes(32).toString('base64url');
+  const hash = crypto.createHash('sha256').update(token).digest('hex');
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  db.prepare(
+    'UPDATE users SET password_reset_token = ?, password_reset_expires = ?, updated_at = ? WHERE id = ?'
+  ).run(hash, expires, nowIso(), user.id);
+
+  // En desarrollo el token se devuelve para poder restablecer la contraseña.
+  // En producción debe enviarse por correo; la arquitectura queda preparada.
+  const payload = { ok: true, message: 'Se generó un enlace de recuperación. Validez: 24 horas.' };
+  if (config.env !== 'production') {
+    payload.token = token;
+    payload.resetUrl = `/reset-password?token=${token}`;
+  }
+  return res.json(payload);
 });
 
 router.get('/me', requireAuth, (req, res) => {
