@@ -173,3 +173,17 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- 7. Bitácora de correos enviados (notificaciones)
+CREATE TABLE IF NOT EXISTS email_logs (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,
+  to_email   TEXT NOT NULL,
+  subject    TEXT NOT NULL,
+  ticket_id  INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+  status     TEXT NOT NULL,           -- smtp | dev | error
+  error      TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_email_logs_created ON email_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_email_logs_ticket ON email_logs(ticket_id);

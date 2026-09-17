@@ -9,6 +9,7 @@ import { nextTicketNumber } from '../utils/ticketNumber.js';
 import { computeSlaDue, OPEN_STATUSES } from '../utils/sla.js';
 import { getWorkflowOptions, requireResolutionToClose } from '../utils/options.js';
 import { emitTicketEvent, onTicketEvent } from '../utils/ticketBus.js';
+import { notifyAssigned, notifyComment, notifyResolved } from '../utils/mailer.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -828,11 +829,15 @@ router.patch('/:id', (req, res) => {
 
   if (!sets.length) return res.json({ ticket });
 
+  const changedAssign = sets.some((s) => s.col.startsWith('assigned_to_id'));
   const setSql = sets.map((s) => s.col).join(', ');
   db.prepare(`UPDATE tickets SET ${setSql}, updated_at = ? WHERE id = ?`).run(...sets.map((s) => s.val), nowIso(), id);
   for (const e of entries) recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
+
+  const updated = getTicket(id);
+  if (changedAssign) notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
   emitTicketEvent(id, 'refresh');
-  res.json({ ticket: getTicket(id) });
+  res.json({ ticket: updated });
 });
 
 function processComment(req, res, attachOnly) {
@@ -903,6 +908,10 @@ function processComment(req, res, attachOnly) {
 
   emitTicketEvent(ticket.id, 'comment', { comment, attachments });
 
+  if (!isInternal) {
+    notifyComment(ticket, comment, `${req.user.name} ${req.user.last_name}`);
+  }
+
   return res.status(201).json({
     comment,
     attachments,
@@ -964,8 +973,13 @@ router.post('/:id/assign', (req, res) => {
     db.prepare(`UPDATE tickets SET ${setSql}, updated_at = ? WHERE id = ?`).run(...updates.map((u) => u.val), now, id);
     for (const e of entries) recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
   }
+
+  const updated = getTicket(id);
+  if (updates.some((u) => u.col.startsWith('assigned_to_id'))) {
+    notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
+  }
   if (updates.length) emitTicketEvent(id, 'refresh');
-  res.json({ ticket: getTicket(id) });
+  res.json({ ticket: updated });
 });
 
 // ---------------------------------------------------------------------------
@@ -1040,7 +1054,8 @@ router.post(
     );
 
     if (notify) {
-      // Notificación real al reportante: comentario público con la solución.
+      // Notificación real al reportante: comentario público con la solución
+      // y correo con el detalle de la resolución.
       db.prepare(
         'INSERT INTO ticket_comments (ticket_id, user_id, message, is_internal) VALUES (?, ?, ?, 0)'
       ).run(id, req.user.id, `El ticket fue resuelto.\n\nSolución: ${resolution}`);
@@ -1050,6 +1065,7 @@ router.post(
         'COMMENT_ADDED',
         `${req.user.name} ${req.user.last_name} notificó la resolución al usuario`
       );
+      notifyResolved(ticket, `${req.user.name} ${req.user.last_name}`, resolution);
     }
 
     emitTicketEvent(id, 'refresh');

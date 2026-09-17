@@ -7,6 +7,7 @@ import { verifyPassword, hashPassword } from '../utils/password.js';
 import { validate, rules, safeStr } from '../utils/validation.js';
 import { requireAuth, touchLastLogin, loadUser } from '../middleware/auth.js';
 import { nowIso } from '../db.js';
+import { notifyPasswordReset } from '../utils/mailer.js';
 
 const router = express.Router();
 
@@ -79,8 +80,13 @@ router.post('/forgot-password', authRateLimit(), (req, res) => {
     'UPDATE users SET password_reset_token = ?, password_reset_expires = ?, updated_at = ? WHERE id = ?'
   ).run(hash, expires, nowIso(), user.id);
 
+  // El enlace se envía por correo cuando el SMTP está configurado; si no, el
+  // transporte de desarrollo registra el mensaje (email_logs / consola).
+  const resetUrlBase = process.env.PUBLIC_URL || '';
+  notifyPasswordReset(user, token, resetUrlBase);
+
   // En desarrollo el token se devuelve para poder restablecer la contraseña.
-  // En producción debe enviarse por correo; la arquitectura queda preparada.
+  // En producción debe llegar únicamente por correo.
   const payload = { ok: true, message: 'Se generó un enlace de recuperación. Validez: 24 horas.' };
   if (config.env !== 'production') {
     payload.token = token;

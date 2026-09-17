@@ -40,6 +40,20 @@ const config = {
     maxSizeMb: int(process.env.MAX_UPLOAD_SIZE_MB, 5),
     maxFilesPerTicket: int(process.env.MAX_FILES_PER_TICKET, 5),
   },
+
+  // Notificaciones por correo. Con MAIL_ENABLED=false (o SMTP sin configurar)
+  // los correos se registran en consola y en la tabla email_logs (modo dev).
+  mail: {
+    enabled: bool(process.env.MAIL_ENABLED, false),
+    transport: process.env.MAIL_TRANSPORT || 'auto',
+    host: process.env.SMTP_HOST || '',
+    port: int(process.env.SMTP_PORT, 587),
+    secure: bool(process.env.SMTP_SECURE, false),
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || process.env.SMTP_USER || 'tickets@localhost',
+    fromName: process.env.SMTP_FROM_NAME || 'Ticket Flow',
+  },
 };
 
 config.dbFile =

@@ -9,12 +9,22 @@ export default function Settings() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+  const [mail, setMail] = useState(null);
+  const [emails, setEmails] = useState([]);
 
   useEffect(() => {
     api
       .get('/api/settings')
       .then((d) => setForm(normalize(d.data)))
       .catch((err) => setError(err.message || 'No se pudieron cargar los ajustes'));
+    api
+      .get('/api/settings/mail')
+      .then((d) => setMail(d.data || {}))
+      .catch(() => {});
+    api
+      .get('/api/settings/emails')
+      .then((d) => setEmails(d.data || []))
+      .catch(() => {});
   }, []);
 
   if (!form) return <LoadingScreen text="Cargando configuración…" />;
@@ -36,6 +46,9 @@ export default function Settings() {
         root_causes: toList(form.root_causes),
         pending_reasons: toList(form.pending_reasons),
         require_resolution_to_close: form.require_resolution_to_close ? '1' : '0',
+        notify_on_assign: form.notify_on_assign ? '1' : '0',
+        notify_on_comment: form.notify_on_comment ? '1' : '0',
+        notify_on_resolve: form.notify_on_resolve ? '1' : '0',
       };
       const data = await api.patch('/api/settings', payload);
       setForm(normalize(data.data));
@@ -130,6 +143,38 @@ export default function Settings() {
                 </span>
               </span>
             </label>
+          </div>
+
+          <div className="border-t border-slate-200 pt-5">
+            <h3 className="text-sm font-semibold text-slate-800">Notificaciones por correo</h3>
+            <p className="mb-4 text-sm text-slate-500">
+              Qué eventos envían un correo. El servidor SMTP se configura con las variables{' '}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">SMTP_HOST</code>,{' '}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">SMTP_USER</code> y{' '}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-xs">SMTP_PASS</code> del backend.
+            </p>
+            <div className="space-y-3">
+              <CheckToggle
+                label="Al asignar un ticket"
+                hint="Notifica al usuario que recibe la asignación."
+                value={form.notify_on_assign}
+                onChange={(v) => set('notify_on_assign', v)}
+              />
+              <CheckToggle
+                label="Cuando hay un comentario nuevo"
+                hint="Notifica al reportante y al asignado (excepto al autor del comentario)."
+                value={form.notify_on_comment}
+                onChange={(v) => set('notify_on_comment', v)}
+              />
+              <CheckToggle
+                label="Al resolver un ticket"
+                hint="Notifica al reportante cuando se marca la resolución."
+                value={form.notify_on_resolve}
+                onChange={(v) => set('notify_on_resolve', v)}
+              />
+            </div>
+            <MailStatus mail={mail} />
+            <EmailLog emails={emails} />
           </div>
 
           {error && <ErrorBox message={error} />}
