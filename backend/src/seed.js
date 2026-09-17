@@ -1,0 +1,172 @@
+import bcrypt from 'bcryptjs';
+import db, { transaction } from './db.js';
+
+export const PERMISSIONS = [
+  ['ticket.create', 'Crear tickets'],
+  ['ticket.view.own', 'Ver sus propios tickets'],
+  ['ticket.view.all', 'Ver todos los tickets'],
+  ['ticket.comment', 'Comentar en tickets'],
+  ['ticket.assign', 'Asignar tickets'],
+  ['ticket.update.any', 'Cambiar estado/prioridad/categoría de cualquier ticket'],
+  ['ticket.reopen', 'Reabrir tickets'],
+  ['ticket.export', 'Exportar tickets'],
+  ['user.view', 'Ver usuarios'],
+  ['user.manage', 'Crear/editar/desactivar usuarios y restablecer contraseñas'],
+  ['role.manage', 'Administrar roles'],
+  ['category.manage', 'Administrar categorías'],
+  ['department.manage', 'Administrar departamentos'],
+  ['dashboard.view', 'Ver dashboard y estadísticas'],
+  ['report.view', 'Ver reportes'],
+  ['settings.manage', 'Cambiar configuración'],
+];
+
+const ROLES = {
+  EMPLOYEE: {
+    name: 'Empleado',
+    description: 'Reporta incidencias y consulta sus propios tickets',
+    permissions: ['ticket.create', 'ticket.view.own', 'ticket.comment'],
+  },
+  TECHNICIAN: {
+    name: 'Técnico / Soporte',
+    description: 'Recibe tickets asignados, trabaja sobre ellos y los resuelve',
+    permissions: [
+      'ticket.create',
+      'ticket.view.all',
+      'ticket.comment',
+      'ticket.assign',
+      'ticket.update.any',
+      'ticket.reopen',
+      'dashboard.view',
+    ],
+  },
+  ADMIN: {
+    name: 'Administrador',
+    description: 'Control total del sistema',
+    permissions: PERMISSIONS.map(([code]) => code),
+  },
+};
+
+const INITIAL_CATEGORIES = [
+  ['Computadoras', 'Problemas con equipos de cómputo y hardware', '#2563eb'],
+  ['Impresoras', 'Impresoras, escáneres y multifuncionales', '#7c3aed'],
+  ['Internet', 'Problemas de conectividad a internet', '#0ea5e9'],
+  ['Red', 'Infraestructura de red, switches, cableado', '#0891b2'],
+  ['Telefonía', 'Teléfonos fijos, móviles y centrales', '#059669'],
+  ['Software', 'Aplicaciones y sistemas de la empresa', '#d97706'],
+  ['Correo electrónico', 'Cuentas de correo y sus servicios', '#dc2626'],
+  ['Accesos', 'Permisos, credenciales y accesos a sistemas', '#ea580c'],
+  ['Equipos', 'Equipos especiales y periféricos', '#64748b'],
+  ['Mantenimiento', 'Mantenimiento preventivo y correctivo', '#4f46e5'],
+  ['Otros', 'Cualquier otra incidencia', '#525252'],
+];
+
+const INITIAL_DEPARTMENTS = [
+  'Recursos Humanos',
+  'Tecnología',
+  'Finanzas',
+  'Ventas',
+  'Operaciones',
+  'Marketing',
+  'Administración',
+];
+
+function seedPermissionsAndRoles() {
+  const insertPerm = db.prepare(
+    'INSERT OR IGNORE INTO permissions (code, description) VALUES (?, ?)'
+  );
+  for (const [code, desc] of PERMISSIONS) insertPerm.run(code, desc);
+
+  const insertRole = db.prepare(
+    'INSERT INTO roles (code, name, description) VALUES (?, ?, ?) ON CONFLICT(code) DO UPDATE SET name = excluded.name, description = excluded.description'
+  );
+  const getRole = db.prepare('SELECT id FROM roles WHERE code = ?');
+  const getPerm = db.prepare('SELECT id FROM permissions WHERE code = ?');
+  const link = db.prepare(
+    'INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)'
+  );
+  const clear = db.prepare('DELETE FROM role_permissions WHERE role_id = ?');
+
+  for (const [code, role] of Object.entries(ROLES)) {
+    insertRole.run(code, role.name, role.description);
+    const roleId = getRole.get(code).id;
+    clear.run(roleId);
+    for (const perm of role.permissions) {
+      const permRow = getPerm.get(perm);
+      if (permRow) link.run(roleId, permRow.id);
+    }
+  }
+}
+
+function seedBaseData() {
+  const insertCat = db.prepare(
+    'INSERT INTO categories (name, description, color) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
+  );
+  for (const [name, desc, color] of INITIAL_CATEGORIES) insertCat.run(name, desc, color);
+
+  const insertDept = db.prepare(
+    'INSERT INTO departments (name) VALUES (?) ON CONFLICT(name) DO NOTHING'
+  );
+  for (const name of INITIAL_DEPARTMENTS) insertDept.run(name);
+}
+
+function ensureUsers() {
+  const getDept = db.prepare('SELECT id FROM departments WHERE name = ?');
+  const getRole = db.prepare('SELECT id FROM roles WHERE code = ?');
+  const getBy = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?');
+
+  const deptTech = getDept.get('Tecnología');
+  const deptRh = getDept.get('Recursos Humanos');
+  const roleAdmin = getRole.get('ADMIN').id;
+  const roleEmployee = getRole.get('EMPLOYEE').id;
+
+  const admin = getBy.get('admin', 'admin@empresa.com');
+  if (!admin) {
+    db.prepare(
+      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+    ).run(
+      'Administrador',
+      'Sistema',
+      'admin',
+      'admin@empresa.com',
+      bcrypt.hashSync('Admin1234!', 12),
+      deptTech?.id ?? null,
+      'Administrador del sistema',
+      roleAdmin,
+      new Date().toISOString()
+    );
+  }
+
+  const emp = getBy.get('empleado', 'empleado@empresa.com');
+  if (!emp) {
+    db.prepare(
+      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+    ).run(
+      'Empleado',
+      'Demo',
+      'empleado',
+      'empleado@empresa.com',
+      bcrypt.hashSync('Empleado1234!', 12),
+      deptRh?.id ?? null,
+      'Analista',
+      roleEmployee,
+      new Date().toISOString()
+    );
+  }
+}
+
+export function seed() {
+  return transaction(() => {
+    seedPermissionsAndRoles();
+    seedBaseData();
+    ensureUsers();
+    return { ok: true, roles: Object.keys(ROLES).length, categories: INITIAL_CATEGORIES.length, departments: INITIAL_DEPARTMENTS.length };
+  });
+}
+
+// Ejecución directa (npm run db:seed)
+if (process.argv[1] && process.argv[1].endsWith('seed.js')) {
+  seed();
+  console.log('Seed completado.');
+}
