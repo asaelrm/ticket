@@ -232,8 +232,128 @@ function normalize(data) {
     resolution_categories: toLines(data.resolution_categories),
     root_causes: toLines(data.root_causes),
     pending_reasons: toLines(data.pending_reasons),
-    require_resolution_to_close: data.require_resolution_to_close === '1',
+    require_resolution_to_close: flag(data.require_resolution_to_close),
+    notify_on_assign: flag(data.notify_on_assign),
+    notify_on_comment: flag(data.notify_on_comment),
+    notify_on_resolve: flag(data.notify_on_resolve),
   };
+}
+
+function flag(value) {
+  return value === '1' || value === true;
+}
+
+function CheckToggle({ label, hint, value, onChange }) {
+  return (
+    <label className="flex items-start gap-2.5 text-sm text-slate-700">
+      <input
+        type="checkbox"
+        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+        checked={!!value}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        {label}
+        <span className="block text-xs text-slate-400">{hint}</span>
+      </span>
+    </label>
+  );
+}
+
+const EMAIL_STATUS_COLOR = {
+  smtp: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  dev: 'bg-sky-50 text-sky-700 ring-sky-600/20',
+  error: 'bg-red-50 text-red-700 ring-red-600/20',
+};
+
+const EMAIL_STATUS_LABEL = { smtp: 'Enviado', dev: 'Dev', error: 'Error' };
+
+function MailStatus({ mail }) {
+  if (!mail) return (
+    <p className="mt-4 text-xs text-slate-400">Consultando estado del correo…</p>
+  );
+  const classes = mail.useSmtp
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : 'border-amber-200 bg-amber-50 text-amber-800';
+  return (
+    <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${classes}`}>
+      {mail.useSmtp ? (
+        <>
+          <span className="font-semibold">Correo SMTP activo</span>{' '}
+          <span className="text-xs">
+            ({mail.host}:{mail.port} — de {mail.fromName} &lt;{mail.from}&gt;)
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="font-semibold">Modo desarrollo</span>{' '}
+          <span className="text-xs">
+            El SMTP no está configurado (o MAIL_ENABLED está apagado); los correos se registran en la
+            bitácora y en consola, sin enviarse.
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmailLog({ emails }) {
+  const rows = emails.slice(0, 15);
+  return (
+    <div className="mt-5">
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Correos recientes</h4>
+        <span className="text-xs text-slate-400">últimos {rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-400">
+          Todavía no se han enviado correos.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-slate-200">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-3 py-2 font-medium">Estado</th>
+                <th className="px-3 py-2 font-medium">Para</th>
+                <th className="px-3 py-2 font-medium">Asunto</th>
+                <th className="px-3 py-2 font-medium">Fecha</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {rows.map((e) => (
+                <tr key={e.id}>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${
+                        EMAIL_STATUS_COLOR[e.status] || 'bg-slate-100 text-slate-600 ring-slate-500/20'
+                      }`}
+                      title={e.error || ''}
+                    >
+                      {EMAIL_STATUS_LABEL[e.status] || e.status}
+                    </span>
+                  </td>
+                  <td className="max-w-[160px] truncate px-3 py-2">{e.to_email}</td>
+                  <td className="max-w-[260px] truncate px-3 py-2">
+                    {e.ticket_number && <span className="mr-1 font-mono text-slate-400">{e.ticket_number}</span>}
+                    {e.subject}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-slate-400">
+                    {new Date(e.created_at).toLocaleString('es-ES', {
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SlaField({ label, value, onChange }) {

@@ -8,6 +8,7 @@ Sistema empresarial de gestión de tickets e incidencias. Backend `Node.js (Expr
 - **RBAC** con roles iniciales **Empleado** y **Administrador**, y estructura lista para **Técnico / Soporte**.
 - **Tickets**: creación con adjuntos (imágenes y documentos), categorías, prioridades, estados, historial completo y auditoría.
 - **Adjuntos**: validación por contenido (magic bytes), nombres internos únicos, descarga protegida por permisos.
+- **Notificaciones por correo** (SMTP): asignación, comentarios nuevos y resolución; con bitácora de envíos en `email_logs` y toggles en Configuración.
 - **Dashboard** administrativo con métricas y gráficos en SQL.
 - **Filtros combinados** (fecha, período, categoría, departamento, usuario, prioridad, estado, búsqueda).
 - **Exportación CSV** de tickets.
@@ -73,7 +74,10 @@ La primera vez que arranca, el backend aplica migraciones y crea el seed automá
 
 1. `npm run build` (frontend a `frontend/dist`).
 2. Configurar `.env` con `NODE_ENV=production`, `SESSION_SECRET` fuerte, `COOKIE_SECURE=true` y dominio HTTPS.
-3. `npm start` — el backend sirve la API y el frontend compilado.
+3. Para correos reales, definir `MAIL_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM`.
+4. `npm start` — el backend sirve la API y el frontend compilado.
+
+> Sin SMTP configurado (`MAIL_ENABLED=false`), los correos no se envían: se registran en la tabla `email_logs` y en consola (modo desarrollo), y el admin puede verlos desde **Configuración → Notificaciones**.
 
 ## Arquitectura
 
@@ -125,4 +129,4 @@ Los usuarios no se borran físicamente; se desactivan para preservar el historia
 
 ## Extensibilidad
 
-La arquitectura queda lista para: tercer rol **Técnico**, SLA, notificaciones por correo, asignación automática, encuestas, exportación Excel/PDF, inventario, integración LDAP/AD y multiempresa sin rehacer el núcleo.
+La arquitectura queda lista para: asignación automática, encuestas, exportación Excel/PDF, inventario, integración LDAP/AD y multiempresa sin rehacer el núcleo.
