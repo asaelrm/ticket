@@ -1,46 +1,100 @@
-import { Link } from 'react-router-dom';
-import { formatDate, PRIORITY_LABEL, STATUS_LABEL } from '../lib/api';
-import { EmptyState, Pagination } from './ui';
+import { Link, useNavigate } from 'react-router-dom';
+import { formatRelative, formatSla, slaInfo, PRIORITY_LABEL, STATUS_LABEL, STATUS_DOT } from '../lib/api';
+import { EmptyState, Pagination, Menu, Avatar } from './ui';
 
-export function TicketTable({ list, basePath = '/app/my-tickets', onPage }) {
+function SortHeader({ col, label, sort, dir, onSort, className = '' }) {
+  if (!onSort) return <th className={`th ${className}`}>{label}</th>;
+  const active = sort === col;
+  return (
+    <th className={`th ${className}`}>
+      <button
+        type="button"
+        onClick={() => onSort(col, active && dir === 'desc' ? 'asc' : 'desc')}
+        className={`inline-flex items-center gap-1 transition hover:text-slate-700 ${active ? 'text-brand-700' : ''}`}
+      >
+        {label}
+        <span className="text-[10px] leading-none">{active ? (dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+      </button>
+    </th>
+  );
+}
+
+function SlaCell({ ticket }) {
+  const info = slaInfo(ticket);
+  if (!info) return <span className="text-slate-400">—</span>;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${
+        info.overdue ? 'text-red-600' : info.hours < 8 ? 'text-amber-600' : 'text-slate-500'
+      }`}
+      title={info.due.toLocaleString('es-ES')}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${info.overdue ? 'bg-red-500' : info.hours < 8 ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+      {formatSla(ticket)}
+    </span>
+  );
+}
+
+export function TicketTable({
+  list,
+  basePath = '/app/my-tickets',
+  onPage,
+  perPage,
+  onPerPage,
+  sort,
+  dir,
+  onSort,
+  canAssign,
+  canManage,
+  onAssignMe,
+  onStatusChange,
+}) {
+  const navigate = useNavigate();
+
   if (!list.data?.length) {
     return <EmptyState icon="🎫" title="No hay tickets" subtitle="No se encontraron tickets con los criterios seleccionados." />;
   }
 
+  const showActions = canAssign || canManage;
+
   return (
-    <div className="card">
+    <div className="card overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
-              <th className="th">Ticket</th>
-              <th className="th">Fecha</th>
+              <SortHeader col="ticket_number" label="Ticket" sort={sort} dir={dir} onSort={onSort} />
               <th className="th">Título</th>
-              <th className="th">Categoría</th>
-              <th className="th">Prioridad</th>
-              <th className="th">Estado</th>
+              <th className="th hidden lg:table-cell">Categoría</th>
+              <th className="th hidden xl:table-cell">Solicitante</th>
+              <SortHeader col="priority" label="Prioridad" sort={sort} dir={dir} onSort={onSort} />
+              <SortHeader col="status" label="Estado" sort={sort} dir={dir} onSort={onSort} />
+              <th className="th hidden md:table-cell">SLA</th>
+              <SortHeader col="updated_at" label="Actualizado" sort={sort} dir={dir} onSort={onSort} className="hidden sm:table-cell" />
+              {showActions && <th className="th text-right">Acciones</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {list.data.map((t) => (
-              <tr key={t.id} className="transition hover:bg-slate-50">
+              <tr key={t.id} className={`transition hover:bg-slate-50 ${t.is_overdue ? 'bg-red-50/40' : ''}`}>
                 <td className="td font-semibold text-brand-600">
                   <Link to={`${basePath}/${t.id}`} className="hover:underline">
                     {t.ticket_number}
                   </Link>
                 </td>
-                <td className="td whitespace-nowrap text-slate-500">{formatDate(t.created_at)}</td>
-                <td className="td max-w-[260px]">
+                <td className="td max-w-[280px]">
                   <Link to={`${basePath}/${t.id}`} className="block truncate font-medium text-slate-800 hover:text-brand-700">
                     {t.title}
                   </Link>
-                  {t.reporter_name && (
-                    <span className="block truncate text-xs text-slate-400">{t.reporter_name}</span>
-                  )}
+                  <span className="block truncate text-xs text-slate-400">
+                    {t.category_name || 'Sin categoría'}
+                    {t.comment_count ? ` · ${t.comment_count} comentario(s)` : ''}
+                    {t.attachment_count ? ` · ${t.attachment_count} adjunto(s)` : ''}
+                  </span>
                 </td>
-                <td className="td whitespace-nowrap">
+                <td className="td hidden whitespace-nowrap lg:table-cell">
                   {t.category_name ? (
-                    <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1.5 text-slate-600">
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.category_color || '#64748b' }} />
                       {t.category_name}
                     </span>
@@ -48,39 +102,55 @@ export function TicketTable({ list, basePath = '/app/my-tickets', onPage }) {
                     <span className="text-slate-400">—</span>
                   )}
                 </td>
+                <td className="td hidden whitespace-nowrap xl:table-cell">
+                  <span className="flex items-center gap-2">
+                    <Avatar name={t.reporter_name || ''} size="sm" />
+                    <span className="text-slate-600">{t.reporter_name}</span>
+                  </span>
+                </td>
                 <td className="td whitespace-nowrap">
-                  <span title={PRIORITY_LABEL[t.priority]}>
+                  <span className="inline-flex items-center gap-1.5" title={PRIORITY_LABEL[t.priority]}>
                     <span
                       className={`inline-block h-2 w-2 rounded-full ${
                         { LOW: 'bg-slate-400', MEDIUM: 'bg-sky-500', HIGH: 'bg-orange-500', CRITICAL: 'bg-red-600' }[t.priority]
                       }`}
                     />
-                    <span className="ml-1.5 text-slate-600">{PRIORITY_LABEL[t.priority]}</span>
+                    <span className="text-slate-600">{PRIORITY_LABEL[t.priority]}</span>
                   </span>
                 </td>
                 <td className="td whitespace-nowrap">
-                  <span
-                    className={`badge ring-1 ${
-                      {
-                        OPEN: 'bg-blue-50 text-blue-700 ring-blue-600/20',
-                        ASSIGNED: 'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
-                        IN_PROGRESS: 'bg-amber-50 text-amber-700 ring-amber-600/20',
-                        PENDING: 'bg-purple-50 text-purple-700 ring-purple-600/20',
-                        RESOLVED: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
-                        CLOSED: 'bg-slate-100 text-slate-600 ring-slate-500/20',
-                        CANCELLED: 'bg-red-50 text-red-700 ring-red-600/20',
-                      }[t.status]
-                    }`}
-                  >
-                    {STATUS_LABEL[t.status]}
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className={`h-2 w-2 rounded-full ${STATUS_DOT[t.status] || 'bg-slate-400'}`} />
+                    <span className="text-slate-600">{STATUS_LABEL[t.status]}</span>
                   </span>
                 </td>
+                <td className="td hidden whitespace-nowrap md:table-cell">
+                  <SlaCell ticket={t} />
+                </td>
+                <td className="td hidden whitespace-nowrap text-slate-500 sm:table-cell">{formatRelative(t.updated_at)}</td>
+                {showActions && (
+                  <td className="td text-right">
+                    <Menu
+                      label="⋯"
+                      buttonClass="rounded-lg border border-slate-200 px-2 py-1 text-slate-500 transition hover:bg-slate-100"
+                      items={[
+                        { key: 'view', label: 'Ver detalle', icon: '🔎', onClick: () => navigate(`${basePath}/${t.id}`) },
+                        canAssign && { key: 'me', label: 'Asignarme a mí', icon: '🙋', onClick: () => onAssignMe?.(t) },
+                        canManage && t.status !== 'IN_PROGRESS' && { key: 'prog', label: 'Marcar en proceso', icon: '⏳', onClick: () => onStatusChange?.(t, 'IN_PROGRESS') },
+                        canManage && t.status !== 'RESOLVED' && { key: 'res', label: 'Marcar resuelto', icon: '✅', onClick: () => onStatusChange?.(t, 'RESOLVED') },
+                        canManage && t.status !== 'CLOSED' && { key: 'close', label: 'Cerrar ticket', icon: '📁', onClick: () => onStatusChange?.(t, 'CLOSED') },
+                        canManage && { key: 'sep', separator: true },
+                        canManage && { key: 'cancel', label: 'Cancelar ticket', icon: '🚫', danger: true, onClick: () => onStatusChange?.(t, 'CANCELLED') },
+                      ]}
+                    />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <Pagination page={list.page} pages={list.pages} total={list.total} onChange={onPage} />
+      <Pagination page={list.page} pages={list.pages} total={list.total} onChange={onPage} perPage={perPage || list.perPage} onPerPage={onPerPage} />
     </div>
   );
 }

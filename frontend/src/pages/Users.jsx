@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { api, formatDate, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal, Pagination, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
+import UserTicketHistory from '../components/UserTicketHistory';
 
 const EMPTY = {
   name: '',
@@ -25,6 +26,7 @@ export default function Users() {
 
   const [modal, setModal] = useState(null); // null | { mode: 'create'|'edit', form }
   const [tokenModal, setTokenModal] = useState(null);
+  const [historyUser, setHistoryUser] = useState(null);
 
   const load = useCallback(async (f) => {
     setError('');
@@ -217,6 +219,9 @@ export default function Users() {
                       </td>
                       <td className="td">
                         <div className="flex justify-end gap-1">
+                          <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => setHistoryUser(u)}>
+                            Historial
+                          </button>
                           {user?.permissions?.includes('user.manage') && (
                             <>
                               <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => openEdit(u)}>
@@ -271,7 +276,7 @@ export default function Users() {
               </div>
               {modal.mode === 'create' && (
                 <div className="sm:col-span-2">
-                  <TextField label="Contraseña inicial *" type="password" help="Mínimo 8 caracteres, mayúscula, minúscula y número." value={modal.form.password} onChange={(v) => setModal({ ...modal, form: { ...modal.form, password: v } })} />
+                  <TextField label="Contraseña inicial *" type="password" help="Mínimo 6 caracteres." value={modal.form.password} onChange={(v) => setModal({ ...modal, form: { ...modal.form, password: v } })} />
                 </div>
               )}
             </div>
@@ -310,6 +315,15 @@ export default function Users() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={!!historyUser}
+        onClose={() => setHistoryUser(null)}
+        title={historyUser ? `Historial de ${historyUser.name} ${historyUser.last_name}` : 'Historial'}
+        wide
+      >
+        {historyUser && <UserTicketHistory userId={historyUser.id} />}
       </Modal>
     </div>
   );

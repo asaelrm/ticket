@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner } from '../components/ui';
+import UserTicketHistory from '../components/UserTicketHistory';
 
 export default function Profile() {
   const { user } = useAuth();
@@ -35,7 +36,7 @@ export default function Profile() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-4xl space-y-6">
       <div className="card p-6">
         <div className="flex items-center gap-4">
           <span className="grid h-16 w-16 place-items-center rounded-full bg-brand-100 text-xl font-bold text-brand-700">
@@ -52,6 +53,16 @@ export default function Profile() {
               {user?.position ? ` · ${user.position}` : ''}
             </p>
           </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="border-b border-slate-200 px-6 py-4">
+          <h3 className="text-base font-semibold text-slate-800">Historial de tickets</h3>
+          <p className="text-sm text-slate-500">Sus tickets reportados y los asignados a usted.</p>
+        </div>
+        <div className="px-6 py-5">
+          <UserTicketHistory userId={user?.id} self />
         </div>
       </div>
 
@@ -74,7 +85,7 @@ export default function Profile() {
               <input id="confirm" type="password" className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
             </div>
           </div>
-          <p className="text-xs text-slate-400">Mínimo 8 caracteres, debe incluir mayúscula, minúscula y número.</p>
+          <p className="text-xs text-slate-400">Mínimo 6 caracteres.</p>
           {error && <ErrorBox message={error} />}
           {success && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{success}</div>}
           <div className="flex justify-end">

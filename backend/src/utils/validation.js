@@ -36,10 +36,7 @@ export const rules = {
   password: (v) => {
     const p = String(v || '');
     if (!p) return 'La contraseña es obligatoria';
-    if (p.length < 8) return 'La contraseña debe tener al menos 8 caracteres';
-    if (!/[A-Z]/.test(p)) return 'La contraseña debe incluir una letra mayúscula';
-    if (!/[a-z]/.test(p)) return 'La contraseña debe incluir una letra minúscula';
-    if (!/[0-9]/.test(p)) return 'La contraseña debe incluir un número';
+    if (p.length < 6) return 'La contraseña debe tener al menos 6 caracteres';
     return '';
   },
 };

@@ -66,6 +66,25 @@ export function createClient() {
     return res;
   }
 
+  async function put(url, body) {
+    const res = await request(app)
+      .put(url)
+      .set('Cookie', cookieStr())
+      .set('x-csrf-token', csrf)
+      .send(body);
+    store(res);
+    return res;
+  }
+
+  async function del(url) {
+    const res = await request(app)
+      .delete(url)
+      .set('Cookie', cookieStr())
+      .set('x-csrf-token', csrf);
+    store(res);
+    return res;
+  }
+
   async function postForm(url, fd) {
     const res = await request(app)
       .post(url)
@@ -93,5 +112,5 @@ export function createClient() {
     return post('/api/auth/login', { account, password, remember: false });
   }
 
-  return { get, post, patch, postForm, postMultipart, login };
+  return { get, post, patch, put, del, postForm, postMultipart, login };
 }

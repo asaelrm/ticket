@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   api,
   fileUrl,
@@ -7,79 +7,173 @@ import {
   PRIORITIES,
   STATUS_LABEL,
   PRIORITY_LABEL,
-  formatDate,
+  STATUS_COLOR,
+  PRIORITY_COLOR,
   formatDateTime,
+  formatSla,
+  slaInfo,
   formatSize,
   isImage,
+  ticketStreamUrl,
 } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { StatusBadge, PriorityBadge, ErrorBox, Spinner, LoadingScreen, EmptyState } from '../components/ui';
-
-const HISTORY_ACTION_LABEL = {
-  CREATED: 'creó el ticket',
-  ASSIGNED: 'actualizó la asignación',
-  STATUS_CHANGED: 'cambió el estado',
-  REOPENED: 'reabrió el ticket',
-  PRIORITY_CHANGED: 'cambió la prioridad',
-  CATEGORY_CHANGED: 'cambió la categoría',
-  UPDATED: 'actualizó el ticket',
-  COMMENT_ADDED: 'agregó un comentario',
-  ATTACHMENT_ADDED: 'adjuntó un archivo',
-};
-
-const HISTORY_ICON = {
-  CREATED: '✦',
-  ASSIGNED: '👤',
-  STATUS_CHANGED: '🔄',
-  REOPENED: '↩️',
-  PRIORITY_CHANGED: '⚡',
-  CATEGORY_CHANGED: '🗂',
-  UPDATED: '✏️',
-  COMMENT_ADDED: '💬',
-  ATTACHMENT_ADDED: '📎',
-};
+import { ErrorBox, Spinner, LoadingScreen, Modal, Drawer, Avatar } from '../components/ui';
+import TicketTimeline from '../components/TicketTimeline';
+import ResolveDrawer from '../components/ResolveDrawer';
 
 export default function TicketDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [users, setUsers] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [options, setOptions] = useState(null);
 
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState([]);
+  const [internalMode, setInternalMode] = useState(false);
+
   const [statusDraft, setStatusDraft] = useState('');
   const [priorityDraft, setPriorityDraft] = useState('');
   const [assignDraft, setAssignDraft] = useState('');
+  const [teamDraft, setTeamDraft] = useState('');
+  const [categoryDraft, setCategoryDraft] = useState('');
 
-  const canManage = user.permissions.includes('ticket.update.any');
-  const canAssign = user.permissions.includes('ticket.assign');
-  const canComment = user.permissions.includes('ticket.comment');
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [closeOpen, setCloseOpen] = useState(false);
+  const [closeNote, setCloseNote] = useState('');
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [reopenReason, setReopenReason] = useState('');
+  const [pendingOpen, setPendingOpen] = useState(false);
+  const [pendingReason, setPendingReason] = useState('');
+  const [pendingDetail, setPendingDetail] = useState('');
+
+  const editorRef = useRef(null);
+  const textareaRef = useRef(null);
+  const scrollRef = useRef(null);
+  const seenComments = useRef(new Set());
+  const dataRef = useRef(null);
+  const typingTimers = useRef({});
+  const refreshTimer = useRef(null);
+  const lastTypingSent = useRef(0);
+
+  const [live, setLive] = useState(false);
+  const [typingUsers, setTypingUsers] = useState([]);
 
   const load = useCallback(async () => {
     setError('');
     try {
       const d = await api.get(`/api/tickets/${id}`);
+      if (dataRef.current !== d.ticket.id) {
+        seenComments.current = new Set();
+        dataRef.current = d.ticket.id;
+      }
+      for (const c of d.comments) seenComments.current.add(c.id);
       setData(d);
       setStatusDraft(d.ticket.status);
       setPriorityDraft(d.ticket.priority);
       setAssignDraft(d.ticket.assigned_to_id ? String(d.ticket.assigned_to_id) : '');
+      setTeamDraft(d.ticket.assigned_team_id ? String(d.ticket.assigned_team_id) : '');
+      setCategoryDraft(d.ticket.category_id ? String(d.ticket.category_id) : '');
     } catch (err) {
       setError(err.message || 'No se pudo cargar el ticket');
     }
   }, [id]);
 
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+
   useEffect(() => {
     load();
-    if (canAssign) {
-      api
-        .get('/api/users/assignable')
-        .then((d) => setUsers(d.data || []))
-        .catch(() => {});
+    api.get('/api/tickets/options').then(setOptions).catch(() => {});
+  }, [id, load]);
+
+  // Conexión en vivo: recibe comentarios, cambios de estado y "escribiendo…".
+  useEffect(() => {
+    if (!id) return undefined;
+    const es = new EventSource(ticketStreamUrl(id));
+    const clearTyping = (userId) => setTypingUsers((prev) => prev.filter((u) => u.id !== userId));
+
+    es.onopen = () => setLive(true);
+    es.onerror = () => setLive(false);
+    es.addEventListener('ready', () => setLive(true));
+
+    es.addEventListener('comment', (e) => {
+      let payload;
+      try {
+        payload = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      const c = payload.comment;
+      if (!c || seenComments.current.has(c.id)) return;
+      seenComments.current.add(c.id);
+      clearTyping(c.user_id);
+      setData((prev) => {
+        if (!prev || String(prev.ticket.id) !== String(id)) return prev;
+        return {
+          ...prev,
+          comments: [...prev.comments, c],
+          attachments: [...prev.attachments, ...(payload.attachments || [])],
+        };
+      });
+    });
+
+    es.addEventListener('typing', (e) => {
+      let payload;
+      try {
+        payload = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      if (!payload.user_id) return;
+      setTypingUsers((prev) =>
+        prev.some((u) => u.id === payload.user_id) ? prev : [...prev, { id: payload.user_id, name: payload.user_name }]
+      );
+      clearTimeout(typingTimers.current[payload.user_id]);
+      typingTimers.current[payload.user_id] = setTimeout(() => clearTyping(payload.user_id), 3500);
+    });
+
+    es.addEventListener('refresh', () => {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(() => loadRef.current(), 200);
+    });
+
+    return () => {
+      es.close();
+      setLive(false);
+      setTypingUsers([]);
+      clearTimeout(refreshTimer.current);
+      Object.values(typingTimers.current).forEach(clearTimeout);
+      typingTimers.current = {};
+    };
+  }, [id]);
+
+  // Auto-scroll suave hacia el final si el usuario está cerca del borde inferior.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 180;
+    if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }, [data?.comments?.length]);
+
+  useEffect(() => {
+    if (!data?.can) return;
+    if (data.can.assign) {
+      api.get('/api/users/assignable').then((d) => setUsers(d.data || [])).catch(() => {});
+      api.get('/api/teams/assignable').then((d) => setTeams(d.data || [])).catch(() => {});
     }
-  }, [id, load, canAssign]);
+    if (data.can.manage) {
+      api.get('/api/categories?active=1').then((d) => setCategories(d.data || [])).catch(() => {});
+    }
+  }, [data?.can]);
 
   if (error && !data) {
     return (
@@ -94,8 +188,9 @@ export default function TicketDetail() {
   if (!data) return <LoadingScreen text="Cargando ticket…" />;
 
   const t = data.ticket;
-  const isReporterOrAll = user.permissions.includes('ticket.view.all') || t.reporter_id === user.id;
-  void isReporterOrAll;
+  const can = data.can || {};
+  const sla = slaInfo(t);
+  const locked = ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(t.status);
 
   async function patchTicket(payload) {
     setSaving(true);
@@ -105,23 +200,113 @@ export default function TicketDetail() {
       await load();
     } catch (err) {
       setError(err.message || 'No se pudo actualizar el ticket');
+      setStatusDraft(t.status);
+      setPriorityDraft(t.priority);
+      setCategoryDraft(t.category_id ? String(t.category_id) : '');
+      throw err;
     } finally {
       setSaving(false);
     }
   }
 
-  function onStatus(e) {
-    setStatusDraft(e.target.value);
-    if (e.target.value !== t.status) patchTicket({ status: e.target.value });
+  function onStatusSelect(e) {
+    const value = e.target.value;
+    if (value === t.status) return;
+    if (value === 'RESOLVED' && can.resolve) {
+      setResolveOpen(true);
+      return;
+    }
+    if (value === 'CLOSED' && can.close) {
+      setCloseOpen(true);
+      return;
+    }
+    if (value === 'PENDING') {
+      setPendingOpen(true);
+      return;
+    }
+    if (value === 'OPEN' && ['RESOLVED', 'CLOSED'].includes(t.status) && can.reopen) {
+      setReopenOpen(true);
+      return;
+    }
+    setStatusDraft(value);
+    patchTicket({ status: value }).catch(() => {});
   }
+
   function onPriority(e) {
-    setPriorityDraft(e.target.value);
-    if (e.target.value !== t.priority) patchTicket({ priority: e.target.value });
+    const value = e.target.value;
+    setPriorityDraft(value);
+    if (value !== t.priority) patchTicket({ priority: value }).catch(() => {});
   }
   function onAssign(e) {
-    setAssignDraft(e.target.value);
-    const value = e.target.value ? Number(e.target.value) : null;
-    if (value !== t.assigned_to_id) patchTicket({ assigned_to_id: value });
+    const raw = e.target.value;
+    setAssignDraft(raw);
+    const value = raw ? Number(raw) : null;
+    if (value !== t.assigned_to_id) patchTicket({ assigned_to_id: value }).catch(() => {});
+  }
+  function onTeam(e) {
+    const raw = e.target.value;
+    setTeamDraft(raw);
+    const value = raw ? Number(raw) : null;
+    if (value !== t.assigned_team_id) patchTicket({ assigned_team_id: value }).catch(() => {});
+  }
+  function onCategory(e) {
+    const raw = e.target.value;
+    setCategoryDraft(raw);
+    const value = raw ? Number(raw) : null;
+    if (value !== t.category_id) patchTicket({ category_id: value }).catch(() => {});
+  }
+
+  function focusEditor(internal) {
+    setInternalMode(!!internal);
+    editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => textareaRef.current?.focus(), 250);
+  }
+
+  async function submitClose() {
+    setSaving(true);
+    setError('');
+    try {
+      await api.post(`/api/tickets/${t.id}/close`, { note: closeNote.trim() || undefined });
+      setCloseOpen(false);
+      setCloseNote('');
+      await load();
+    } catch (err) {
+      setError(err.message || 'No se pudo cerrar el ticket');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitReopen() {
+    if (!reopenReason.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.post(`/api/tickets/${t.id}/reopen`, { reason: reopenReason.trim() });
+      setReopenOpen(false);
+      setReopenReason('');
+      await load();
+    } catch (err) {
+      setError(err.message || 'No se pudo reabrir el ticket');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitPending() {
+    const reason = pendingDetail.trim() || pendingReason;
+    setSaving(true);
+    setError('');
+    try {
+      await api.patch(`/api/tickets/${t.id}`, { status: 'PENDING', pending_reason: reason || null });
+      setPendingOpen(false);
+      setPendingDetail('');
+      await load();
+    } catch (err) {
+      setError(err.message || 'No se pudo marcar como pendiente');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function onSubmitComment(e) {
@@ -132,249 +317,502 @@ export default function TicketDetail() {
     try {
       const fd = new FormData();
       if (message.trim()) fd.append('message', message.trim());
+      if (internalMode) fd.append('is_internal', '1');
       for (const f of files) fd.append('files', f);
       await api.post(`/api/tickets/${t.id}/comments`, null, fd);
       setMessage('');
       setFiles([]);
       await load();
     } catch (err) {
-      setError(err.message || 'No se pudo enviar el comentario');
+      setError(err.message || 'No se pudo enviar el mensaje');
     } finally {
       setSaving(false);
     }
   }
 
+  function onMessageChange(value) {
+    setMessage(value);
+    if (internalMode) return; // las notas internas no se anuncian
+    const now = Date.now();
+    if (now - lastTypingSent.current < 2500) return;
+    lastTypingSent.current = now;
+    api.post(`/api/tickets/${t.id}/typing`, {}).catch(() => {});
+  }
+
+  function applyFormat(before, after = before, placeholder = 'texto') {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const selected = message.slice(start, end) || placeholder;
+    setMessage(message.slice(0, start) + before + selected + after + message.slice(end));
+    requestAnimationFrame(() => {
+      el.focus();
+      el.selectionStart = start + before.length;
+      el.selectionEnd = start + before.length + selected.length;
+    });
+  }
+
+  const ticketAttachments = data.attachments.filter((a) => !a.comment_id);
+  const commentsWithAttachments = data.comments.map((c) => ({
+    ...c,
+    attachments: data.attachments.filter((a) => a.comment_id === c.id),
+  }));
+
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
-      {/* Header */}
-      <div>
-        <button className="btn-ghost mb-3 !px-2 text-sm" onClick={() => navigate(-1)}>
+    <div className="mx-auto max-w-6xl space-y-5">
+      {/* Barra de navegación y acciones */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button className="btn-ghost !px-2 text-sm" onClick={() => navigate(-1)}>
           ← Volver
         </button>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-2xl font-bold text-brand-700">{t.ticket_number}</h2>
-              <StatusBadge status={t.status} />
-              <PriorityBadge priority={t.priority} />
-            </div>
-            <h1 className="mt-1 text-lg font-semibold text-slate-800">{t.title}</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Reportado por <b className="text-slate-700">{t.reporter_name}</b>
-              {t.department_name ? ` · ${t.department_name}` : ''} · {formatDateTime(t.created_at)}
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {can.comment && (
+            <button className="btn-secondary" onClick={() => focusEditor(false)}>
+              Responder
+            </button>
+          )}
+          {can.note && (
+            <button className="btn-secondary" onClick={() => focusEditor(true)}>
+              🔒 Nota interna
+            </button>
+          )}
+          {can.resolve && !locked && (
+            <button className="btn-primary" onClick={() => setResolveOpen(true)}>
+              Resolver ticket
+            </button>
+          )}
+          {can.close && !['CLOSED', 'CANCELLED'].includes(t.status) && (
+            <button className="btn-secondary" onClick={() => setCloseOpen(true)}>
+              Cerrar
+            </button>
+          )}
+          {can.reopen && ['RESOLVED', 'CLOSED'].includes(t.status) && (
+            <button className="btn-secondary" onClick={() => setReopenOpen(true)}>
+              Reabrir
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Encabezado */}
+      <div className="card p-5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="font-mono text-sm font-semibold text-brand-700">{t.ticket_number}</span>
+          <span className={`badge ring-1 ${STATUS_COLOR[t.status] || ''}`}>{STATUS_LABEL[t.status] || t.status}</span>
+          <span className={`badge ring-1 ${PRIORITY_COLOR[t.priority] || ''}`}>
+            {PRIORITY_LABEL[t.priority] || t.priority}
+          </span>
+          {t.category_name && <span className="badge bg-slate-100 text-slate-600 ring-1 ring-slate-500/20">{t.category_name}</span>}
+          {sla && (
+            <span
+              className={`badge ring-1 ${
+                sla.overdue ? 'bg-red-50 text-red-700 ring-red-600/20' : 'bg-slate-100 text-slate-600 ring-slate-500/20'
+              }`}
+            >
+              {formatSla(t)}
+            </span>
+          )}
+        </div>
+        <h1 className="mt-2 text-xl font-semibold text-slate-800">{t.title}</h1>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500">
+          <span className="inline-flex items-center gap-2">
+            <Avatar name={t.reporter_name} size="sm" />
+            <span>
+              <b className="font-medium text-slate-700">{t.reporter_name}</b> reportó
+            </span>
+          </span>
+          {t.department_name && <span>· {t.department_name}</span>}
+          <span>· Creado {formatDateTime(t.created_at)}</span>
+          {t.updated_at && t.updated_at !== t.created_at && <span>· Actualizado {formatDateTime(t.updated_at)}</span>}
         </div>
       </div>
 
       {error && <ErrorBox message={error} />}
 
-      {/* Acciones admin */}
-      {canManage && (
-        <div className="card grid gap-4 p-4 sm:grid-cols-3">
-          <div>
-            <label className="label">Estado</label>
-            <select className="input" value={statusDraft} onChange={onStatus} disabled={saving}>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="label">Prioridad</label>
-            <select className="input" value={priorityDraft} onChange={onPriority} disabled={saving}>
-              {PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {PRIORITY_LABEL[p]}
-                </option>
-              ))}
-            </select>
-          </div>
-          {canAssign ? (
-            <div>
-              <label className="label">Asignado a</label>
-              <select className="input" value={assignDraft} onChange={onAssign} disabled={saving}>
-                <option value="">Sin asignar</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} {u.last_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div>
-              <label className="label">Asignado a</label>
-              <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                {t.assigned_name || 'Sin asignar'}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Info del ticket */}
-      <div className="card p-5">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Detalle</h3>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Info label="Empleado" value={t.reporter_name} />
-          <Info label="Departamento" value={t.department_name || '—'} />
-          <Info label="Categoría" value={t.category_name || '—'} />
-          <Info label="Prioridad" value={PRIORITY_LABEL[t.priority]} />
-          <Info label="Estado" value={STATUS_LABEL[t.status]} />
-          <Info label="Asignado a" value={t.assigned_name || 'Sin asignar'} />
-          <Info label="Creado" value={formatDateTime(t.created_at)} />
-          <Info label="Actualizado" value={formatDateTime(t.updated_at)} />
-          <Info label="Adjuntos" value={`${t.attachment_count ?? data.attachments.length} archivos`} />
-        </div>
-        <div className="mt-4">
-          <h4 className="label">Descripción</h4>
-          <p className="whitespace-pre-wrap rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-700">{t.description}</p>
-        </div>
-      </div>
-
-      {/* Adjuntos */}
-      {data.attachments.length > 0 && (
-        <div className="card p-5">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Adjuntos ({data.attachments.length})
-          </h3>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {data.attachments.map((a) => (
-              <a
-                key={a.id}
-                href={fileUrl(a.id)}
-                target="_blank"
-                rel="noreferrer"
-                className="group flex items-center gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-brand-300 hover:bg-brand-50/50"
-              >
-                {isImage(a.mime_type) ? (
-                  <img
-                    src={fileUrl(a.id)}
-                    alt={a.original_name}
-                    className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
-                  />
-                ) : (
-                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-500">
-                    <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M7 3h7l5 5v13H7zM14 3v5h5" />
-                    </svg>
-                  </span>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-slate-700 group-hover:text-brand-700">
-                    {a.original_name}
-                  </p>
-                  <p className="text-xs text-slate-400">{formatSize(a.size_bytes)}</p>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        {/* Columna principal */}
+        <main className="space-y-5">
+          <div className="card p-5">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Descripción</h3>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{t.description}</p>
+            {ticketAttachments.length > 0 && (
+              <div className="mt-4 border-t border-slate-100 pt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Adjuntos ({ticketAttachments.length})
+                </p>
+                <div className="flex flex-wrap gap-2.5">
+                  {ticketAttachments.map((a) => (
+                    <AttachmentChip key={a.id} a={a} />
+                  ))}
                 </div>
-              </a>
-            ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
 
-      {/* Comentarios */}
-      {canComment && (
-        <div className="card p-5">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Agregar comentario</h3>
-          <form onSubmit={onSubmitComment} className="space-y-3" noValidate>
-            <textarea
-              className="input min-h-[90px] resize-y"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Escriba su comentario o actualización…"
-            />
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-brand-600">
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1.5M8 7.5L12 3l4 4.5M12 3v11" />
-                </svg>
-                Adjuntar archivos
-                <input type="file" multiple className="hidden" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
-                {files.length > 0 && (
-                  <span className="badge bg-brand-100 text-brand-700">{files.length} archivo(s)</span>
-                )}
-              </label>
-              <button type="submit" className="btn-primary" disabled={saving || (!message.trim() && !files.length)}>
-                {saving && <Spinner className="h-4 w-4 text-white" />}
-                Enviar
-              </button>
+          <div className="card p-5">
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Conversación</h3>
+              <span
+                className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+                  live ? 'text-emerald-600' : 'text-slate-400'
+                }`}
+                title={live ? 'Conectado en tiempo real' : 'Reconectando…'}
+              >
+                <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-emerald-500' : 'bg-slate-400'}`} />
+                {live ? 'En vivo' : 'Sin conexión'}
+              </span>
             </div>
-          </form>
-        </div>
-      )}
-
-      {/* Timeline: historial + comentarios intercalados no — historial y comentarios por separado por claridad */}
-      <div className="card p-5">
-        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">Historial y actividad</h3>
-        {data.history.length === 0 && data.comments.length === 0 ? (
-          <EmptyState icon="🕓" title="Sin actividad" />
-        ) : (
-          <ol className="space-y-0">
-            {[...data.history]
-              .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
-              .map((h) => (
-                <li key={`h-${h.id}`} className="relative flex gap-3 pb-5 last:pb-0">
-                  <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs">
-                    {HISTORY_ICON[h.action] || '•'}
-                  </span>
-                  <div>
-                    <p className="text-sm text-slate-700">
-                      <span className="font-medium text-slate-800">{h.user_name || 'Sistema'}</span>{' '}
-                      <span className="text-slate-500">{HISTORY_ACTION_LABEL[h.action] || h.action}</span>
-                      {h.description ? <span className="text-slate-500"> — {h.description}</span> : null}
-                    </p>
-                    <p className="text-xs text-slate-400">{formatDateTime(h.created_at)}</p>
-                  </div>
-                </li>
-              ))}
-
-            {data.comments.map((c) => (
-              <li key={`c-${c.id}`} className="relative flex gap-3 border-t border-slate-100 pt-5">
-                <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-brand-100 text-xs">
-                  {c.user_name?.slice(0, 1).toUpperCase() || 'U'}
+            <div ref={scrollRef} className="max-h-[560px] overflow-y-auto pr-1">
+              <TicketTimeline history={data.history} comments={commentsWithAttachments} />
+            </div>
+            {typingUsers.length > 0 && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-brand-600">
+                <span className="flex items-end gap-0.5">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-500 [animation-delay:-0.2s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-500 [animation-delay:-0.1s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-500" />
                 </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="text-sm font-semibold text-slate-800">{c.user_name || 'Usuario'}</span>
-                    <span className="text-xs text-slate-400">{formatDateTime(c.created_at)}</span>
-                  </div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{c.message}</p>
-                  {data.attachments.filter((a) => a.comment_id === c.id).length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {data.attachments
-                        .filter((a) => a.comment_id === c.id)
-                        .map((a) =>
-                          isImage(a.mime_type) ? (
-                            <a href={fileUrl(a.id)} target="_blank" rel="noreferrer" key={a.id}>
-                              <img
-                                src={fileUrl(a.id)}
-                                alt={a.original_name}
-                                className="h-16 w-16 rounded-lg object-cover ring-1 ring-slate-200 hover:opacity-80"
-                              />
-                            </a>
-                          ) : (
-                            <a
-                              key={a.id}
-                              href={fileUrl(a.id)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-200"
-                            >
-                              📎 {a.original_name}
-                            </a>
-                          )
-                        )}
-                    </div>
+                {typingUsers.map((u) => u.name).join(', ')}{' '}
+                {typingUsers.length > 1 ? 'están escribiendo…' : 'está escribiendo…'}
+              </div>
+            )}
+          </div>
+
+          {(can.comment || can.note) && (
+            <div className="card p-5" ref={editorRef}>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-lg bg-slate-100 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setInternalMode(false)}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                      !internalMode ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    Respuesta pública
+                  </button>
+                  {can.note && (
+                    <button
+                      type="button"
+                      onClick={() => setInternalMode(true)}
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                        internalMode ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                    >
+                      🔒 Nota interna
+                    </button>
                   )}
                 </div>
-              </li>
-            ))}
-          </ol>
-        )}
+                {internalMode && (
+                  <span className="text-xs text-amber-600">Solo visible para técnicos y administradores.</span>
+                )}
+              </div>
+
+              <form onSubmit={onSubmitComment} className="space-y-3" noValidate>
+                <div className="overflow-hidden rounded-xl border border-slate-200 focus-within:border-brand-400">
+                  <div className="flex flex-wrap items-center gap-1 border-b border-slate-100 bg-slate-50 px-2 py-1.5">
+                    <ToolbarButton label="Negrita" onClick={() => applyFormat('**', '**', 'negrita')}>
+                      <b>N</b>
+                    </ToolbarButton>
+                    <ToolbarButton label="Cursiva" onClick={() => applyFormat('*', '*', 'cursiva')}>
+                      <i>I</i>
+                    </ToolbarButton>
+                    <ToolbarButton label="Lista" onClick={() => applyFormat('- ', '', 'elemento')}>
+                      •
+                    </ToolbarButton>
+                    <ToolbarButton label="Código" onClick={() => applyFormat('`', '`', 'código')}>
+                      {'</>'}
+                    </ToolbarButton>
+                  </div>
+                  <textarea
+                    ref={textareaRef}
+                    className="min-h-[110px] w-full resize-y border-0 px-3.5 py-3 text-sm text-slate-700 focus:outline-none"
+                    value={message}
+                    onChange={(e) => onMessageChange(e.target.value)}
+                    placeholder={
+                      internalMode
+                        ? 'Escriba una nota interna (no visible para el empleado)…'
+                        : 'Escriba una respuesta para el empleado…'
+                    }
+                  />
+                </div>
+
+                {files.length > 0 && (
+                  <ul className="flex flex-wrap gap-2">
+                    {files.map((f, i) => (
+                      <li key={`${f.name}-${i}`} className="inline-flex items-center gap-2 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs text-slate-600">
+                        📎 {f.name}
+                        <button
+                          type="button"
+                          className="text-slate-400 hover:text-red-500"
+                          onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                          aria-label={`Quitar ${f.name}`}
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-brand-600">
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1.5M8 7.5L12 3l4 4.5M12 3v11" />
+                    </svg>
+                    Adjuntar archivos
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files || [])])}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    className={internalMode ? 'btn-primary !bg-amber-600 hover:!bg-amber-700' : 'btn-primary'}
+                    disabled={saving || (!message.trim() && !files.length)}
+                  >
+                    {saving && <Spinner className="h-4 w-4 text-white" />}
+                    {internalMode ? 'Guardar nota interna' : 'Enviar respuesta'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </main>
+
+        {/* Barra lateral */}
+        <aside className="space-y-5">
+          <div className="card p-5">
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">Gestión</h3>
+            <div className="space-y-3.5">
+              <Field label="Estado">
+                {can.manage ? (
+                  <select className="input" value={statusDraft} onChange={onStatusSelect} disabled={saving}>
+                    {STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABEL[s]}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm font-medium text-slate-700">{STATUS_LABEL[t.status]}</p>
+                )}
+              </Field>
+
+              {t.status === 'PENDING' && t.pending_reason && (
+                <div className="rounded-lg bg-purple-50 px-3 py-2 text-sm text-purple-700">
+                  ⏸ Pendiente: {t.pending_reason}
+                </div>
+              )}
+
+              <Field label="Prioridad">
+                {can.manage ? (
+                  <select className="input" value={priorityDraft} onChange={onPriority} disabled={saving}>
+                    {PRIORITIES.map((p) => (
+                      <option key={p} value={p}>
+                        {PRIORITY_LABEL[p]}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm font-medium text-slate-700">{PRIORITY_LABEL[t.priority]}</p>
+                )}
+              </Field>
+
+              <Field label="Asignado a">
+                {can.assign ? (
+                  <select className="input" value={assignDraft} onChange={onAssign} disabled={saving}>
+                    <option value="">Sin asignar</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} {u.last_name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm font-medium text-slate-700">{t.assigned_name || 'Sin asignar'}</p>
+                )}
+              </Field>
+
+              <Field label="Equipo">
+                {can.assign ? (
+                  <select className="input" value={teamDraft} onChange={onTeam} disabled={saving}>
+                    <option value="">Sin equipo</option>
+                    {teams.map((tm) => (
+                      <option key={tm.id} value={tm.id}>
+                        {tm.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm font-medium text-slate-700">{t.team_name || 'Sin equipo'}</p>
+                )}
+              </Field>
+
+              <Field label="Categoría">
+                {can.manage ? (
+                  <select className="input" value={categoryDraft} onChange={onCategory} disabled={saving}>
+                    <option value="">Sin categoría</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-sm font-medium text-slate-700">{t.category_name || 'Sin categoría'}</p>
+                )}
+              </Field>
+            </div>
+          </div>
+
+          {(t.resolution || t.resolved_at || t.reopen_reason) && (
+            <div className="card p-5">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Resolución</h3>
+              {t.resolution && (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{t.resolution}</p>
+              )}
+              <dl className="mt-3 space-y-2.5">
+                {t.resolution_category && <Info label="Categoría de solución" value={t.resolution_category} />}
+                {t.root_cause && <Info label="Causa" value={t.root_cause} />}
+                {t.time_spent_minutes != null && (
+                  <Info label="Tiempo empleado" value={formatMinutes(t.time_spent_minutes)} />
+                )}
+                {t.resolved_by_name && <Info label="Resuelto por" value={t.resolved_by_name} />}
+                {t.resolved_at && <Info label="Fecha de resolución" value={formatDateTime(t.resolved_at)} />}
+                {t.closed_by_name && <Info label="Cerrado por" value={t.closed_by_name} />}
+                {t.closed_at && <Info label="Fecha de cierre" value={formatDateTime(t.closed_at)} />}
+                {t.resolution_notified ? (
+                  <div className="text-xs text-emerald-600">✓ Usuario notificado de la resolución</div>
+                ) : null}
+                {t.reopen_reason && (
+                  <div className="rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-700">
+                    ↩ Reabierto: {t.reopen_reason}
+                    {t.reopened_by_name ? ` — ${t.reopened_by_name}` : ''}
+                  </div>
+                )}
+              </dl>
+            </div>
+          )}
+
+          <div className="card p-5">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Detalles</h3>
+            <dl className="space-y-2.5">
+              <Info label="Empleado" value={t.reporter_name} />
+              <Info label="Departamento" value={t.department_name || '—'} />
+              <Info label="Vencimiento SLA" value={t.sla_due_at ? formatDateTime(t.sla_due_at) : '—'} />
+              <Info label="Creado" value={formatDateTime(t.created_at)} />
+              <Info label="Actualizado" value={formatDateTime(t.updated_at)} />
+              <Info label="Adjuntos" value={`${data.attachments.length}`} />
+            </dl>
+          </div>
+        </aside>
       </div>
+
+      <ResolveDrawer
+        open={resolveOpen}
+        onClose={() => setResolveOpen(false)}
+        ticket={t}
+        options={options}
+        onDone={load}
+      />
+
+      <Modal open={closeOpen} onClose={() => setCloseOpen(false)} title="Cerrar ticket">
+        <p className="text-sm text-slate-600">
+          El ticket pasará a estado <b>Cerrado</b>. Asegúrese de que el problema fue resuelto correctamente.
+        </p>
+        <label className="label mt-4">Nota de cierre (opcional)</label>
+        <textarea
+          className="input min-h-[80px] resize-y"
+          value={closeNote}
+          onChange={(e) => setCloseNote(e.target.value)}
+          placeholder="Comentario interno sobre el cierre…"
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="btn-secondary" onClick={() => setCloseOpen(false)}>
+            Cancelar
+          </button>
+          <button className="btn-primary" onClick={submitClose} disabled={saving}>
+            {saving && <Spinner className="h-4 w-4 text-white" />}
+            Cerrar ticket
+          </button>
+        </div>
+      </Modal>
+
+      <Drawer
+        open={reopenOpen}
+        onClose={() => setReopenOpen(false)}
+        title="Reabrir ticket"
+        subtitle={t.ticket_number}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button className="btn-secondary" onClick={() => setReopenOpen(false)}>
+              Cancelar
+            </button>
+            <button className="btn-primary" onClick={submitReopen} disabled={saving || !reopenReason.trim()}>
+              {saving && <Spinner className="h-4 w-4 text-white" />}
+              Reabrir
+            </button>
+          </div>
+        }
+      >
+        <label className="label">Motivo de la reapertura *</label>
+        <textarea
+          className="input min-h-[120px] resize-y"
+          value={reopenReason}
+          onChange={(e) => setReopenReason(e.target.value)}
+          placeholder="Explique por qué el ticket debe reabrirse…"
+        />
+        <p className="mt-2 text-xs text-slate-400">
+          La resolución anterior se conserva en el historial. El ticket volverá a estado Abierto.
+        </p>
+      </Drawer>
+
+      <Drawer
+        open={pendingOpen}
+        onClose={() => setPendingOpen(false)}
+        title="Marcar como pendiente"
+        subtitle={t.ticket_number}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button className="btn-secondary" onClick={() => setPendingOpen(false)}>
+              Cancelar
+            </button>
+            <button className="btn-primary" onClick={submitPending} disabled={saving}>
+              {saving && <Spinner className="h-4 w-4 text-white" />}
+              Marcar pendiente
+            </button>
+          </div>
+        }
+      >
+        <label className="label">Motivo</label>
+        <select className="input" value={pendingReason} onChange={(e) => setPendingReason(e.target.value)}>
+          {(options?.pending_reasons || []).map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <label className="label mt-4">Detalle (opcional)</label>
+        <input
+          className="input"
+          value={pendingDetail}
+          onChange={(e) => setPendingDetail(e.target.value)}
+          placeholder="Ej.: Esperando respuesta del usuario desde el 12/09…"
+        />
+      </Drawer>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      {children}
     </div>
   );
 }
@@ -386,4 +824,51 @@ function Info({ label, value }) {
       <dd className="mt-0.5 text-sm font-medium text-slate-700">{value || '—'}</dd>
     </div>
   );
+}
+
+function AttachmentChip({ a }) {
+  if (isImage(a.mime_type)) {
+    return (
+      <a href={fileUrl(a.id)} target="_blank" rel="noreferrer" title={a.original_name}>
+        <img
+          src={fileUrl(a.id)}
+          alt={a.original_name}
+          className="h-20 w-20 rounded-lg object-cover ring-1 ring-slate-200 hover:opacity-80"
+        />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={fileUrl(a.id)}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-200"
+    >
+      📎 {a.original_name || 'Archivo'}
+      <span className="text-slate-400">{formatSize(a.size_bytes)}</span>
+    </a>
+  );
+}
+
+function ToolbarButton({ label, onClick, children }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className="grid h-8 w-8 place-items-center rounded-md text-sm text-slate-500 transition hover:bg-white hover:text-brand-700"
+    >
+      {children}
+    </button>
+  );
+}
+
+function formatMinutes(minutes) {
+  if (minutes == null) return '—';
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h} h ${m} min` : `${h} h`;
 }

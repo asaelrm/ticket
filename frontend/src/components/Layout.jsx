@@ -36,6 +36,11 @@ const ICONS = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6" />
     </svg>
   ),
+  teams: (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20v-1a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm14 9v-1a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ),
   roles: (
     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm6-3h.01M18 12h.01M6 12h.01" />
@@ -62,6 +67,7 @@ const TITLES = {
   '/app/users': 'Usuarios',
   '/app/categories': 'Categorías',
   '/app/departments': 'Departamentos',
+  '/app/teams': 'Equipos de trabajo',
   '/app/roles': 'Roles',
   '/app/reports': 'Reportes',
   '/app/settings': 'Configuración',
@@ -86,6 +92,7 @@ export default function Layout() {
   if (can(user, 'user.view')) items.push({ to: '/app/users', label: 'Usuarios', icon: ICONS.users });
   if (can(user, 'category.manage')) items.push({ to: '/app/categories', label: 'Categorías', icon: ICONS.categories });
   if (can(user, 'department.manage')) items.push({ to: '/app/departments', label: 'Departamentos', icon: ICONS.departments });
+  if (can(user, 'team.manage')) items.push({ to: '/app/teams', label: 'Equipos', icon: ICONS.teams });
   if (can(user, 'role.manage')) items.push({ to: '/app/roles', label: 'Roles', icon: ICONS.roles });
   if (can(user, 'report.view')) items.push({ to: '/app/reports', label: 'Reportes', icon: ICONS.reports });
   if (can(user, 'settings.manage')) items.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });

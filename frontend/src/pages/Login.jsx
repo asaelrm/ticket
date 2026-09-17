@@ -31,7 +31,7 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 via-slate-50 to-brand-50 px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-black via-[#0a0f1a] to-[#141f57] px-4 py-10">
       <div className="w-full max-w-md">
         <div className="card p-8">
           <div className="mb-6 flex flex-col items-center gap-2 text-center">

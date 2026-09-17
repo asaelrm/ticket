@@ -14,6 +14,7 @@ import Tickets from './pages/Tickets';
 import Users from './pages/Users';
 import Categories from './pages/Categories';
 import Departments from './pages/Departments';
+import Teams from './pages/Teams';
 import Roles from './pages/Roles';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="users" element={<Protected permission="user.view"><Users /></Protected>} />
         <Route path="categories" element={<Protected permission="category.manage"><Categories /></Protected>} />
         <Route path="departments" element={<Protected permission="department.manage"><Departments /></Protected>} />
+        <Route path="teams" element={<Protected permission="team.manage"><Teams /></Protected>} />
         <Route path="roles" element={<Protected permission="role.manage"><Roles /></Protected>} />
         <Route path="reports" element={<Protected permission="report.view"><Reports /></Protected>} />
         <Route path="settings" element={<Protected permission="settings.manage"><Settings /></Protected>} />

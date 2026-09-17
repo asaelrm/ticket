@@ -116,22 +116,83 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(name, lastName, username, email, hashPassword(password), departmentId, position, roleId, nowIso());
 
-  const row = db.prepare(LIST_SQL.replace(' WHERE 1=1\n  AND', '')).get(info.lastInsertRowid);
+  const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(info.lastInsertRowid);
   res.status(201).json({ user: publicUser(row) });
 });
 
 router.get('/assignable', (req, res) => {
   const rows = db
-    .prepare(`SELECT id, name, last_name, position, department_name FROM users u
+    .prepare(`SELECT u.id, u.name, u.last_name, u.position, d.name AS department_name FROM users u
               LEFT JOIN departments d ON d.id = u.department_id
               WHERE u.active = 1 ORDER BY u.name, u.last_name`)
     .all();
   res.json({ data: rows });
 });
 
+router.get('/:id/tickets', (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const target = db.prepare('SELECT id, name, last_name FROM users WHERE id = ?').get(id);
+  if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  const isSelf = req.user.id === id;
+  const canViewAny =
+    req.user.permissions.includes('ticket.view.all') || req.user.permissions.includes('user.view');
+  if (!isSelf && !canViewAny) {
+    return res.status(403).json({ error: 'No tiene permiso para ver el historial de este usuario' });
+  }
+
+  const scope = req.query.scope === 'assigned' ? 'assigned' : 'reported';
+  const col = scope === 'assigned' ? 't.assigned_to_id' : 't.reporter_id';
+
+  const page = Math.max(1, parseIntSafe(req.query.page) || 1);
+  const perPage = Math.min(100, Math.max(1, parseIntSafe(req.query.perPage) || 10));
+
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${col} = ?`).get(id).n;
+
+  const byStatusRows = db
+    .prepare(`SELECT t.status, COUNT(*) AS n FROM tickets t WHERE ${col} = ? GROUP BY t.status`)
+    .all(id);
+  const byStatus = {};
+  for (const r of byStatusRows) byStatus[r.status] = r.n;
+
+  const data = db
+    .prepare(
+      `SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.created_at, t.updated_at,
+              t.resolved_at, t.closed_at, t.sla_due_at,
+              c.name AS category_name, c.color AS category_color,
+              d.name AS department_name,
+              COALESCE(au.name || ' ' || au.last_name, '') AS assigned_name,
+              COALESCE(te.name, '') AS team_name,
+              CASE WHEN t.sla_due_at IS NOT NULL
+                        AND t.status IN ('OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING')
+                        AND t.sla_due_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                   THEN 1 ELSE 0 END AS is_overdue
+       FROM tickets t
+       LEFT JOIN categories c ON c.id = t.category_id
+       LEFT JOIN departments d ON d.id = t.department_id
+       LEFT JOIN users au ON au.id = t.assigned_to_id
+       LEFT JOIN teams te ON te.id = t.assigned_team_id
+       WHERE ${col} = ?
+       ORDER BY t.created_at DESC, t.id DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(id, perPage, (page - 1) * perPage);
+
+  res.json({
+    user: { id: target.id, name: `${target.name} ${target.last_name}` },
+    scope,
+    data,
+    by_status: byStatus,
+    total,
+    page,
+    perPage,
+    pages: Math.ceil(total / perPage),
+  });
+});
+
 router.get('/:id', requirePermission('user.view'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const row = db.prepare(LIST_SQL.replace(' WHERE 1=1\n  AND', ' AND')).get(id);
+  const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(id);
   if (!row) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json({ user: publicUser(row) });
 });
@@ -173,7 +234,7 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
     `UPDATE users SET name = ?, last_name = ?, username = ?, email = ?, department_id = ?, position = ?, role_id = ?, updated_at = ? WHERE id = ?`
   ).run(name, lastName, username, email, departmentId, position, roleId, nowIso(), id);
 
-  const row = db.prepare(LIST_SQL.replace(' WHERE 1=1\n  AND', ' AND')).get(id);
+  const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(id);
   res.json({ user: publicUser(row) });
 });
 
@@ -196,7 +257,7 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
   }
 
   db.prepare('UPDATE users SET active = ?, updated_at = ? WHERE id = ?').run(active ? 1 : 0, nowIso(), id);
-  const row = db.prepare(LIST_SQL.replace(' WHERE 1=1\n  AND', ' AND')).get(id);
+  const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(id);
   res.json({ user: publicUser(row) });
 });
 

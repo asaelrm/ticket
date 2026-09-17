@@ -8,6 +8,10 @@ const PERM_GROUPS = [
     codes: ['ticket.create', 'ticket.view.own', 'ticket.view.all', 'ticket.comment', 'ticket.assign', 'ticket.update.any', 'ticket.reopen', 'ticket.export'],
   },
   {
+    label: 'Resolución de tickets',
+    codes: ['ticket.resolve', 'ticket.close', 'ticket.note'],
+  },
+  {
     label: 'Usuarios y roles',
     codes: ['user.view', 'user.manage', 'role.manage'],
   },
@@ -27,9 +31,8 @@ export default function Roles() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    api
-      .get('/api/roles')
-      .then((d) => setData(d))
+    Promise.all([api.get('/api/roles'), api.get('/api/roles/permissions')])
+      .then(([roles, perms]) => setData({ ...roles, permissions: perms.permissions || [] }))
       .catch((err) => setError(err.message || 'No se pudieron cargar los roles'));
   }, []);
 

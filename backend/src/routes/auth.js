@@ -5,7 +5,7 @@ import config from '../config.js';
 import { authRateLimit } from '../utils/rateLimit.js';
 import { verifyPassword, hashPassword } from '../utils/password.js';
 import { validate, rules, safeStr } from '../utils/validation.js';
-import { requireAuth, touchLastLogin, publicUser } from '../middleware/auth.js';
+import { requireAuth, touchLastLogin, loadUser } from '../middleware/auth.js';
 import { nowIso } from '../db.js';
 
 const router = express.Router();
@@ -43,7 +43,7 @@ router.post('/login', authRateLimit(), (req, res) => {
     req.session.userId = user.id;
     req.session.cookie.maxAge = remember ? config.session.rememberMaxAge : config.session.maxAge;
     req.session.save(() => {
-      return res.json({ user: publicUser(user) });
+      return res.json({ user: loadUser(req) });
     });
   });
 });

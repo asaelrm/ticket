@@ -6,36 +6,37 @@
   html {
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    color-scheme: dark;
   }
   body {
-    @apply bg-slate-100 text-slate-800;
+    @apply bg-black text-slate-700;
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d1424] disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700;
+    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-500;
   }
   .btn-secondary {
-    @apply btn border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50;
+    @apply btn border border-slate-300 bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200;
   }
   .btn-danger {
-    @apply btn bg-red-600 text-white shadow-sm hover:bg-red-700;
+    @apply btn bg-red-600 text-white shadow-sm hover:bg-red-500;
   }
   .btn-ghost {
     @apply btn text-slate-600 hover:bg-slate-100;
   }
   .input {
-    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder-slate-400 transition focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+    @apply w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 transition focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
   }
   .label {
     @apply mb-1 block text-sm font-medium text-slate-700;
   }
   .card {
-    @apply rounded-xl border border-slate-200 bg-white shadow-card;
+    @apply rounded-xl border border-slate-200 bg-[#0d1424] shadow-card;
   }
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
@@ -46,6 +47,129 @@
   .td {
     @apply px-3 py-2.5 text-sm text-slate-700;
   }
+}
+
+/* ============ Tema oscuro: ajustes finos ============ */
+/* Superficies blancas -> superficie oscura elevada */
+.bg-white {
+  background-color: #0d1424 !important;
+}
+.bg-white\/90 {
+  background-color: rgba(13, 20, 36, 0.9) !important;
+}
+.hover\:bg-white:hover {
+  background-color: #161f31 !important;
+}
+
+/* Velo de modales y menú móvil (el slate-900 ahora es claro) */
+.bg-slate-900\/40 {
+  background-color: rgba(0, 0, 0, 0.6) !important;
+}
+.bg-slate-900\/50 {
+  background-color: rgba(0, 0, 0, 0.65) !important;
+}
+.bg-red-50\/40 {
+  background-color: rgba(239, 68, 68, 0.12) !important;
+}
+
+/* Checkboxes con el azul de marca */
+input[type='checkbox'] {
+  accent-color: #3366ff;
+}
+
+/* Acento azul de marca en fondos claros y textos */
+[class~='bg-brand-50'] {
+  background-color: rgba(51, 102, 255, 0.14) !important;
+}
+[class~='bg-brand-100'] {
+  background-color: rgba(51, 102, 255, 0.22) !important;
+}
+[class~='hover:bg-brand-50']:hover {
+  background-color: rgba(51, 102, 255, 0.18) !important;
+}
+[class~='text-brand-600'],
+[class~='text-brand-700'],
+[class~='text-brand-800'],
+[class~='hover:text-brand-600']:hover,
+[class~='hover:text-brand-700']:hover {
+  color: #7ea6ff !important;
+}
+
+/* Chips de estado/prioridad: fondos translúcidos y texto claro */
+[class~='bg-blue-50'] {
+  background-color: rgba(59, 130, 246, 0.16) !important;
+}
+[class~='bg-sky-50'] {
+  background-color: rgba(14, 165, 233, 0.16) !important;
+}
+[class~='bg-indigo-50'] {
+  background-color: rgba(99, 102, 241, 0.16) !important;
+}
+[class~='bg-purple-50'] {
+  background-color: rgba(168, 85, 247, 0.16) !important;
+}
+[class~='bg-amber-50'],
+[class~='bg-amber-50/70'] {
+  background-color: rgba(245, 158, 11, 0.16) !important;
+}
+[class~='bg-amber-100'] {
+  background-color: rgba(245, 158, 11, 0.22) !important;
+}
+[class~='bg-orange-50'] {
+  background-color: rgba(249, 115, 22, 0.16) !important;
+}
+[class~='bg-emerald-50'] {
+  background-color: rgba(16, 185, 129, 0.16) !important;
+}
+[class~='bg-red-50'] {
+  background-color: rgba(239, 68, 68, 0.16) !important;
+}
+[class~='hover:bg-red-50']:hover {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+}
+
+[class~='text-blue-600'],
+[class~='text-blue-700'] {
+  color: #93c5fd !important;
+}
+[class~='text-sky-700'] {
+  color: #7dd3fc !important;
+}
+[class~='text-indigo-600'],
+[class~='text-indigo-700'] {
+  color: #a5b4fc !important;
+}
+[class~='text-purple-600'],
+[class~='text-purple-700'] {
+  color: #d8b4fe !important;
+}
+[class~='text-amber-600'],
+[class~='text-amber-700'],
+[class~='text-amber-800'] {
+  color: #fcd34d !important;
+}
+[class~='text-orange-600'],
+[class~='text-orange-700'] {
+  color: #fdba74 !important;
+}
+[class~='text-emerald-600'],
+[class~='text-emerald-700'],
+[class~='text-emerald-800'] {
+  color: #6ee7b7 !important;
+}
+[class~='text-red-600'],
+[class~='text-red-700'] {
+  color: #fca5a5 !important;
+}
+
+[class~='border-amber-200'] {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+[class~='border-emerald-200'] {
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+[class~='border-red-200'] {
+  border-color: rgba(239, 68, 68, 0.3) !important;
 }
 
 ::-webkit-scrollbar {

@@ -40,7 +40,9 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   const login = useCallback(async (account, password, remember) => {
-    const data = await api.post('/api/auth/login', { account, password, remember });
+    await api.post('/api/auth/login', { account, password, remember });
+    // Se consulta /me para garantizar que el usuario incluye sus permisos.
+    const data = await api.get('/api/auth/me');
     setUser(data.user);
     return data.user;
   }, []);
@@ -54,7 +56,7 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
-  const value = { user, setUser, loading, login, logout, appName };
+  const value = { user, setUser, loading, login, logout, appName, setAppName };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

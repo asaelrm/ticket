@@ -93,6 +93,26 @@ CREATE INDEX IF NOT EXISTS idx_tickets_department ON tickets(department_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_priority ON tickets(priority);
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_created ON tickets(created_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_updated ON tickets(updated_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_resolved ON tickets(resolved_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_closed ON tickets(closed_at);
+
+-- 4b. Equipos de trabajo
+CREATE TABLE IF NOT EXISTS teams (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT,
+  active      INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  PRIMARY KEY (team_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
 
 -- 5. Adjuntos, comentarios e historial
 CREATE TABLE IF NOT EXISTS ticket_comments (

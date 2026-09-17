@@ -9,6 +9,9 @@ describe('Autenticación', () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.user.role, 'ADMIN');
     assert.equal(res.body.user.username, 'admin');
+    assert.ok(Array.isArray(res.body.user.permissions), 'el login debe incluir permissions');
+    assert.ok(res.body.user.permissions.includes('ticket.create'));
+    assert.ok(res.body.user.permissions.includes('user.manage'));
   });
 
   it('login con credenciales incorrectas devuelve 401', async () => {

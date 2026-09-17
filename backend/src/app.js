@@ -15,6 +15,7 @@ import rolesRoutes from './routes/roles.js';
 import ticketsRoutes from './routes/tickets.js';
 import categoriesRoutes from './routes/categories.js';
 import departmentsRoutes from './routes/departments.js';
+import teamsRoutes from './routes/teams.js';
 import filesRoutes from './routes/files.js';
 import dashboardRoutes from './routes/dashboard.js';
 import reportsRoutes from './routes/reports.js';
@@ -29,6 +30,25 @@ export function createApp() {
   app.use(
     helmet({
       crossOriginResourcePolicy: { policy: 'same-origin' },
+      // La app puede servirse por HTTP en red local; no forzar HTTPS ni HSTS.
+      strictTransportSecurity: false,
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          baseUri: ["'self'"],
+          fontSrc: ["'self'", 'https:', 'data:'],
+          formAction: ["'self'"],
+          frameAncestors: ["'self'"],
+          imgSrc: ["'self'", 'data:'],
+          objectSrc: ["'none'"],
+          scriptSrc: ["'self'"],
+          scriptSrcAttr: ["'none'"],
+          styleSrc: ["'self'", 'https:', "'unsafe-inline'"],
+          connectSrc: ["'self'"],
+          // Sin upgrade-insecure-requests: permite cargar assets por HTTP en LAN.
+          upgradeInsecureRequests: null,
+        },
+      },
     })
   );
 
@@ -73,6 +93,7 @@ export function createApp() {
   app.use('/api/tickets', ticketsRoutes);
   app.use('/api/categories', categoriesRoutes);
   app.use('/api/departments', departmentsRoutes);
+  app.use('/api/teams', teamsRoutes);
   app.use('/api/files', filesRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/reports', reportsRoutes);
@@ -82,8 +103,18 @@ export function createApp() {
 
   // Frontend compilado (producción)
   if (fs.existsSync(config.publicDir)) {
-    app.use(express.static(config.publicDir, { index: false, maxAge: '1h' }));
+    app.use(
+      express.static(config.publicDir, {
+        index: false,
+        maxAge: '1h',
+        // El HTML no se cachea para que los usuarios reciban siempre el bundle actual.
+        setHeaders: (res, filePath) => {
+          if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      })
+    );
     app.get(/^\/(?!api\/).*/, (req, res) => {
+      res.set('Cache-Control', 'no-cache');
       res.sendFile(path.join(config.publicDir, 'index.html'));
     });
   }

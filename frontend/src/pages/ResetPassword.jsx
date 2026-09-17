@@ -36,7 +36,7 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 via-slate-50 to-brand-50 px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-black via-[#0a0f1a] to-[#141f57] px-4 py-10">
       <div className="w-full max-w-md">
         <div className="card p-8">
           <h1 className="text-xl font-bold text-slate-800">Restablecer contraseña</h1>
@@ -53,7 +53,7 @@ export default function ResetPassword() {
           ) : (
             <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
               <p className="text-sm text-slate-500">
-                Ingrese su nueva contraseña. Debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número.
+                Ingrese su nueva contraseña. Debe tener al menos 6 caracteres.
               </p>
               <div>
                 <label className="label" htmlFor="password">

@@ -6,6 +6,9 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { uploadMiddleware, uploadSizeError } from '../middleware/upload.js';
 import { validateFile, persistUpload } from '../utils/fileType.js';
 import { nextTicketNumber } from '../utils/ticketNumber.js';
+import { computeSlaDue, OPEN_STATUSES } from '../utils/sla.js';
+import { getWorkflowOptions, requireResolutionToClose } from '../utils/options.js';
+import { emitTicketEvent, onTicketEvent } from '../utils/ticketBus.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -26,14 +29,27 @@ export const PRIORITY_LABEL = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRIT
 const TICKET_SQL = `
   SELECT t.*,
     r.name || ' ' || r.last_name AS reporter_name,
+    r.email AS reporter_email,
     COALESCE(au.name || ' ' || au.last_name, '') AS assigned_name,
+    COALESCE(ru.name || ' ' || ru.last_name, '') AS resolved_by_name,
+    COALESCE(cu.name || ' ' || cu.last_name, '') AS closed_by_name,
+    COALESCE(ou.name || ' ' || ou.last_name, '') AS reopened_by_name,
+    COALESCE(te.name, '') AS team_name,
     c.name AS category_name, c.color AS category_color,
     d.name AS department_name,
+    CASE WHEN t.sla_due_at IS NOT NULL
+              AND t.status IN ('OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING')
+              AND t.sla_due_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         THEN 1 ELSE 0 END AS is_overdue,
     (SELECT COUNT(*) FROM ticket_comments tc WHERE tc.ticket_id = t.id) AS comment_count,
     (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.ticket_id = t.id) AS attachment_count
   FROM tickets t
   JOIN users r ON r.id = t.reporter_id
   LEFT JOIN users au ON au.id = t.assigned_to_id
+  LEFT JOIN users ru ON ru.id = t.resolved_by
+  LEFT JOIN users cu ON cu.id = t.closed_by
+  LEFT JOIN users ou ON ou.id = t.reopened_by
+  LEFT JOIN teams te ON te.id = t.assigned_team_id
   LEFT JOIN categories c ON c.id = t.category_id
   LEFT JOIN departments d ON d.id = t.department_id
   WHERE t.id = ?
@@ -85,6 +101,11 @@ function historyDesc(kind, ticket, newValue) {
       const row = db.prepare("SELECT name || ' ' || last_name AS full FROM users WHERE id = ?").get(newValue);
       return `Asignado a ${row ? row.full : ''}`;
     }
+    case 'assigned_team': {
+      if (newValue === null || newValue === '') return 'Equipo de asignación removido';
+      const row = db.prepare('SELECT name FROM teams WHERE id = ?').get(newValue);
+      return `Asignado al equipo ${row ? row.name : ''}`;
+    }
     case 'title':
       return `Título actualizado: "${ticket.title}" → "${newValue}"`;
     case 'description':
@@ -92,6 +113,15 @@ function historyDesc(kind, ticket, newValue) {
     default:
       return 'Ticket actualizado';
   }
+}
+
+function myTeamIds(userId) {
+  return db.prepare('SELECT team_id FROM team_members WHERE user_id = ?').all(userId).map((r) => r.team_id);
+}
+
+function nameForTeam(teamId) {
+  const row = db.prepare('SELECT name FROM teams WHERE id = ?').get(teamId);
+  return row ? row.name : '';
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +136,7 @@ function validateFiles(files) {
     if (!info.ok) {
       errors.push(`${f.originalname}: ${info.reason}`);
     } else {
-      validated.push({ buffer: f.buffer, info });
+      validated.push({ buffer: f.buffer, info: { ...info, originalName: f.originalname } });
     }
   }
   if (errors.length) return { ok: false, reason: errors.join('. ') };
@@ -154,24 +184,121 @@ function startOfPeriod(period) {
   return null;
 }
 
+// Rango [inicio, fin) para fecha de cierre/resolución real.
+function closedRange(period) {
+  const d = new Date();
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  let start;
+  let end;
+  switch (period) {
+    case 'yesterday': {
+      start = new Date(Date.UTC(y, m, day - 1));
+      end = new Date(Date.UTC(y, m, day));
+      break;
+    }
+    case 'week': {
+      const diff = (d.getUTCDay() + 6) % 7;
+      start = new Date(Date.UTC(y, m, day - diff));
+      end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 7);
+      break;
+    }
+    case 'month': {
+      start = new Date(Date.UTC(y, m, 1));
+      end = new Date(Date.UTC(y, m + 1, 1));
+      break;
+    }
+    case 'quarter': {
+      const q = Math.floor(m / 3);
+      start = new Date(Date.UTC(y, q * 3, 1));
+      end = new Date(Date.UTC(y, q * 3 + 3, 1));
+      break;
+    }
+    case 'year': {
+      start = new Date(Date.UTC(y, 0, 1));
+      end = new Date(Date.UTC(y + 1, 0, 1));
+      break;
+    }
+    default: {
+      start = new Date(Date.UTC(y, m, day));
+      end = new Date(Date.UTC(y, m, day + 1));
+    }
+  }
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ID_LIST_RE = /^\d+(,\d+)*$/;
 const ENUM_LIST = { status: STATUSES, priority: PRIORITIES };
+const SEARCH_LIKE = `ESCAPE '\\'`;
+const LIKE_FIELDS = 13;
 
 function buildConditions(req, viewOnlyOwn) {
   const conds = [];
   const params = [];
   const q = req.query;
+  const user = req.user;
 
   if (viewOnlyOwn) {
     conds.push('t.reporter_id = ?');
     params.push(req.user.id);
   }
 
+  // Vistas rápidas (declarativas, combinan con el resto de filtros).
+  const view = String(q.view || '');
+  if (view === 'open') {
+    conds.push(`t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`);
+    params.push(...OPEN_STATUSES);
+  } else if (view === 'pending') {
+    conds.push(`t.status IN ('OPEN', 'PENDING')`);
+  } else if (view === 'attended') {
+    conds.push(`t.status IN ('ASSIGNED', 'IN_PROGRESS')`);
+  } else if (view === 'overdue') {
+    conds.push(`t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) AND t.sla_due_at IS NOT NULL AND t.sla_due_at < ?`);
+    params.push(...OPEN_STATUSES, nowIso());
+  } else if (view === 'mine') {
+    conds.push('t.assigned_to_id = ?');
+    params.push(req.user.id);
+  } else if (view === 'my-teams') {
+    const teams = myTeamIds(req.user.id);
+    if (teams.length) {
+      conds.push(`t.assigned_team_id IN (${teams.map(() => '?').join(',')})`);
+      params.push(...teams);
+    } else {
+      conds.push('1 = 0');
+    }
+  } else if (view === 'closed') {
+    const closedCol = 'COALESCE(t.resolved_at, t.closed_at)';
+    conds.push(`${closedCol} IS NOT NULL`);
+    const period = String(q.closed_period || '');
+    if (['today', 'yesterday', 'week', 'month', 'quarter', 'year'].includes(period)) {
+      const range = closedRange(period);
+      conds.push(`${closedCol} >= ? AND ${closedCol} < ?`);
+      params.push(range.start, range.end);
+    }
+  }
+
   if (q.search) {
-    conds.push("(t.title LIKE ? ESCAPE '\\' OR t.description LIKE ? ESCAPE '\\' OR t.ticket_number LIKE ? ESCAPE '\\')");
     const like = `%${escapeLike(q.search)}%`;
-    params.push(like, like, like);
+    const parts = [
+      `t.title LIKE ?`,
+      `t.description LIKE ?`,
+      `t.ticket_number LIKE ?`,
+      `r.name LIKE ?`,
+      `r.last_name LIKE ?`,
+      `(r.name || ' ' || r.last_name) LIKE ?`,
+      `r.email LIKE ?`,
+      `r.username LIKE ?`,
+      `au.name LIKE ?`,
+      `au.last_name LIKE ?`,
+      `(au.name || ' ' || au.last_name) LIKE ?`,
+      `d.name LIKE ?`,
+      `te.name LIKE ?`,
+    ];
+    conds.push(`(${parts.join(` OR `)} ${SEARCH_LIKE})`);
+    params.push(...Array(LIKE_FIELDS).fill(like));
   }
 
   for (const [key, allowed] of Object.entries(ENUM_LIST)) {
@@ -194,11 +321,17 @@ function buildConditions(req, viewOnlyOwn) {
     }
   }
 
+  if (q.team && ID_LIST_RE.test(String(q.team))) {
+    conds.push('t.assigned_team_id IN (?)');
+    params.push(parseInt(q.team, 10));
+  }
+
   if (q.assigned === 'none') {
     conds.push('t.assigned_to_id IS NULL');
   } else if (q.assigned && ID_LIST_RE.test(String(q.assigned))) {
-    conds.push('t.assigned_to_id = ?');
-    params.push(parseInt(q.assigned, 10));
+    const ids = String(q.assigned).split(',').map((v) => parseInt(v, 10));
+    conds.push(`t.assigned_to_id IN (${ids.map(() => '?').join(',')})`);
+    params.push(...ids);
   }
 
   if (q.date && DATE_RE.test(String(q.date))) {
@@ -221,29 +354,59 @@ function buildConditions(req, viewOnlyOwn) {
     }
   }
 
+  // Fechas sobre cierre/resolución real (búsqueda avanzada).
+  if (q.closed_from && DATE_RE.test(String(q.closed_from))) {
+    conds.push('COALESCE(t.resolved_at, t.closed_at) >= ?');
+    params.push(`${String(q.closed_from)}T00:00:00.000Z`);
+  }
+  if (q.closed_to && DATE_RE.test(String(q.closed_to))) {
+    conds.push('COALESCE(t.resolved_at, t.closed_at) <= ?');
+    params.push(`${String(q.closed_to)}T23:59:59.999Z`);
+  }
+
   return { conds, params };
 }
 
+const SORT_COLUMNS = {
+  created_at: 't.created_at',
+  updated_at: 't.updated_at',
+  ticket_number: 't.ticket_number',
+  closed_at: 'COALESCE(t.resolved_at, t.closed_at)',
+  priority: `CASE t.priority WHEN 'CRITICAL' THEN 3 WHEN 'HIGH' THEN 2 WHEN 'MEDIUM' THEN 1 ELSE 0 END`,
+  status: `CASE t.status WHEN 'OPEN' THEN 0 WHEN 'ASSIGNED' THEN 1 WHEN 'IN_PROGRESS' THEN 2 WHEN 'PENDING' THEN 3 WHEN 'RESOLVED' THEN 4 WHEN 'CLOSED' THEN 5 ELSE 6 END`,
+  title: 't.title',
+};
+
 function sortClause(req) {
-  const allowed = ['ticket_number', 'created_at', 'updated_at', 'priority', 'status', 'title'];
-  const col = allowed.includes(req.query.sort) ? req.query.sort : 'created_at';
+  const col = SORT_COLUMNS[req.query.sort] || SORT_COLUMNS.created_at;
   const dir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
   return `ORDER BY ${col} ${dir}, t.id DESC`;
 }
 
-const LIST_SQL = `
-  SELECT t.*,
-    r.name || ' ' || r.last_name AS reporter_name,
-    COALESCE(au.name || ' ' || au.last_name, '') AS assigned_name,
-    c.name AS category_name, c.color AS category_color,
-    d.name AS department_name,
-    (SELECT COUNT(*) FROM ticket_comments tc WHERE tc.ticket_id = t.id) AS comment_count,
-    (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.ticket_id = t.id) AS attachment_count
+const FROM_JOINS = `
   FROM tickets t
   JOIN users r ON r.id = t.reporter_id
   LEFT JOIN users au ON au.id = t.assigned_to_id
+  LEFT JOIN teams te ON te.id = t.assigned_team_id
   LEFT JOIN categories c ON c.id = t.category_id
   LEFT JOIN departments d ON d.id = t.department_id
+`;
+
+const LIST_SQL = `
+  SELECT t.*,
+    r.name || ' ' || r.last_name AS reporter_name,
+    r.email AS reporter_email,
+    COALESCE(au.name || ' ' || au.last_name, '') AS assigned_name,
+    COALESCE(te.name, '') AS team_name,
+    c.name AS category_name, c.color AS category_color,
+    d.name AS department_name,
+    CASE WHEN t.sla_due_at IS NOT NULL
+              AND t.status IN ('OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING')
+              AND t.sla_due_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         THEN 1 ELSE 0 END AS is_overdue,
+    (SELECT COUNT(*) FROM ticket_comments tc WHERE tc.ticket_id = t.id) AS comment_count,
+    (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.ticket_id = t.id) AS attachment_count
+  ${FROM_JOINS}
 `;
 
 function listQuery(req, viewOnlyOwn) {
@@ -252,12 +415,72 @@ function listQuery(req, viewOnlyOwn) {
   const page = Math.max(1, parseIntSafe(req.query.page) || 1);
   const perPage = Math.min(100, Math.max(1, parseIntSafe(req.query.perPage) || 15));
 
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${where}`).get(...params).n;
+  const total = db.prepare(`SELECT COUNT(*) AS n ${FROM_JOINS} ${where}`).get(...params).n;
   const data = db.prepare(`${LIST_SQL} ${where} ${sortClause(req)} LIMIT ? OFFSET ?`).all(
     ...params, perPage, (page - 1) * perPage
   );
   return { data, total, page, perPage, pages: Math.ceil(total / perPage) };
 }
+
+// ---------------------------------------------------------------------------
+// Contadores dinámicos (filtros rápidos) — calculados en BD, con scope por rol
+// ---------------------------------------------------------------------------
+
+router.get('/counters', (req, res) => {
+  const user = req.user;
+  const staff = hasPerm(user, 'ticket.view.all');
+  const scopeParams = staff ? [] : [user.id];
+  const prefix = staff ? 'WHERE ' : 'WHERE t.reporter_id = ? AND ';
+
+  const cnt = (cond, params = []) =>
+    db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${prefix}${cond}`).get(...scopeParams, ...params).n;
+
+  const openSql = `t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`;
+  const openParams = OPEN_STATUSES;
+  const closedSql = 'COALESCE(t.resolved_at, t.closed_at) IS NOT NULL';
+  const closedCol = 'COALESCE(t.resolved_at, t.closed_at)';
+
+  const byStatusRows = staff
+    ? db.prepare('SELECT status, COUNT(*) AS n FROM tickets GROUP BY status').all()
+    : db.prepare('SELECT status, COUNT(*) AS n FROM tickets WHERE reporter_id = ? GROUP BY status').all(user.id);
+  const byStatus = {};
+  for (const row of byStatusRows) byStatus[row.status] = row.n;
+
+  const teams = myTeamIds(user.id);
+  const myTeams = teams.length
+    ? cnt(`t.assigned_team_id IN (${teams.map(() => '?').join(',')})`, teams)
+    : 0;
+
+  const closed = {};
+  for (const period of ['today', 'yesterday', 'week', 'month', 'quarter', 'year']) {
+    const range = closedRange(period);
+    closed[period] = cnt(
+      `${closedSql} AND ${closedCol} >= ? AND ${closedCol} < ?`,
+      [range.start, range.end]
+    );
+  }
+
+  res.json({
+    all: cnt('1 = 1'),
+    open: cnt(openSql, openParams),
+    pending: cnt(`t.status IN ('OPEN', 'PENDING')`),
+    attended: cnt(`t.status IN ('ASSIGNED', 'IN_PROGRESS')`),
+    in_progress: cnt(`t.status = 'IN_PROGRESS'`),
+    overdue: cnt(`${openSql} AND t.sla_due_at IS NOT NULL AND t.sla_due_at < ?`, [...openParams, nowIso()]),
+    assigned_to_me: cnt(`t.assigned_to_id = ?`, [user.id]),
+    assigned_to_my_teams: myTeams,
+    closed: { ...closed },
+    by_status: byStatus,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Opciones configurables del flujo de resolución (listas editables en Configuración)
+// ---------------------------------------------------------------------------
+
+router.get('/options', (req, res) => {
+  res.json(getWorkflowOptions());
+});
 
 // ---------------------------------------------------------------------------
 // Rutas
@@ -296,9 +519,9 @@ router.post(
 
     const number = nextTicketNumber();
     const info = db.prepare(
-      `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, department_id, priority)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(number, title, description, req.user.id, categoryId, departmentId, priority);
+      `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, department_id, priority, sla_due_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(number, title, description, req.user.id, categoryId, departmentId, priority, computeSlaDue(priority));
     const ticketId = info.lastInsertRowid;
 
     let attachments = [];
@@ -313,6 +536,7 @@ router.post(
     recordHistory(ticketId, req.user.id, 'CREATED', `Ticket creado por ${req.user.name} ${req.user.last_name}`);
     touchTicket(ticketId);
 
+    emitTicketEvent(ticketId, 'refresh');
     return res.status(201).json({ ticket: getTicket(ticketId), attachments });
   }
 );
@@ -327,9 +551,14 @@ router.get('/export', requirePermission('ticket.export'), (req, res) => {
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
   const rows = db.prepare(`${LIST_SQL} ${where} ORDER BY t.created_at DESC LIMIT 5000`).all(...params);
 
-  const cols = ['ticket_number', 'title', 'estado', 'prioridad', 'categoría', 'departamento', 'reportado_por', 'asignado_a', 'creado_en', 'resuelto_en', 'cerrado_en'];
+  const cols = [
+    'Número', 'Título', 'Estado', 'Prioridad', 'Categoría', 'Departamento',
+    'Reportado por', 'Correo reportante', 'Asignado a', 'Equipo', 'Creado', 'Actualizado',
+    'Resuelto', 'Cerrado', 'Fecha de cierre', 'Vencimiento SLA', 'Vencido',
+  ];
+  const sep = ';';
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [cols.map(esc).join(',')];
+  const lines = [cols.map(esc).join(sep)];
   for (const r of rows) {
     lines.push([
       esc(r.ticket_number),
@@ -339,11 +568,17 @@ router.get('/export', requirePermission('ticket.export'), (req, res) => {
       esc(r.category_name),
       esc(r.department_name),
       esc(r.reporter_name),
+      esc(r.reporter_email || ''),
       esc(r.assigned_name),
+      esc(r.team_name),
       esc(r.created_at),
+      esc(r.updated_at || ''),
       esc(r.resolved_at || ''),
       esc(r.closed_at || ''),
-    ].join(','));
+      esc(r.resolved_at || r.closed_at || ''),
+      esc(r.sla_due_at || ''),
+      esc(r.is_overdue ? 'Sí' : 'No'),
+    ].join(sep));
   }
   res.set('Content-Type', 'text/csv; charset=utf-8');
   res.set('Content-Disposition', `attachment; filename="tickets-${new Date().toISOString().slice(0, 10)}.csv"`);
@@ -357,22 +592,105 @@ router.get('/:id', (req, res) => {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
 
+  // Las notas internas solo son visibles para quien puede crearlas (técnicos/admin).
+  const canSeeInternal = hasPerm(req.user, 'ticket.note');
+  const internalFilter = canSeeInternal ? '' : 'AND tc.is_internal = 0';
+  const historyFilter = canSeeInternal ? '' : `AND th.action != 'NOTE_ADDED'`;
+
   const attachments = db.prepare(`
     SELECT ta.*, u.name || ' ' || u.last_name AS uploader_name
     FROM ticket_attachments ta LEFT JOIN users u ON u.id = ta.uploader_id
     WHERE ta.ticket_id = ? ORDER BY ta.created_at ASC, ta.id ASC`).all(id);
 
   const comments = db.prepare(`
-    SELECT tc.*, u.name || ' ' || u.last_name AS user_name
+    SELECT tc.*, u.name || ' ' || u.last_name AS user_name,
+           (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.comment_id = tc.id) AS attachment_count
     FROM ticket_comments tc LEFT JOIN users u ON u.id = tc.user_id
-    WHERE tc.ticket_id = ? ORDER BY tc.created_at ASC, tc.id ASC`).all(id);
+    WHERE tc.ticket_id = ? ${internalFilter} ORDER BY tc.created_at ASC, tc.id ASC`).all(id);
 
   const history = db.prepare(`
     SELECT th.*, u.name || ' ' || u.last_name AS user_name
     FROM ticket_history th LEFT JOIN users u ON u.id = th.user_id
-    WHERE th.ticket_id = ? ORDER BY th.created_at ASC, th.id ASC`).all(id);
+    WHERE th.ticket_id = ? ${historyFilter} ORDER BY th.created_at ASC, th.id ASC`).all(id);
 
-  res.json({ ticket, attachments, comments, history });
+  const can = {
+    resolve: hasPerm(req.user, 'ticket.resolve'),
+    close: hasPerm(req.user, 'ticket.close'),
+    reopen: hasPerm(req.user, 'ticket.reopen'),
+    note: canSeeInternal,
+    assign: hasPerm(req.user, 'ticket.assign'),
+    manage: hasPerm(req.user, 'ticket.update.any'),
+    comment: hasPerm(req.user, 'ticket.comment'),
+  };
+
+  res.json({ ticket, attachments, comments, history, can });
+});
+
+// Conversación en vivo: emite comentarios, cambios y "escribiendo…" por SSE.
+router.get('/:id/stream', (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const ticket = getTicket(id);
+  if (!ticket || !canViewTicket(req.user, ticket)) {
+    return res.status(404).json({ error: 'Ticket no encontrado' });
+  }
+
+  res.set({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders?.();
+  res.write('retry: 3000\n\n');
+  res.write('event: ready\ndata: {}\n\n');
+
+  // Las notas internas no deben salir hacia el reportante.
+  const canSeeInternal = hasPerm(req.user, 'ticket.note');
+
+  const unsubscribe = onTicketEvent((evt) => {
+    if (evt.ticketId !== id) return;
+    if (evt.type === 'comment' && evt.data?.comment?.is_internal && !canSeeInternal) return;
+    if (evt.type === 'typing') {
+      if (evt.data?.user_id === req.user.id) return;
+      if (evt.data?.internal && !canSeeInternal) return;
+    }
+    try {
+      res.write(`event: ${evt.type}\ndata: ${JSON.stringify(evt.data || {})}\n\n`);
+    } catch {
+      // conexión cerrada; el cierre se maneja en req.on('close')
+    }
+  });
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(':hb\n\n');
+    } catch {
+      // ignorar
+    }
+  }, 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    res.end();
+  });
+});
+
+router.post('/:id/typing', (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const ticket = getTicket(id);
+  if (!ticket || !canViewTicket(req.user, ticket)) {
+    return res.status(404).json({ error: 'Ticket no encontrado' });
+  }
+  if (!hasPerm(req.user, 'ticket.comment')) {
+    return res.status(403).json({ error: 'No tiene permiso para comentar' });
+  }
+  emitTicketEvent(id, 'typing', {
+    user_id: req.user.id,
+    user_name: `${req.user.name} ${req.user.last_name}`,
+    internal: false,
+  });
+  res.json({ ok: true });
 });
 
 router.patch('/:id', (req, res) => {
@@ -402,14 +720,39 @@ router.patch('/:id', (req, res) => {
         new: body.status,
       });
       if (reopening) {
+        // La fecha de resolución se limpia para no distorsionar métricas, pero
+        // el contenido de la resolución anterior se conserva (no se borra).
         sets.push({ col: 'resolved_at = ?', val: null });
         sets.push({ col: 'closed_at = ?', val: null });
+        sets.push({ col: 'pending_reason = ?', val: null });
+        sets.push({ col: 'sla_due_at = ?', val: computeSlaDue(ticket.priority) });
       } else if (body.status === 'RESOLVED') {
         sets.push({ col: 'resolved_at = ?', val: nowIso() });
+        sets.push({ col: 'resolved_by = ?', val: req.user.id });
         sets.push({ col: 'closed_at = ?', val: null });
+        sets.push({ col: 'pending_reason = ?', val: null });
+        sets.push({ col: 'resolution_notified = ?', val: 0 });
       } else if (body.status === 'CLOSED') {
         sets.push({ col: 'closed_at = ?', val: nowIso() });
+        sets.push({ col: 'closed_by = ?', val: req.user.id });
+        sets.push({ col: 'pending_reason = ?', val: null });
+      } else if (body.status !== 'PENDING') {
+        sets.push({ col: 'pending_reason = ?', val: null });
       }
+    }
+  }
+
+  if (body.pending_reason !== undefined) {
+    if (!canManage) return res.status(403).json({ error: 'No tiene permiso' });
+    const value = safeStr(body.pending_reason) || null;
+    if (value !== ticket.pending_reason) {
+      sets.push({ col: 'pending_reason = ?', val: value });
+      entries.push({
+        action: 'PENDING_REASON_SET',
+        desc: value ? `Motivo de pendiente: ${value}` : 'Motivo de pendiente removido',
+        old: ticket.pending_reason,
+        new: value,
+      });
     }
   }
 
@@ -418,6 +761,10 @@ router.patch('/:id', (req, res) => {
     if (!canManage) return res.status(403).json({ error: 'No tiene permiso para cambiar la prioridad' });
     if (body.priority !== ticket.priority) {
       sets.push({ col: 'priority = ?', val: body.priority });
+      // Recalcula la fecha límite de SLA con la nueva prioridad.
+      if (!['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status)) {
+        sets.push({ col: 'sla_due_at = ?', val: computeSlaDue(body.priority) });
+      }
       entries.push({ action: 'PRIORITY_CHANGED', desc: historyDesc('priority', ticket, body.priority), old: ticket.priority, new: body.priority });
     }
   }
@@ -446,6 +793,19 @@ router.patch('/:id', (req, res) => {
     }
   }
 
+  if (body.assigned_team_id !== undefined) {
+    if (!canAssign) return res.status(403).json({ error: 'No tiene permiso para asignar tickets' });
+    const targetTeam = body.assigned_team_id === '' || body.assigned_team_id == null ? null : parseIntSafe(body.assigned_team_id);
+    if (targetTeam !== null) {
+      const tm = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1').get(targetTeam);
+      if (!tm) return res.status(400).json({ error: 'Equipo inválido para asignación' });
+    }
+    if (targetTeam !== ticket.assigned_team_id) {
+      sets.push({ col: 'assigned_team_id = ?', val: targetTeam });
+      entries.push({ action: 'ASSIGNED_TEAM', desc: historyDesc('assigned_team', ticket, targetTeam), old: ticket.assigned_team_id, new: targetTeam });
+    }
+  }
+
   if (body.title !== undefined) {
     if (!canManage) return res.status(403).json({ error: 'No tiene permiso' });
     const value = safeStr(body.title);
@@ -471,6 +831,7 @@ router.patch('/:id', (req, res) => {
   const setSql = sets.map((s) => s.col).join(', ');
   db.prepare(`UPDATE tickets SET ${setSql}, updated_at = ? WHERE id = ?`).run(...sets.map((s) => s.val), nowIso(), id);
   for (const e of entries) recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
+  emitTicketEvent(id, 'refresh');
   res.json({ ticket: getTicket(id) });
 });
 
@@ -480,7 +841,13 @@ function processComment(req, res, attachOnly) {
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
-  if (!hasPerm(req.user, 'ticket.comment')) {
+
+  const isInternal = ['1', 'true', 'on', 'si', 'sí'].includes(String(req.body?.is_internal ?? '').toLowerCase());
+  if (isInternal) {
+    if (!hasPerm(req.user, 'ticket.note')) {
+      return res.status(403).json({ error: 'No tiene permiso para agregar notas internas' });
+    }
+  } else if (!hasPerm(req.user, 'ticket.comment')) {
     return res.status(403).json({ error: 'No tiene permiso para comentar' });
   }
 
@@ -497,10 +864,12 @@ function processComment(req, res, attachOnly) {
   const filesCheck = validateFiles(req.files || []);
   if (!filesCheck.ok) return res.status(400).json({ error: filesCheck.reason });
 
-  const finalMessage = attachOnly ? message : message || 'Se adjuntaron archivos a este ticket.';
+  const finalMessage = attachOnly
+    ? message
+    : message || (isInternal ? 'Nota interna con archivos adjuntos.' : 'Se adjuntaron archivos a este ticket.');
   const info = db.prepare(
-    'INSERT INTO ticket_comments (ticket_id, user_id, message) VALUES (?, ?, ?)'
-  ).run(ticket.id, req.user.id, finalMessage);
+    'INSERT INTO ticket_comments (ticket_id, user_id, message, is_internal) VALUES (?, ?, ?, ?)'
+  ).run(ticket.id, req.user.id, finalMessage, isInternal ? 1 : 0);
   const commentId = info.lastInsertRowid;
 
   let attachments = [];
@@ -514,11 +883,28 @@ function processComment(req, res, attachOnly) {
     }
   }
 
-  recordHistory(ticket.id, req.user.id, 'COMMENT_ADDED', `${req.user.name} ${req.user.last_name} agregó un comentario`);
+  recordHistory(
+    ticket.id,
+    req.user.id,
+    isInternal ? 'NOTE_ADDED' : 'COMMENT_ADDED',
+    isInternal
+      ? `${req.user.name} ${req.user.last_name} agregó una nota interna`
+      : `${req.user.name} ${req.user.last_name} agregó un comentario`
+  );
   touchTicket(ticket.id);
 
+  const comment = db.prepare(
+    `SELECT tc.*, u.name || ' ' || u.last_name AS user_name,
+            (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.comment_id = tc.id) AS attachment_count
+     FROM ticket_comments tc LEFT JOIN users u ON u.id = tc.user_id
+     WHERE tc.id = ?`
+  ).get(commentId);
+  comment.is_internal = !!comment.is_internal;
+
+  emitTicketEvent(ticket.id, 'comment', { comment, attachments });
+
   return res.status(201).json({
-    comment: { id: commentId, message: finalMessage, user_id: req.user.id, created_at: nowIso() },
+    comment,
     attachments,
   });
 }
@@ -543,16 +929,198 @@ router.post('/:id/assign', (req, res) => {
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (!hasPerm(req.user, 'ticket.assign')) return res.status(403).json({ error: 'No tiene permiso para asignar' });
 
-  const value = req.body.assigned_to_id;
-  const targetId = value === null || value === '' ? null : parseIntSafe(value);
-  if (targetId !== null) {
-    const u = db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(targetId);
-    if (!u) return res.status(400).json({ error: 'Usuario inválido para asignación' });
+  const updates = [];
+  const entries = [];
+  const now = nowIso();
+
+  if (Object.prototype.hasOwnProperty.call(req.body, 'assigned_to_id')) {
+    const value = req.body.assigned_to_id;
+    const targetId = value === null || value === '' ? null : parseIntSafe(value);
+    if (targetId !== null) {
+      const u = db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(targetId);
+      if (!u) return res.status(400).json({ error: 'Usuario inválido para asignación' });
+    }
+    if (targetId !== ticket.assigned_to_id) {
+      updates.push({ col: 'assigned_to_id = ?', val: targetId });
+      entries.push({ action: 'ASSIGNED', desc: historyDesc('assigned', ticket, targetId), old: ticket.assigned_to_id, new: targetId });
+    }
   }
 
-  db.prepare('UPDATE tickets SET assigned_to_id = ?, updated_at = ? WHERE id = ?').run(targetId, nowIso(), id);
-  recordHistory(id, req.user.id, 'ASSIGNED', historyDesc('assigned', ticket, targetId), ticket.assigned_to_id, targetId);
+  if (Object.prototype.hasOwnProperty.call(req.body, 'assigned_team_id')) {
+    const value = req.body.assigned_team_id;
+    const targetTeam = value === null || value === '' ? null : parseIntSafe(value);
+    if (targetTeam !== null) {
+      const tm = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1').get(targetTeam);
+      if (!tm) return res.status(400).json({ error: 'Equipo inválido para asignación' });
+    }
+    if (targetTeam !== ticket.assigned_team_id) {
+      updates.push({ col: 'assigned_team_id = ?', val: targetTeam });
+      entries.push({ action: 'ASSIGNED_TEAM', desc: historyDesc('assigned_team', ticket, targetTeam), old: ticket.assigned_team_id, new: targetTeam });
+    }
+  }
+
+  if (updates.length) {
+    const setSql = updates.map((u) => u.col).join(', ');
+    db.prepare(`UPDATE tickets SET ${setSql}, updated_at = ? WHERE id = ?`).run(...updates.map((u) => u.val), now, id);
+    for (const e of entries) recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
+  }
+  if (updates.length) emitTicketEvent(id, 'refresh');
   res.json({ ticket: getTicket(id) });
 });
+
+// ---------------------------------------------------------------------------
+// Flujo de resolución: resolver / cerrar / reabrir
+// ---------------------------------------------------------------------------
+
+function isTruthyFlag(value) {
+  return ['1', 'true', 'on', 'si', 'sí', 'yes'].includes(String(value ?? '').toLowerCase());
+}
+
+router.post(
+  '/:id/resolve',
+  requirePermission('ticket.resolve'),
+  uploadMiddleware().array('files', 20),
+  uploadSizeError,
+  (req, res) => {
+    const id = parseIntSafe(req.params.id);
+    const ticket = getTicket(id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+
+    const body = req.body || {};
+    const resolution = safeStr(body.resolution);
+    validate({
+      resolution: rules.required(resolution, 'Solución') + rules.max(resolution, 10000, 'Solución'),
+    });
+
+    const resolutionCategory = safeStr(body.resolution_category).slice(0, 120) || null;
+    const rootCause = safeStr(body.root_cause).slice(0, 120) || null;
+
+    let timeSpent = null;
+    if (body.time_spent_minutes !== undefined && body.time_spent_minutes !== '') {
+      const n = parseIntSafe(body.time_spent_minutes);
+      if (!Number.isFinite(n) || n < 0 || n > 100000) {
+        return res.status(400).json({ error: 'Tiempo empleado inválido' });
+      }
+      timeSpent = n;
+    }
+
+    if (req.files && req.files.length > config.uploads.maxFilesPerTicket) {
+      return res.status(400).json({ error: `Máximo ${config.uploads.maxFilesPerTicket} archivos por solicitud` });
+    }
+    const filesCheck = validateFiles(req.files || []);
+    if (!filesCheck.ok) return res.status(400).json({ error: filesCheck.reason });
+
+    const notify = isTruthyFlag(body.notify);
+    const now = nowIso();
+
+    let attachments = [];
+    try {
+      attachments = persistAndInsertAttachments(filesCheck.validated, id, null, req.user.id);
+    } catch {
+      return res.status(500).json({ error: 'Error al guardar los archivos adjuntos' });
+    }
+
+    db.prepare(
+      `UPDATE tickets
+         SET status = 'RESOLVED', resolved_at = ?, resolved_by = ?, resolution = ?,
+             resolution_category = ?, root_cause = ?, time_spent_minutes = ?,
+             closed_at = NULL, closed_by = NULL, pending_reason = NULL,
+             resolution_notified = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(now, req.user.id, resolution, resolutionCategory, rootCause, timeSpent, notify ? 1 : 0, now, id);
+
+    const previous = ticket.status;
+    recordHistory(
+      id,
+      req.user.id,
+      'RESOLVED',
+      `Ticket resuelto: ${STATUS_LABEL[previous] || previous} → Resuelto`,
+      previous,
+      'RESOLVED'
+    );
+
+    if (notify) {
+      // Notificación real al reportante: comentario público con la solución.
+      db.prepare(
+        'INSERT INTO ticket_comments (ticket_id, user_id, message, is_internal) VALUES (?, ?, ?, 0)'
+      ).run(id, req.user.id, `El ticket fue resuelto.\n\nSolución: ${resolution}`);
+      recordHistory(
+        id,
+        req.user.id,
+        'COMMENT_ADDED',
+        `${req.user.name} ${req.user.last_name} notificó la resolución al usuario`
+      );
+    }
+
+    emitTicketEvent(id, 'refresh');
+    return res.json({ ticket: getTicket(id), attachments });
+  }
+);
+
+router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const ticket = getTicket(id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (ticket.status === 'CLOSED') return res.status(400).json({ error: 'El ticket ya está cerrado' });
+  if (ticket.status === 'CANCELLED') return res.status(400).json({ error: 'Un ticket cancelado no puede cerrarse' });
+
+  if (requireResolutionToClose() && !ticket.resolved_at && !ticket.resolution) {
+    return res.status(400).json({ error: 'Debe registrar una resolución antes de cerrar el ticket.' });
+  }
+
+  const note = safeStr(req.body?.note).slice(0, 2000) || null;
+  const now = nowIso();
+  db.prepare(
+    `UPDATE tickets SET status = 'CLOSED', closed_at = ?, closed_by = ?, pending_reason = NULL, updated_at = ? WHERE id = ?`
+  ).run(now, req.user.id, now, id);
+
+  recordHistory(
+    id,
+    req.user.id,
+    'CLOSED',
+    `Ticket cerrado: ${STATUS_LABEL[ticket.status] || ticket.status} → Cerrado${note ? `. ${note}` : ''}`,
+    ticket.status,
+    'CLOSED'
+  );
+  emitTicketEvent(id, 'refresh');
+  res.json({ ticket: getTicket(id) });
+});
+
+router.post('/:id/reopen', requirePermission('ticket.reopen'), (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const ticket = getTicket(id);
+  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (!['RESOLVED', 'CLOSED'].includes(ticket.status)) {
+    return res.status(400).json({ error: 'Solo se pueden reabrir tickets resueltos o cerrados' });
+  }
+
+  const reason = safeStr(req.body?.reason);
+  validate({
+    reason: rules.required(reason, 'Motivo de reapertura') + rules.max(reason, 2000, 'Motivo de reapertura'),
+  });
+
+  const now = nowIso();
+  // Se conservan solution/root_cause/time_spent/resolved_by de la resolución anterior.
+  db.prepare(
+    `UPDATE tickets
+       SET status = 'OPEN', reopened_at = ?, reopened_by = ?, reopen_reason = ?,
+           resolved_at = NULL, closed_at = NULL, pending_reason = NULL,
+           sla_due_at = ?, updated_at = ?
+     WHERE id = ?`
+  ).run(now, req.user.id, reason, computeSlaDue(ticket.priority), now, id);
+
+  recordHistory(
+    id,
+    req.user.id,
+    'REOPENED',
+    `Ticket reabierto: ${STATUS_LABEL[ticket.status] || ticket.status} → Abierto. Motivo: ${reason}`,
+    ticket.status,
+    'OPEN'
+  );
+  emitTicketEvent(id, 'refresh');
+  res.json({ ticket: getTicket(id) });
+});
+
+export { nameForTeam };
 
 export default router;

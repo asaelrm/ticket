@@ -1,63 +1,284 @@
-import { useEffect, useState, useCallback } from 'react';
-import { api } from '../lib/api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { api, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import TicketFilters from '../components/TicketFilters';
 import { TicketTable } from '../components/TicketTable';
-import { LoadingScreen, ErrorBox } from '../components/ui';
-import { Link } from 'react-router-dom';
+import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
+import { LoadingScreen, ErrorBox, Spinner } from '../components/ui';
 
-const DEFAULT_FILTERS = { page: 1, perPage: 15 };
+const DEFAULTS = { sort: 'created_at', dir: 'desc', perPage: 15, page: 1 };
+
+function parseFilters(searchParams) {
+  const o = Object.fromEntries(searchParams.entries());
+  return {
+    view: o.view || '',
+    search: o.search || '',
+    status: o.status || '',
+    priority: o.priority || '',
+    category: o.category || '',
+    department: o.department || '',
+    user: o.user || '',
+    assigned: o.assigned || '',
+    team: o.team || '',
+    period: o.period || '',
+    date: o.date || '',
+    from: o.from || '',
+    to: o.to || '',
+    closed_period: o.closed_period || '',
+    closed_from: o.closed_from || '',
+    closed_to: o.closed_to || '',
+    sort: o.sort || DEFAULTS.sort,
+    dir: o.dir || DEFAULTS.dir,
+    page: Number(o.page) || 1,
+    perPage: Number(o.perPage) || DEFAULTS.perPage,
+  };
+}
 
 export default function Tickets() {
   const { user } = useAuth();
-  const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  const [list, setList] = useState(null);
-  const [error, setError] = useState('');
-  const canExport = user?.permissions?.includes('ticket.export');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
 
-  const load = useCallback(async (f) => {
+  const [list, setList] = useState(null);
+  const [counters, setCounters] = useState(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [searchDraft, setSearchDraft] = useState(filters.search);
+  const loadedOnce = useRef(false);
+
+  const canExport = user?.permissions?.includes('ticket.export');
+  const canAssign = user?.permissions?.includes('ticket.assign');
+  const canManage = user?.permissions?.includes('ticket.update.any');
+
+  const update = useCallback(
+    (partial, { replace = false } = {}) => {
+      const next = { ...filters, ...partial };
+      if (!('page' in partial)) next.page = 1;
+      const sp = new URLSearchParams();
+      for (const [k, v] of Object.entries(next)) {
+        if (v === '' || v == null) continue;
+        if (k in DEFAULTS && String(DEFAULTS[k]) === String(v)) continue;
+        sp.set(k, String(v));
+      }
+      setSearchParams(sp, { replace });
+    },
+    [filters, setSearchParams]
+  );
+
+  const query = useMemo(() => {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(filters)) {
+      if (v !== '' && v != null) sp.set(k, String(v));
+    }
+    return sp.toString();
+  }, [filters]);
+
+  const reload = useCallback(async () => {
     setError('');
     try {
-      const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(f)) {
-        if (v !== '' && v != null && v !== 'none') params.append(k, v);
-      }
-      params.append('perPage', f.perPage || 15);
-      const data = await api.get(`/api/tickets?${params}`);
+      const [data, counterData] = await Promise.all([
+        api.get(`/api/tickets?${query}`),
+        api.get('/api/tickets/counters').catch(() => null),
+      ]);
       setList(data);
+      if (counterData) setCounters(counterData);
+      loadedOnce.current = true;
     } catch (err) {
       setError(err.message || 'No se pudieron cargar los tickets');
     }
-  }, []);
+  }, [query]);
 
   useEffect(() => {
-    load(filters);
-  }, [load, filters]);
+    reload();
+  }, [reload]);
+
+  useEffect(() => {
+    setSearchDraft(filters.search);
+  }, [filters.search]);
+
+  useEffect(() => {
+    if (searchDraft === filters.search) return undefined;
+    const t = setTimeout(() => update({ search: searchDraft }), 350);
+    return () => clearTimeout(t);
+  }, [searchDraft, filters.search, update]);
+
+  const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
+
+  function chipActive(key) {
+    if (key === 'all') return !filters.view && !filters.status;
+    if (key === 'in_progress') return !filters.view && filters.status === 'IN_PROGRESS';
+    return filters.view === key;
+  }
+
+  function onChip(v) {
+    if (v.view === false) return update({ view: '', status: 'IN_PROGRESS' });
+    if (v.key === 'all') return update({ view: '', status: '' });
+    if (v.key === 'closed') return update({ view: 'closed', status: '', closed_period: filters.closed_period || 'month' });
+    return update({ view: v.key, status: '' });
+  }
+
+  function counterValue(counterKey) {
+    if (!counters || !counterKey) return null;
+    if (counterKey === 'closed') return counters.closed?.month ?? null;
+    return counters[counterKey] ?? null;
+  }
+
+  async function assignMe(t) {
+    setBusy(true);
+    setError('');
+    try {
+      await api.patch(`/api/tickets/${t.id}`, { assigned_to_id: user.id });
+      await reload();
+    } catch (err) {
+      setError(err.message || 'No se pudo asignar el ticket');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeStatus(t, status) {
+    setBusy(true);
+    setError('');
+    try {
+      await api.patch(`/api/tickets/${t.id}`, { status });
+      await reload();
+    } catch (err) {
+      setError(err.message || 'No se pudo actualizar el estado');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function exportCsv() {
-    const params = new URLSearchParams();
+    const sp = new URLSearchParams();
     for (const [k, v] of Object.entries(filters)) {
-      if (v !== '' && v != null && v !== 'none' && !['page', 'perPage'].includes(k)) params.append(k, v);
+      if (v === '' || v == null) continue;
+      if (['page', 'perPage', 'sort', 'dir'].includes(k)) continue;
+      sp.set(k, String(v));
     }
-    const url = `/api/tickets/export?${params}`;
     const a = document.createElement('a');
-    a.href = url;
+    a.href = `/api/tickets/export?${sp}`;
     a.click();
   }
 
+  const hasAnyFilter = query.length > 0;
+
   return (
     <div>
-      <TicketFilters
-        filters={filters}
-        onChange={setFilters}
-        onReset={() => setFilters(DEFAULT_FILTERS)}
-        showUser
-      />
+      {/* Chips de filtros rápidos con contadores */}
+      <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+        {VIEWS.map((v) => {
+          const active = chipActive(v.key);
+          const count = counterValue(v.counter);
+          return (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => onChip(v)}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm font-medium transition ${
+                active
+                  ? 'border-brand-600 bg-brand-600 text-white'
+                  : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:text-brand-700'
+              }`}
+            >
+              {v.label}
+              {count != null && (
+                <span className={`rounded-full px-1.5 text-xs ${active ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Barra de herramientas */}
+      <div className="card mb-4">
+        <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
+          <div className="relative flex-1">
+            <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="7" />
+              <path strokeLinecap="round" d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              className="input !pl-9"
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              placeholder="Buscar por número, título, texto, solicitante, correo, técnico, equipo…"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-secondary" onClick={() => setShowAdvanced(true)}>
+              Búsqueda avanzada
+              {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
+            </button>
+            <select
+              className="input !w-auto"
+              value={filters.sort}
+              onChange={(e) => update({ sort: e.target.value })}
+              title="Ordenar por"
+            >
+              {SORT_OPTIONS.map(([v, l]) => (
+                <option key={v} value={v}>
+                  Ordenar: {l}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-secondary !px-2.5"
+              onClick={() => update({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
+              title={filters.dir === 'asc' ? 'Ascendente' : 'Descendente'}
+            >
+              {filters.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
+            </button>
+            {hasAnyFilter && (
+              <button type="button" className="btn-ghost text-sm" onClick={() => setSearchParams({}, { replace: false })}>
+                Limpiar
+              </button>
+            )}
+          </div>
+        </div>
+
+        {filters.view === 'closed' && (
+          <div className="flex items-center gap-2 border-t border-slate-200 px-3 py-2.5">
+            <span className="text-sm text-slate-500">Cierre:</span>
+            {CLOSED_PERIODS.map(([v, l]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => update({ closed_period: v })}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  filters.closed_period === v ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Resumen y acciones */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-slate-500">
-          {list ? `${list.total} tickets encontrados` : 'Cargando…'}
+        <p className="flex items-center gap-2 text-sm text-slate-500">
+          {list ? (
+            <>
+              {busy && <Spinner className="h-4 w-4 text-brand-600" />}
+              <span>
+                <b>{list.total}</b> ticket(s) {filters.view === 'closed' ? 'cerrados' : 'encontrados'}
+                {hasAnyFilter ? ' con los filtros aplicados' : ''}
+              </span>
+            </>
+          ) : (
+            'Cargando…'
+          )}
         </p>
         <div className="flex gap-2">
+          <button type="button" className="btn-secondary !px-2.5" onClick={reload} title="Actualizar">
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M20 9a8 8 0 0 0-14.9-2M4 15a8 8 0 0 0 14.9 2" />
+            </svg>
+          </button>
           {canExport && (
             <button type="button" className="btn-secondary" onClick={exportCsv}>
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -71,8 +292,35 @@ export default function Tickets() {
           </Link>
         </div>
       </div>
+
       {error && <ErrorBox message={error} />}
-      {!list ? <LoadingScreen /> : <TicketTable list={list} basePath="/app/tickets" onPage={(page) => setFilters((p) => ({ ...p, page }))} />}
+
+      {!list ? (
+        <LoadingScreen />
+      ) : (
+        <TicketTable
+          list={list}
+          basePath="/app/tickets"
+          sort={filters.sort}
+          dir={filters.dir}
+          onSort={(sort, dir) => update({ sort, dir })}
+          onPage={(page) => update({ page })}
+          perPage={filters.perPage}
+          onPerPage={(perPage) => update({ perPage })}
+          canAssign={canAssign}
+          canManage={canManage}
+          onAssignMe={assignMe}
+          onStatusChange={changeStatus}
+        />
+      )}
+
+      <AdvancedSearchModal
+        open={showAdvanced}
+        onClose={() => setShowAdvanced(false)}
+        filters={filters}
+        onApply={(form) => update({ ...form, view: '', closed_period: '' })}
+        onClear={() => update(Object.fromEntries(ADVANCED_KEYS.map((k) => [k, ''])))}
+      />
     </div>
   );
 }
