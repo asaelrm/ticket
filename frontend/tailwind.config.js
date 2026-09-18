@@ -4,33 +4,35 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Verde UCE + turquesa: color de marca y acciones.
         brand: {
-          50: '#eef4ff',
-          100: '#d9e6ff',
-          200: '#bcd3ff',
-          300: '#8eb6ff',
-          400: '#5990ff',
-          500: '#3366ff',
-          600: '#1f4ff5',
-          700: '#183de1',
-          800: '#1a33b6',
-          900: '#1b2f8f',
-          950: '#141f57',
+          50: '#e7faf1',
+          100: '#c9f3df',
+          200: '#9aeac5',
+          300: '#63dfa6',
+          400: '#3ad48b',
+          500: '#22C77A',
+          600: '#17a963',
+          700: '#128d56',
+          800: '#0e6e44',
+          900: '#0a5233',
+          950: '#06301d',
         },
-        // Escala invertida para el tema oscuro: los tonos "claros" se vuelven
+        // Escala navy invertida para el tema oscuro: los tonos "claros" se vuelven
         // superficies oscuras y los "oscuros" pasan a ser texto claro.
+        // 50/100 = superficies, 200/300 = bordes, 400+ = texto.
         slate: {
-          50: '#0a0f1a',
-          100: '#121a29',
-          200: '#1e293b',
-          300: '#334155',
-          400: '#64748b',
-          500: '#94a3b8',
-          600: '#cbd5e1',
-          700: '#e2e8f0',
-          800: '#f1f5f9',
-          900: '#f8fafc',
-          950: '#ffffff',
+          50: '#0E3A50',
+          100: '#0C3347',
+          200: '#154E59',
+          300: '#2A5F75',
+          400: '#8CA5B8',
+          500: '#AFC4D4',
+          600: '#C6D6E2',
+          700: '#DDE8F0',
+          800: '#F8FAFC',
+          900: '#FFFFFF',
+          950: '#FFFFFF',
         },
       },
       fontFamily: {

@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --navy-1: #061b2c;
+  --navy-2: #08283d;
+  --surface: #0b3046;
+  --surface-2: #0e3a50;
+  --uce-green: #59b77c;
+  --uce-bright: #22c77a;
+  --uce-teal: #20c7b7;
+  --info-blue: #2196f3;
+  --text-1: #f8fafc;
+  --text-2: #afc4d4;
+  --border-glass: rgba(110, 210, 190, 0.2);
+  --border-glass-soft: rgba(110, 210, 190, 0.16);
+}
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
@@ -9,104 +24,192 @@
     color-scheme: dark;
   }
   body {
-    @apply bg-black text-slate-700;
+    color: #dde8f0;
+    background-color: var(--navy-1);
+    background-image:
+      radial-gradient(1000px 620px at 85% -10%, rgba(34, 199, 122, 0.12), transparent 60%),
+      radial-gradient(900px 560px at -12% 25%, rgba(32, 199, 183, 0.1), transparent 55%),
+      radial-gradient(760px 520px at 55% 125%, rgba(33, 150, 243, 0.08), transparent 60%),
+      linear-gradient(165deg, #061b2c 0%, #08283d 48%, #061b2c 100%);
+    background-attachment: fixed;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  }
+  ::selection {
+    background: rgba(34, 199, 122, 0.35);
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.01em;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--uce-bright);
+  }
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'] {
+    color-scheme: dark;
+  }
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='time']::-webkit-calendar-picker-indicator,
+  input[type='datetime-local']::-webkit-calendar-picker-indicator {
+    filter: invert(0.75) sepia(0.4) saturate(3) hue-rotate(90deg);
+    cursor: pointer;
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d1424] disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#061b2c] disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-500;
+    @apply btn text-white shadow-[0_8px_24px_rgba(34,199,122,0.28)];
+    background-image: linear-gradient(135deg, #22c77a, #149e72);
+  }
+  .btn-primary:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 10px 28px rgba(34, 199, 122, 0.38);
+  }
+  .btn-primary:active {
+    transform: translateY(1px);
   }
   .btn-secondary {
-    @apply btn border border-slate-300 bg-slate-100 text-slate-700 shadow-sm hover:bg-slate-200;
+    @apply btn text-slate-200;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.11);
+    border-color: rgba(255, 255, 255, 0.18);
   }
   .btn-danger {
-    @apply btn bg-red-600 text-white shadow-sm hover:bg-red-500;
+    @apply btn text-white shadow-[0_8px_24px_rgba(239,68,68,0.28)];
+    background-image: linear-gradient(135deg, #f87171, #dc2626);
+  }
+  .btn-danger:hover {
+    filter: brightness(1.08);
+  }
+  .btn-danger:active {
+    transform: translateY(1px);
   }
   .btn-ghost {
-    @apply btn text-slate-600 hover:bg-slate-100;
+    @apply btn text-slate-400 hover:text-slate-100;
+  }
+  .btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.07);
   }
   .input {
-    @apply w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 transition focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+    @apply w-full rounded-xl border px-3.5 py-2.5 text-sm text-slate-800 transition duration-150 focus:outline-none;
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(110, 210, 190, 0.22);
+    color: #e6eef5;
+  }
+  .input::placeholder {
+    color: rgba(175, 196, 212, 0.55);
+  }
+  .input:focus {
+    border-color: rgba(34, 199, 122, 0.6);
+    box-shadow: 0 0 0 3px rgba(34, 199, 122, 0.16);
   }
   .label {
-    @apply mb-1 block text-sm font-medium text-slate-700;
+    @apply mb-1 block text-sm font-medium;
+    color: var(--text-2);
   }
   .card {
-    @apply rounded-xl border border-slate-200 bg-[#0d1424] shadow-card;
+    @apply rounded-2xl border;
+    background: linear-gradient(180deg, rgba(14, 58, 80, 0.88), rgba(11, 48, 70, 0.84));
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    border-color: rgba(110, 210, 190, 0.18);
+    box-shadow: 0 10px 35px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
   .badge {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold;
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide whitespace-nowrap;
   }
   .th {
-    @apply px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500;
+    @apply px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.08em];
+    color: rgba(175, 196, 212, 0.8);
   }
   .td {
-    @apply px-3 py-2.5 text-sm text-slate-700;
+    @apply px-3 py-2.5 text-sm leading-snug;
+    color: #c6d6e2;
   }
 }
 
-/* ============ Tema oscuro: ajustes finos ============ */
-/* Superficies blancas -> superficie oscura elevada */
+/* ============================================================
+   Identidad Centro Médico UCE · NexTurn
+   ============================================================ */
+
+/* Superficies blancas -> glass navy */
 .bg-white {
-  background-color: #0d1424 !important;
+  background-color: rgba(8, 40, 61, 0.78) !important;
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
 }
-.bg-white\/90 {
-  background-color: rgba(13, 20, 36, 0.9) !important;
+.bg-white\/90,
+.bg-white\/95 {
+  background-color: rgba(8, 40, 61, 0.86) !important;
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
 }
 .hover\:bg-white:hover {
-  background-color: #161f31 !important;
+  background-color: rgba(14, 58, 80, 0.92) !important;
 }
 
-/* Velo de modales y menú móvil (el slate-900 ahora es claro) */
-.bg-slate-900\/40 {
-  background-color: rgba(0, 0, 0, 0.6) !important;
-}
+/* Velo de modales y menú móvil */
+.bg-slate-900\/40,
 .bg-slate-900\/50 {
-  background-color: rgba(0, 0, 0, 0.65) !important;
+  background-color: rgba(4, 15, 26, 0.7) !important;
 }
 .bg-red-50\/40 {
-  background-color: rgba(239, 68, 68, 0.12) !important;
+  background-color: rgba(248, 113, 113, 0.1) !important;
+}
+.bg-white\/20 {
+  background-color: rgba(255, 255, 255, 0.14) !important;
 }
 
-/* Checkboxes con el azul de marca */
-input[type='checkbox'] {
-  accent-color: #3366ff;
-}
-
-/* Acento azul de marca en fondos claros y textos */
+/* Acento verde UCE en fondos y textos */
 [class~='bg-brand-50'] {
-  background-color: rgba(51, 102, 255, 0.14) !important;
+  background-color: rgba(34, 199, 122, 0.12) !important;
+}
+[class~='bg-brand-50/40'] {
+  background-color: rgba(34, 199, 122, 0.08) !important;
 }
 [class~='bg-brand-100'] {
-  background-color: rgba(51, 102, 255, 0.22) !important;
+  background-color: rgba(34, 199, 122, 0.18) !important;
 }
 [class~='hover:bg-brand-50']:hover {
-  background-color: rgba(51, 102, 255, 0.18) !important;
+  background-color: rgba(34, 199, 122, 0.16) !important;
 }
+[class~='bg-brand-600'] {
+  background-color: #1fb96f !important;
+}
+[class~='text-brand-500'],
 [class~='text-brand-600'],
 [class~='text-brand-700'],
 [class~='text-brand-800'],
 [class~='hover:text-brand-600']:hover,
 [class~='hover:text-brand-700']:hover {
-  color: #7ea6ff !important;
+  color: #7ae9b6 !important;
 }
 
 /* Chips de estado/prioridad: fondos translúcidos y texto claro */
 [class~='bg-blue-50'] {
-  background-color: rgba(59, 130, 246, 0.16) !important;
+  background-color: rgba(33, 150, 243, 0.16) !important;
 }
 [class~='bg-sky-50'] {
-  background-color: rgba(14, 165, 233, 0.16) !important;
+  background-color: rgba(56, 189, 248, 0.16) !important;
 }
 [class~='bg-indigo-50'] {
-  background-color: rgba(99, 102, 241, 0.16) !important;
+  background-color: rgba(129, 140, 248, 0.16) !important;
 }
 [class~='bg-purple-50'] {
   background-color: rgba(168, 85, 247, 0.16) !important;
+}
+[class~='bg-teal-50'] {
+  background-color: rgba(32, 199, 183, 0.16) !important;
 }
 [class~='bg-amber-50'],
 [class~='bg-amber-50/70'] {
@@ -119,13 +222,13 @@ input[type='checkbox'] {
   background-color: rgba(249, 115, 22, 0.16) !important;
 }
 [class~='bg-emerald-50'] {
-  background-color: rgba(16, 185, 129, 0.16) !important;
+  background-color: rgba(52, 211, 153, 0.16) !important;
 }
 [class~='bg-red-50'] {
-  background-color: rgba(239, 68, 68, 0.16) !important;
+  background-color: rgba(248, 113, 113, 0.16) !important;
 }
 [class~='hover:bg-red-50']:hover {
-  background-color: rgba(239, 68, 68, 0.18) !important;
+  background-color: rgba(248, 113, 113, 0.2) !important;
 }
 
 [class~='text-blue-600'],
@@ -142,6 +245,10 @@ input[type='checkbox'] {
 [class~='text-purple-600'],
 [class~='text-purple-700'] {
   color: #d8b4fe !important;
+}
+[class~='text-teal-600'],
+[class~='text-teal-700'] {
+  color: #5eead4 !important;
 }
 [class~='text-amber-600'],
 [class~='text-amber-700'],
@@ -162,22 +269,181 @@ input[type='checkbox'] {
   color: #fca5a5 !important;
 }
 
+/* ------------------------------------------------------------------
+   Utilidades Tailwind del tema claro → escala clara sobre glass navy.
+   Evita texto oscuro/invisible sobre las tarjetas oscuras.
+   ------------------------------------------------------------------ */
+[class~='text-slate-400'] {
+  color: #8ca5b8 !important;
+}
+[class~='text-slate-500'] {
+  color: #a9c0d0 !important;
+}
+[class~='text-slate-600'] {
+  color: #c6d6e2 !important;
+}
+[class~='text-slate-700'] {
+  color: #dce7ee !important;
+}
+[class~='text-slate-800'] {
+  color: #e8f1f6 !important;
+}
+[class~='hover:text-slate-600']:hover {
+  color: #c6d6e2 !important;
+}
+[class~='hover:text-slate-700']:hover {
+  color: #a9c0d0 !important;
+}
+[class~='bg-slate-50'] {
+  background-color: rgba(14, 58, 80, 0.55) !important;
+}
+[class~='bg-slate-100'] {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+[class~='hover:bg-slate-50']:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+[class~='hover:bg-slate-100']:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+[class~='hover:bg-slate-200']:hover {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+}
+
 [class~='border-amber-200'] {
   border-color: rgba(245, 158, 11, 0.3) !important;
 }
 [class~='border-emerald-200'] {
-  border-color: rgba(16, 185, 129, 0.3) !important;
+  border-color: rgba(52, 211, 153, 0.3) !important;
 }
 [class~='border-red-200'] {
-  border-color: rgba(239, 68, 68, 0.3) !important;
+  border-color: rgba(248, 113, 113, 0.3) !important;
 }
 
+/* Cabeceras de tabla: superficie ligeramente más clara */
+thead {
+  background: rgba(14, 58, 80, 0.6);
+}
+tbody tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+tbody.divide-slate-100 > tr + tr {
+  border-color: rgba(175, 196, 212, 0.1) !important;
+}
+
+/* ============================================================
+   Componentes de marca: sidebar, topbar, logo, nav, panels
+   ============================================================ */
+
+.app-sidebar {
+  background: linear-gradient(180deg, rgba(10, 37, 58, 0.96), rgba(6, 27, 44, 0.98)) !important;
+  border-right: 1px solid var(--border-glass-soft);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.app-topbar {
+  background: rgba(8, 40, 61, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border-bottom: 1px solid var(--border-glass-soft);
+}
+
+.app-logo {
+  background-image: linear-gradient(135deg, #22c77a, #149e72);
+  box-shadow: 0 8px 22px rgba(34, 199, 122, 0.32);
+}
+
+.app-nav-active {
+  position: relative;
+  background-image: linear-gradient(135deg, #22c77a, #149e72);
+  color: #ffffff !important;
+  box-shadow: 0 8px 20px rgba(34, 199, 122, 0.3);
+}
+
+.app-nav-section {
+  color: rgba(89, 183, 124, 0.85);
+}
+
+.app-nav-item {
+  color: #8ca5b8;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.app-nav-item:hover {
+  color: #e6eef5;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Paneles glass (modales, drawer, menús, notificaciones) */
+.panel-glass {
+  background: linear-gradient(180deg, rgba(14, 58, 80, 0.98), rgba(8, 40, 61, 0.98));
+  border: 1px solid var(--border-glass);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.panel-blur {
+  background: rgba(8, 40, 61, 0.72);
+  border: 1px solid var(--border-glass-soft);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+/* Animaciones (solo micro, 150-250 ms) */
+@keyframes nexfade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes nexpop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes nexslide {
+  from {
+    opacity: 0.4;
+    transform: translateX(48px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.nex-fade {
+  animation: nexfade 200ms ease-out;
+}
+.nex-pop {
+  animation: nexpop 220ms ease-out;
+}
+.nex-slide {
+  animation: nexslide 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  @apply rounded-full bg-slate-300;
+  background: rgba(110, 210, 190, 0.25);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(110, 210, 190, 0.45);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 ::-webkit-scrollbar-track {
   background: transparent;

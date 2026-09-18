@@ -68,12 +68,21 @@ export function EmptyState({ icon = '📋', title, subtitle }) {
 }
 
 export function Modal({ open, onClose, title, children, wide }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm nex-fade" onClick={onClose} />
       <div
-        className={`relative max-h-[90vh] w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} overflow-y-auto rounded-2xl bg-white shadow-pop`}
+        className={`panel-glass relative max-h-[90vh] w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} overflow-y-auto rounded-2xl nex-pop`}
         role="dialog"
         aria-modal="true"
       >
@@ -108,9 +117,9 @@ export function Drawer({ open, onClose, title, subtitle, children, footer, wide 
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm nex-fade" onClick={onClose} />
       <div
-        className={`relative flex h-full w-full flex-col bg-white shadow-pop ${wide ? 'sm:max-w-2xl' : 'sm:max-w-xl'}`}
+        className={`panel-glass relative flex h-full w-full flex-col nex-slide ${wide ? 'sm:max-w-2xl' : 'sm:max-w-xl'}`}
         role="dialog"
         aria-modal="true"
       >
@@ -230,7 +239,7 @@ export function Menu({ label, items, align = 'right', buttonClass = 'btn-seconda
           <div
             ref={ref}
             style={{ position: 'fixed', top: pos.top, left: pos.left }}
-            className="z-50 max-h-[70vh] min-w-[200px] overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-pop"
+            className="panel-glass z-50 max-h-[70vh] min-w-[200px] overflow-y-auto rounded-xl py-1 nex-pop"
             role="menu"
           >
             {visible.map((item) =>

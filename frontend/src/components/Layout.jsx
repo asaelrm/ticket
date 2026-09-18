@@ -72,7 +72,7 @@ const ICONS = {
 
 const TITLES = {
   '/app/dashboard': 'Dashboard',
-  '/app/tickets': 'Tickets',
+  '/app/tickets': 'Todos los tickets',
   '/app/new-ticket': 'Reportar incidencia',
   '/app/my-tickets': 'Mis tickets',
   '/app/users': 'Usuarios',
@@ -88,8 +88,10 @@ const TITLES = {
 };
 
 export default function Layout() {
-  const { user, logout, appName } = useAuth();
+  const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [now, setNow] = useState(() => new Date());
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -97,22 +99,43 @@ export default function Layout() {
     setOpen(false);
   }, [location.pathname]);
 
-  const items = [];
-  if (can(user, 'ticket.create')) items.push({ to: '/app/new-ticket', label: 'Reportar incidencia', icon: ICONS.add });
-  items.push({ to: '/app/my-tickets', label: 'Mis tickets', icon: ICONS.tickets });
-  if (can(user, 'ticket.view.all')) items.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox });
-  if (can(user, 'dashboard.view')) items.push({ to: '/app/dashboard', label: 'Dashboard', icon: ICONS.home });
-  if (can(user, 'ticket.view.all')) items.push({ to: '/app/tickets', label: 'Tickets', icon: ICONS.tickets });
-  if (can(user, 'user.view')) items.push({ to: '/app/users', label: 'Usuarios', icon: ICONS.users });
-  if (can(user, 'category.manage')) items.push({ to: '/app/categories', label: 'Categorías', icon: ICONS.categories });
-  if (can(user, 'department.manage')) items.push({ to: '/app/departments', label: 'Departamentos', icon: ICONS.departments });
-  if (can(user, 'team.manage')) items.push({ to: '/app/teams', label: 'Equipos', icon: ICONS.teams });
-  if (can(user, 'role.manage')) items.push({ to: '/app/roles', label: 'Roles', icon: ICONS.roles });
-  if (can(user, 'report.view')) items.push({ to: '/app/reports', label: 'Reportes', icon: ICONS.reports });
-  if (can(user, 'settings.manage')) items.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });
-  if (can(user, 'settings.manage')) items.push({ to: '/app/audit', label: 'Auditoría', icon: ICONS.audit });
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
-  const currentTitle = TITLES[location.pathname] || 'Ticket Flow';
+  function onGlobalSearch(e) {
+    e.preventDefault();
+    const term = q.trim();
+    const target = can(user, 'ticket.view.all') ? '/app/inbox' : '/app/my-tickets';
+    navigate(term ? `${target}?search=${encodeURIComponent(term)}` : target);
+  }
+
+  const primary = [];
+  if (can(user, 'dashboard.view')) primary.push({ to: '/app/dashboard', label: 'Dashboard', icon: ICONS.home });
+  primary.push({ to: '/app/my-tickets', label: 'Mis tickets', icon: ICONS.tickets });
+  if (can(user, 'ticket.view.all')) primary.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox });
+
+  const management = [];
+  if (can(user, 'ticket.view.all')) management.push({ to: '/app/tickets', label: 'Todos los tickets', icon: ICONS.tickets });
+  if (can(user, 'user.view')) management.push({ to: '/app/users', label: 'Usuarios', icon: ICONS.users });
+  if (can(user, 'category.manage')) management.push({ to: '/app/categories', label: 'Categorías', icon: ICONS.categories });
+  if (can(user, 'department.manage')) management.push({ to: '/app/departments', label: 'Departamentos', icon: ICONS.departments });
+  if (can(user, 'team.manage')) management.push({ to: '/app/teams', label: 'Equipos', icon: ICONS.teams });
+  if (can(user, 'role.manage')) management.push({ to: '/app/roles', label: 'Roles', icon: ICONS.roles });
+
+  const system = [];
+  if (can(user, 'report.view')) system.push({ to: '/app/reports', label: 'Reportes', icon: ICONS.reports });
+  if (can(user, 'settings.manage')) system.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });
+  if (can(user, 'settings.manage')) system.push({ to: '/app/audit', label: 'Auditoría', icon: ICONS.audit });
+
+  const sections = [
+    { title: 'Principal', items: primary },
+    { title: 'Gestión', items: management },
+    { title: 'Sistema', items: system },
+  ].filter((s) => s.items.length);
+
+  const currentTitle = TITLES[location.pathname] || 'Tickets';
   const initials = user
     ? `${user.name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase()
     : '?';
@@ -120,50 +143,74 @@ export default function Layout() {
   const sidebar = (
     <div className="flex h-full flex-col">
       <button
-        className="flex items-center gap-2 px-5 py-5 text-left"
+        className="flex items-center gap-3 px-5 pb-4 pt-5 text-left"
         onClick={() => navigate('/app')}
+        title="Centro Médico UCE · NexTurn"
       >
-        <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-600 text-white">
-          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" d="M6 6h12v2H6zM6 11h12v2H6zM6 16h7v2H6z" />
+        <span className="app-logo grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-white">
+          <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 21s-7-4.6-9.3-9a5.2 5.2 0 0 1 9.3-3 5.2 5.2 0 0 1 9.3 3C19 16.4 12 21 12 21z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h4l1.5-2.5 2 5 1.5-2.5h6" />
           </svg>
         </span>
-        <span className="hidden md:block">
-          <span className="block text-sm font-bold leading-tight text-slate-800">{appName}</span>
-          <span className="block text-xs text-slate-400">Gestión de incidencias</span>
+        <span className="hidden min-w-0 md:block">
+          <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
+            Centro Médico UCE
+          </span>
+          <span className="block text-lg font-extrabold leading-tight text-slate-800">Tickets</span>
+          <span className="block truncate text-[11px] text-slate-400">Gestión de incidencias</span>
         </span>
       </button>
 
-      <nav className="flex-1 space-y-1 px-3">
-        {items.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/app/dashboard' || item.to === '/app/my-tickets' || item.to === '/app/inbox'}
-            className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
-                isActive
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`
-            }
-          >
-            {item.icon}
-            {item.label}
+      {can(user, 'ticket.create') && (
+        <div className="px-3 pb-3">
+          <NavLink to="/app/new-ticket" className="btn-primary w-full justify-center">
+            {ICONS.add}
+            Reportar incidencia
           </NavLink>
+        </div>
+      )}
+
+      <nav className="flex-1 overflow-y-auto px-3 pb-2">
+        {sections.map((section) => (
+          <div key={section.title} className="mb-1">
+            <p className="app-nav-section px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider">
+              {section.title}
+            </p>
+            <div className="space-y-0.5">
+              {section.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/app/dashboard' || item.to === '/app/my-tickets' || item.to === '/app/inbox'}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+                      isActive ? 'app-nav-active' : 'app-nav-item'
+                    }`
+                  }
+                >
+                  {item.icon}
+                  <span className="truncate">{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 
-      <div className="border-t border-slate-200 p-3 mt-2">
+      <div className="mt-2 border-t border-white/10 p-3">
+        <p className="px-2 pb-2 text-center text-[11px] font-medium italic text-emerald-200/70">
+          “Tu salud, nuestra prioridad”
+        </p>
         <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-bold text-emerald-200">
             {initials}
           </span>
           <div className="min-w-0 flex-1 hidden md:block">
             <p className="truncate text-sm font-semibold text-slate-800">
               {user?.name} {user?.last_name}
             </p>
-            <p className="truncate text-xs text-slate-500">{user?.role_name}</p>
+            <p className="truncate text-xs text-slate-400">{user?.role_name}</p>
           </div>
           <button
             onClick={() => logout().then(() => navigate('/login'))}
@@ -182,23 +229,23 @@ export default function Layout() {
   return (
     <div className="min-h-screen">
       {/* Sidebar escritorio */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-slate-200 bg-white lg:block">
+      <aside className="app-sidebar fixed inset-y-0 left-0 z-30 hidden w-64 border-r lg:block">
         {sidebar}
       </aside>
 
       {/* Sidebar móvil */}
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-slate-900/50" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-72 bg-white shadow-pop">{sidebar}</aside>
+          <div className="absolute inset-0 bg-slate-900/50 nex-fade" onClick={() => setOpen(false)} />
+          <aside className="app-sidebar absolute inset-y-0 left-0 w-72 nex-slide">{sidebar}</aside>
         </div>
       )}
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:px-8">
+        <header className="app-topbar sticky top-0 z-20 flex items-center gap-3 px-4 py-3 lg:px-8">
           <button
             onClick={() => setOpen(true)}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
+            className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 lg:hidden"
             aria-label="Abrir menú"
           >
             <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -206,11 +253,40 @@ export default function Layout() {
             </svg>
           </button>
           <h1 className="text-lg font-semibold text-slate-800">{currentTitle}</h1>
+
+          <form onSubmit={onGlobalSearch} className="relative ml-1 hidden md:block">
+            <svg
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path strokeLinecap="round" d="M20 20l-3.5-3.5" />
+            </svg>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar paciente, cédula o turno…"
+              aria-label="Buscar"
+              className="w-52 rounded-full border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-slate-200 placeholder-slate-400 transition duration-150 focus:border-emerald-300/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 lg:w-64"
+            />
+          </form>
+
           <div className="ml-auto flex items-center gap-2">
+            <div className="mr-1 hidden text-right xl:block">
+              <p className="text-sm font-semibold leading-tight text-slate-200">
+                {now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </p>
+              <p className="text-[11px] capitalize leading-tight text-slate-400">
+                {now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+            </div>
             <Notifications />
             <button
               onClick={() => navigate('/app/profile')}
-              className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-100"
               title="Mi cuenta"
             >
               <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">

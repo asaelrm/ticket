@@ -31,14 +31,13 @@ export default function Notifications() {
     api.get('/api/notifications/unread-count').then((d) => setUnread(d.unread || 0)).catch(() => {});
   };
 
-  const openPanel = async () => {
-    setOpen((v) => {
-      const next = !v;
-      if (next) {
-        api.get('/api/notifications').then((d) => setItems(d.data || [])).catch(() => {});
-      }
-      return next;
-    });
+  const openPanel = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) {
+      setItems(null);
+      api.get('/api/notifications').then((d) => setItems(d.data || [])).catch(() => setItems([]));
+    }
     refreshCount();
   };
 

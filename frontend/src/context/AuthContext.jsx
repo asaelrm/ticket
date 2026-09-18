@@ -6,7 +6,7 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [appName, setAppName] = useState('Ticket Flow');
+  const [appName, setAppName] = useState('Ticket');
 
   useEffect(() => {
     let active = true;

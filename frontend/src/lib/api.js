@@ -96,11 +96,11 @@ export const STATUS_LABEL = {
 export const PRIORITY_LABEL = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRITICAL: 'Crítica' };
 
 export const STATUS_COLOR = {
-  OPEN: 'bg-blue-50 text-blue-700 ring-blue-600/20',
-  ASSIGNED: 'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
-  IN_PROGRESS: 'bg-amber-50 text-amber-700 ring-amber-600/20',
-  PENDING: 'bg-purple-50 text-purple-700 ring-purple-600/20',
-  RESOLVED: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  OPEN: 'bg-amber-50 text-amber-700 ring-amber-600/20',
+  ASSIGNED: 'bg-blue-50 text-blue-700 ring-blue-600/20',
+  IN_PROGRESS: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+  PENDING: 'bg-sky-50 text-sky-700 ring-sky-600/20',
+  RESOLVED: 'bg-teal-50 text-teal-700 ring-teal-600/20',
   CLOSED: 'bg-slate-100 text-slate-600 ring-slate-500/20',
   CANCELLED: 'bg-red-50 text-red-700 ring-red-600/20',
 };
@@ -140,11 +140,11 @@ export function isImage(mime) {
 export const OPEN_STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING'];
 
 export const STATUS_DOT = {
-  OPEN: 'bg-blue-500',
-  ASSIGNED: 'bg-indigo-500',
-  IN_PROGRESS: 'bg-amber-500',
-  PENDING: 'bg-purple-500',
-  RESOLVED: 'bg-emerald-500',
+  OPEN: 'bg-amber-500',
+  ASSIGNED: 'bg-blue-500',
+  IN_PROGRESS: 'bg-emerald-500',
+  PENDING: 'bg-sky-400',
+  RESOLVED: 'bg-teal-400',
   CLOSED: 'bg-slate-400',
   CANCELLED: 'bg-red-500',
 };

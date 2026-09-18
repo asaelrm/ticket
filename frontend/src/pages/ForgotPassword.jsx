@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { ErrorBox, Spinner } from '../components/ui';
 
 export default function ForgotPassword() {
+  const navigate = useNavigate();
   const [account, setAccount] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,11 +25,22 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-black via-[#0a0f1a] to-[#141f57] px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-md">
-        <div className="card p-8">
-          <h1 className="text-xl font-bold text-slate-800">Recuperar contraseña</h1>
-          <p className="mt-1 text-sm text-slate-500">
+        <div className="card nex-pop p-8">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="app-logo grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21s-7-4.6-9.3-9a5.2 5.2 0 0 1 9.3-3 5.2 5.2 0 0 1 9.3 3C19 16.4 12 21 12 21z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h4l1.5-2.5 2 5 1.5-2.5h6" />
+              </svg>
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">Centro Médico UCE</p>
+              <h1 className="text-xl font-extrabold text-slate-800">Recuperar contraseña</h1>
+            </div>
+          </div>
+          <p className="text-sm text-slate-400">
             Ingrese su usuario o correo para generar un enlace de recuperación (válido por 24 horas).
           </p>
 
@@ -74,12 +86,13 @@ export default function ForgotPassword() {
                       Copiar
                     </button>
                   </div>
-                  <Link
-                    to={`/reset-password?token=${encodeURIComponent(result.token)}`}
+                  <button
+                    type="button"
                     className="btn-primary mt-3 w-full"
+                    onClick={() => navigate('/reset-password', { state: { token: result.token } })}
                   >
                     Continuar al restablecimiento
-                  </Link>
+                  </button>
                 </div>
               )}
               <Link to="/login" className="btn-secondary w-full">
