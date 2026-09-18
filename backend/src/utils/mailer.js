@@ -122,7 +122,7 @@ function wrapHtml(title, bodyHtml) {
 <div style="max-width:600px;margin:24px auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;">
 <div style="background:#2563eb;padding:16px 24px;color:#ffffff;font-size:18px;font-weight:600;">${esc(title)}</div>
 <div style="padding:24px;">${bodyHtml}</div>
-<div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:12px 24px;font-size:12px;color:#64748b;">Mensaje generado por Ticket Flow.</div>
+<div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:12px 24px;font-size:12px;color:#64748b;">Mensaje generado por Ticket.</div>
 </div></body></html>`;
 }
 

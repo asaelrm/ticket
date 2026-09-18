@@ -83,6 +83,12 @@ export function runMigrations() {
     db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at)');
 
+    // Índices de apoyo para auditoría, historial y adjuntos (evitan full scans).
+    db.exec('CREATE INDEX IF NOT EXISTS idx_history_user ON ticket_history(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_comments_user ON ticket_comments(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON ticket_attachments(uploader_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_ticket_type ON notifications(ticket_id, type)');
+
     // Backfill: fecha límite SLA para tickets abiertos históricos (reglas por defecto).
     db.exec(`
       UPDATE tickets SET sla_due_at =

@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import db, { transaction } from './db.js';
+import config from './config.js';
 
 export const PERMISSIONS = [
   ['ticket.create', 'Crear tickets'],
@@ -119,7 +120,7 @@ function seedBaseData() {
 function ensureUsers() {
   const getDept = db.prepare('SELECT id FROM departments WHERE name = ?');
   const getRole = db.prepare('SELECT id FROM roles WHERE code = ?');
-  const getBy = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?');
+  const getBy = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)');
 
   const deptTech = getDept.get('Tecnología');
   const deptRh = getDept.get('Recursos Humanos');
@@ -127,23 +128,45 @@ function ensureUsers() {
   const roleEmployee = getRole.get('EMPLOYEE').id;
   const roleTechnician = getRole.get('TECHNICIAN').id;
 
-  const admin = getBy.get('admin', 'admin@empresa.com');
-  if (!admin) {
-    db.prepare(
-      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
-    ).run(
-      'Administrador',
-      'Sistema',
-      'admin',
-      'admin@empresa.com',
-      bcrypt.hashSync('Admin1234!', 12),
-      deptTech?.id ?? null,
-      'Administrador del sistema',
-      roleAdmin,
-      new Date().toISOString()
-    );
+  const isProduction = config.env === 'production';
+  const seedAdminPassword = process.env.SEED_ADMIN_PASSWORD || '';
+  const adminUsername = process.env.SEED_ADMIN_USERNAME || 'admin';
+  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@empresa.com';
+
+  // En producción el administrador solo se crea si se define SEED_ADMIN_PASSWORD.
+  // En desarrollo se crea con la contraseña demo '123456'.
+  const shouldCreateAdmin = !isProduction || Boolean(seedAdminPassword);
+  const adminPassword = seedAdminPassword || '123456';
+  if (shouldCreateAdmin) {
+    const admin = getBy.get(adminUsername, adminEmail);
+    if (!admin) {
+      db.prepare(
+        `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+      ).run(
+        process.env.SEED_ADMIN_NAME || 'Administrador',
+        process.env.SEED_ADMIN_LAST_NAME || 'Sistema',
+        adminUsername,
+        adminEmail,
+        bcrypt.hashSync(adminPassword, 12),
+        deptTech?.id ?? null,
+        'Administrador del sistema',
+        roleAdmin,
+        new Date().toISOString()
+      );
+    } else if (seedAdminPassword) {
+      // Si SEED_ADMIN_PASSWORD está definido, se fuerza esa contraseña en el
+      // arranque (permite recuperar el acceso). Ver .env.example.
+      db.prepare('UPDATE users SET password_hash = ?, last_password_change_at = ? WHERE id = ?').run(
+        bcrypt.hashSync(adminPassword, 12),
+        new Date().toISOString(),
+        admin.id
+      );
+    }
   }
+
+  // Cuentas demo: nunca en producción.
+  if (isProduction) return;
 
   const emp = getBy.get('empleado', 'empleado@empresa.com');
   if (!emp) {
@@ -186,6 +209,7 @@ export function seed() {
   return transaction(() => {
     seedPermissionsAndRoles();
     seedBaseData();
+    // ensureUsers decide internamente qué cuentas crear según el entorno.
     ensureUsers();
     return { ok: true, roles: Object.keys(ROLES).length, categories: INITIAL_CATEGORIES.length, departments: INITIAL_DEPARTMENTS.length };
   });

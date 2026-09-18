@@ -27,7 +27,10 @@ export function createApp() {
   const app = express();
   app.disable('x-powered-by');
 
-  app.set('trust proxy', 1);
+  // No se confía en headers X-Forwarded-*: detrás de un proxy real debe
+  // habilitarse únicamente con la IP del proxy (evita evadir el rate limit
+  // falseando X-Forwarded-For).
+  // app.set('trust proxy', 1);
 
   app.use(
     helmet({
@@ -57,9 +60,15 @@ export function createApp() {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
+  // Lista de orígenes permitidos para CORS (comma-separated o variable única).
+  const allowedOrigins = (process.env.CORS_ORIGINS || config.corsOrigin || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin && origin.startsWith(config.corsOrigin)) {
+    if (origin && allowedOrigins.includes(origin)) {
       res.set('Access-Control-Allow-Origin', origin);
       res.set('Access-Control-Allow-Credentials', 'true');
       res.set('Access-Control-Allow-Headers', 'Content-Type, x-csrf-token');

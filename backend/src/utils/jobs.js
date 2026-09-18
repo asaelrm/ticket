@@ -150,6 +150,16 @@ function alertCriticalLongOpen() {
   return count;
 }
 
+// Poda de notificaciones antiguas: las leídas se eliminan tras 90 días y las
+// no leídas tras un año, para evitar que la tabla crezca sin límite.
+function pruneNotifications() {
+  const readBefore = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const unreadBefore = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+  const read = db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?').run(readBefore);
+  const unread = db.prepare('DELETE FROM notifications WHERE read_at IS NULL AND created_at < ?').run(unreadBefore);
+  return Number(read.changes || 0) + Number(unread.changes || 0);
+}
+
 /**
  * Ejecuta el mantenimiento programado una vez.
  * Devuelve un resumen de acciones realizadas (útil para pruebas/manual).
@@ -159,6 +169,7 @@ export function runMaintenance() {
     overdue: notifyOverdueTickets(),
     escalated: escalateUnassigned(),
     critical: alertCriticalLongOpen(),
+    pruned: pruneNotifications(),
   };
 }
 

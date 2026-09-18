@@ -1,5 +1,5 @@
 -- ============================================================================
--- Ticket Flow - Esquema de base de datos (SQLite)
+-- Ticket - Esquema de base de datos (SQLite)
 -- Migraciones aplicadas de forma incremental (user_version).
 -- ============================================================================
 

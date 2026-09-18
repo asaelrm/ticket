@@ -29,8 +29,11 @@ const config = {
 
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
 
+  // URL pública con la que se construyen enlaces absolutos (ej. reset de contraseña).
+  publicUrl: process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 4000}`,
+
   session: {
-    secret: process.env.SESSION_SECRET || 'ticket-flow-dev-secret-change-me',
+    secret: process.env.SESSION_SECRET || 'ticket-dev-secret-change-me',
     secure: bool(process.env.COOKIE_SECURE, false),
     maxAge: 60 * 60 * 1000,
     rememberMaxAge: 30 * 24 * 60 * 60 * 1000,
@@ -52,7 +55,7 @@ const config = {
     user: process.env.SMTP_USER || '',
     pass: process.env.SMTP_PASS || '',
     from: process.env.SMTP_FROM || process.env.SMTP_USER || 'tickets@localhost',
-    fromName: process.env.SMTP_FROM_NAME || 'Ticket Flow',
+    fromName: process.env.SMTP_FROM_NAME || 'Ticket',
   },
 };
 
@@ -60,6 +63,12 @@ config.dbFile =
   config.dbFile && config.dbFile !== 'false'
     ? path.resolve(rootDir, config.dbFile)
     : path.join(config.dataDir, 'tickets.db');
+
+// En producción el secreto de sesión es obligatorio: no se firman cookies con
+// un valor público conocido.
+if (config.env === 'production' && !process.env.SESSION_SECRET) {
+  throw new Error('En producción debe definir SESSION_SECRET en el entorno.');
+}
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 fs.mkdirSync(config.uploadDir, { recursive: true });

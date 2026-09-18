@@ -23,7 +23,7 @@ export function createNotifications({ userIds = [], ...rest }) {
 }
 
 // Notifica a todos los administradores activos (para alertas del sistema).
-export function notifyAdmins({ type, title, body = null, ticketId = null }) {
+export function notifyAdmins({ type, title, body = null, ticketId = null, link = null }) {
   const admins = db
     .prepare(
       `SELECT u.id FROM users u
@@ -33,11 +33,11 @@ export function notifyAdmins({ type, title, body = null, ticketId = null }) {
        WHERE u.active = 1 AND p.code = 'settings.manage'`
     )
     .all();
-  return createNotifications({ userIds: admins.map((a) => a.id), type, title, body, ticketId });
+  return createNotifications({ userIds: admins.map((a) => a.id), type, title, body, ticketId, link });
 }
 
 // Notifica a técnicos/soporte (quienes pueden ver todos los tickets).
-export function notifyStaff({ type, title, body = null, ticketId = null, excludeUserId = null }) {
+export function notifyStaff({ type, title, body = null, ticketId = null, excludeUserId = null, link = null }) {
   const staff = db
     .prepare(
       `SELECT u.id FROM users u
@@ -47,30 +47,41 @@ export function notifyStaff({ type, title, body = null, ticketId = null, exclude
        WHERE u.active = 1 AND p.code = 'ticket.view.all'`
     )
     .all();
+  const exclude = Number(excludeUserId);
   return createNotifications({
-    userIds: staff.map((s) => s.id).filter((id) => id !== excludeUserId),
+    userIds: staff.map((s) => s.id).filter((id) => Number(id) !== exclude),
     type,
     title,
     body,
     ticketId,
+    link,
   });
 }
 
 // Notificación dirigida a los participantes naturales de un ticket
 // (reportante/tecnico), excluyendo al actor que origina el evento.
 export function notifyTicketParticipants(ticket, { type, actorId, titleForReporter, titleForAssignee }) {
-  const ids = [];
-  if (ticket.reporter_id && Number(ticket.reporter_id) !== Number(actorId)) ids.push(ticket.reporter_id);
-  if (ticket.assigned_to_id && Number(ticket.assigned_to_id) !== Number(actorId)) ids.push(ticket.assigned_to_id);
-  if (!ids.length) return [];
+  const actor = Number(actorId);
+  const reporterId = ticket.reporter_id ? Number(ticket.reporter_id) : null;
+  const assigneeId = ticket.assigned_to_id ? Number(ticket.assigned_to_id) : null;
+
+  const targets = [];
+  if (reporterId && reporterId !== actor) targets.push({ userId: reporterId, title: titleForReporter });
+  // Si el asignado es también el reportante, evitamos una notificación duplicada.
+  if (assigneeId && assigneeId !== actor && assigneeId !== reporterId) {
+    targets.push({ userId: assigneeId, title: titleForAssignee });
+  }
+  if (!targets.length) return [];
 
   const link = `/app/tickets/${ticket.id}`;
-  const inserted = [];
-  if (ticket.reporter_id && Number(ticket.reporter_id) !== Number(actorId)) {
-    inserted.push(createNotification({ userId: ticket.reporter_id, ticketId: ticket.id, type, title: titleForReporter, body: `${ticket.ticket_number} · ${ticket.title}`, link }));
-  }
-  if (ticket.assigned_to_id && Number(ticket.assigned_to_id) !== Number(actorId)) {
-    inserted.push(createNotification({ userId: ticket.assigned_to_id, ticketId: ticket.id, type, title: titleForAssignee, body: `${ticket.ticket_number} · ${ticket.title}`, link }));
-  }
-  return inserted;
+  return targets.map((t) =>
+    createNotification({
+      userId: t.userId,
+      ticketId: ticket.id,
+      type,
+      title: t.title,
+      body: `${ticket.ticket_number} · ${ticket.title}`,
+      link,
+    })
+  );
 }

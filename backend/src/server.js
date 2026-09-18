@@ -11,7 +11,7 @@ const app = createApp();
 startJobs();
 
 app.listen(config.port, () => {
-  console.log(`[ticket-flow] API escuchando en http://localhost:${config.port} (${config.env})`);
-  console.log(`[ticket-flow] Base de datos: ${config.dbFile}`);
-  console.log(`[ticket-flow] Uploads: ${config.uploadDir}`);
+  console.log(`[ticket] API escuchando en http://localhost:${config.port} (${config.env})`);
+  console.log(`[ticket] Base de datos: ${config.dbFile}`);
+  console.log(`[ticket] Uploads: ${config.uploadDir}`);
 });
