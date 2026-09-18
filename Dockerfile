@@ -1,5 +1,5 @@
 # ============================================================================
-# Ticket Flow - Imagen multi-etapa (frontend + backend en un solo contenedor)
+# Ticket - Imagen multi-etapa (frontend + backend en un solo contenedor)
 # ============================================================================
 
 # ---------------------------------------------------------------------------

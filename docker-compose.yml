@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    container_name: ticket-flow
+    container_name: ticket
     restart: unless-stopped
     ports:
       - "${PORT:-4000}:4000"
@@ -11,8 +11,13 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-cambie-este-secreto-en-produccion-1234567890}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4000}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4000}
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-5}
       MAX_FILES_PER_TICKET: ${MAX_FILES_PER_TICKET:-5}
+      # Administrador inicial (solo se crea si define SEED_ADMIN_PASSWORD).
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@empresa.com}
     volumes:
       - ticket_data:/app/backend/data
       - ticket_uploads:/app/backend/uploads

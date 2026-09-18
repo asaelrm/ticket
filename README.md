@@ -1,4 +1,4 @@
-# Ticket Flow
+# Ticket
 
 Sistema empresarial de gestión de tickets e incidencias. Backend `Node.js (Express)` + `SQLite`, frontend `React (Vite) + Tailwind`.
 
@@ -51,13 +51,21 @@ La primera vez que arranca, el backend aplica migraciones y crea el seed automá
 
 ## Cuentas iniciales (seed)
 
+En **desarrollo** se crean automáticamente estas cuentas de demostración:
+
 | Rol        | Usuario  | Contraseña      |
 | ---------- | -------- | --------------- |
-| Admin      | `admin`  | `Admin1234!`    |
+| Admin      | `admin`  | `123456`        |
 | Técnico    | `tecnico`| `Tecnico1234!`  |
 | Empleado   | `empleado`| `Empleado1234!` |
 
 > Cambie estas contraseñas tras el primer inicio.
+
+En **producción** las cuentas demo con contraseña conocida **no se crean**. El
+administrador inicial se crea al arrancar solo si define `SEED_ADMIN_PASSWORD`
+(opcionalmente `SEED_ADMIN_USERNAME` y `SEED_ADMIN_EMAIL`). Si el administrador
+ya existe y `SEED_ADMIN_PASSWORD` está definido, en cada arranque se fuerza esa
+contraseña (útil para recuperar el acceso).
 
 ## Scripts
 
@@ -83,6 +91,38 @@ La primera vez que arranca, el backend aplica migraciones y crea el seed automá
 2. Configurar `.env` con `NODE_ENV=production`, `SESSION_SECRET` fuerte, `COOKIE_SECURE=true` y dominio HTTPS.
 3. Para correos reales, definir `MAIL_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM`.
 4. `npm start` — el backend sirve la API y el frontend compilado.
+
+### Variables de entorno relevantes
+
+| Variable               | Descripción                                                                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`             | `production` activa validaciones estrictas (exige `SESSION_SECRET`).                                                                   |
+| `SESSION_SECRET`       | **Obligatoria en producción.** El arranque falla si `NODE_ENV=production` y no está definida.                                          |
+| `PUBLIC_URL`           | URL pública (sin slash final) usada para construir los enlaces absolutos de los correos, p. ej. el de recuperación de contraseña.      |
+| `CORS_ORIGIN`          | Origen permitido por CORS. En producción con la SPA servida por el propio backend, use el mismo valor que `PUBLIC_URL`.                |
+| `CORS_ORIGINS`         | Alternativa a `CORS_ORIGIN`: lista de orígenes separados por comas. Tiene prioridad sobre `CORS_ORIGIN`.                               |
+| `COOKIE_SECURE`        | `true` cuando se sirve por HTTPS para que la cookie de sesión solo viaje por canales seguros.                                          |
+| `SEED_ADMIN_PASSWORD`  | Contraseña del administrador. Si se define, al arrancar se crea (o se actualiza) la cuenta administrador; las cuentas demo no se crean en producción. |
+| `SEED_ADMIN_USERNAME`  | Usuario del administrador inicial (por defecto `admin`).                                                                               |
+| `SEED_ADMIN_EMAIL`     | Correo del administrador inicial (por defecto `admin@empresa.com`).                                                                    |
+
+> En producción las cuentas demo con contraseña conocida **no se crean**. Defina
+> `SEED_ADMIN_PASSWORD` para crear el administrador inicial y cambie la contraseña
+> tras el primer inicio de sesión.
+
+### Docker Compose
+
+```bash
+SESSION_SECRET="$(openssl rand -hex 32)" \
+PUBLIC_URL="https://tickets.tuempresa.com" \
+SEED_ADMIN_PASSWORD="una-contraseña-fuerte" \
+docker compose up -d --build
+```
+
+`docker-compose.yml` expone el servicio en `:4000`, usa los volúmenes
+`ticket_data` (base de datos) y `ticket_uploads` (adjuntos), y define un
+healthcheck contra `/api/health`. Las variables anteriores se pueden colocar en
+un archivo `.env` junto a `docker-compose.yml` en lugar de pasarlas en línea.
 
 > Sin SMTP configurado (`MAIL_ENABLED=false`), los correos no se envían: se registran en la tabla `email_logs` y en consola (modo desarrollo), y el admin puede verlos desde **Configuración → Notificaciones**.
 
