@@ -6,6 +6,7 @@ const router = express.Router();
 router.use(requireAuth, requirePermission('report.view'));
 
 const OPEN_STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING'];
+const OPEN_IN = `t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`;
 const STATUS_LABEL = {
   OPEN: 'Abierto', ASSIGNED: 'Asignado', IN_PROGRESS: 'En proceso', PENDING: 'Pendiente',
   RESOLVED: 'Resuelto', CLOSED: 'Cerrado', CANCELLED: 'Cancelado',
@@ -15,15 +16,15 @@ const PRIORITY_LABEL = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRITICAL: '
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Filtro por rango de fecha de creación. Devuelve condiciones ya parametrizadas.
-function dateFilter(req, alias = 't') {
+function dateFilter(req) {
   const conds = [];
   const params = [];
   if (req.query.from && DATE_RE.test(String(req.query.from))) {
-    conds.push(`${alias}.created_at >= ?`);
+    conds.push('t.created_at >= ?');
     params.push(`${req.query.from}T00:00:00.000Z`);
   }
   if (req.query.to && DATE_RE.test(String(req.query.to))) {
-    conds.push(`${alias}.created_at <= ?`);
+    conds.push('t.created_at <= ?');
     params.push(`${req.query.to}T23:59:59.999Z`);
   }
   return { conds, params };
@@ -33,22 +34,28 @@ function whereFrom(conds) {
   return conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 }
 
-function reportData(req) {
+// Contexto reutilizable: filtro de fecha, WHERE base y combinador de condiciones.
+function ctx(req) {
   const df = dateFilter(req);
-  const base = whereFrom(df.conds);
-
-  const combine = (extra = []) => {
-    const conds = [...extra, ...df.conds];
-    return { sql: whereFrom(conds), params: [...df.params] };
+  return {
+    df,
+    base: whereFrom(df.conds),
+    combine(extra = []) {
+      const conds = [...extra, ...df.conds];
+      return { sql: whereFrom(conds), params: [...df.params] };
+    },
   };
+}
+
+function summaryData(req) {
+  const { df, base, combine } = ctx(req);
 
   const total = db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${base}`).get(...df.params).n;
 
-  const openCond = `t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`;
-  const wOpen = combine([openCond]);
+  const wOpen = combine([OPEN_IN]);
   const open = db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${wOpen.sql}`).get(...OPEN_STATUSES, ...wOpen.params).n;
 
-  const wUnresolved = combine([openCond, 't.created_at < ?']);
+  const wUnresolved = combine([OPEN_IN, 't.created_at < ?']);
   const unresolved = db
     .prepare(`SELECT COUNT(*) AS n FROM tickets t ${wUnresolved.sql}`)
     .get(...OPEN_STATUSES, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), ...wUnresolved.params).n;
@@ -56,7 +63,7 @@ function reportData(req) {
   const wResolved = combine([`t.status IN ('RESOLVED','CLOSED')`]);
   const resolved = db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${wResolved.sql}`).get(...wResolved.params).n;
 
-  const wAvg = combine([`(t.resolved_at IS NOT NULL OR t.closed_at IS NOT NULL)`]);
+  const wAvg = combine(['(t.resolved_at IS NOT NULL OR t.closed_at IS NOT NULL)']);
   const avgResolution = db
     .prepare(
       `SELECT AVG((julianday(COALESCE(t.resolved_at, t.closed_at, t.updated_at)) - julianday(t.created_at)) * 24) AS hours
@@ -64,96 +71,136 @@ function reportData(req) {
     )
     .get(...wAvg.params).hours;
 
-  const byStatus = db
+  return {
+    total,
+    open,
+    resolved,
+    unresolved_week: unresolved,
+    avg_resolution_hours: Math.round((avgResolution || 0) * 10) / 10,
+  };
+}
+
+function byStatusData(req) {
+  const { df, base } = ctx(req);
+  return db
     .prepare(`SELECT t.status, COUNT(*) AS n FROM tickets t ${base} GROUP BY t.status ORDER BY n DESC`)
     .all(...df.params);
+}
 
-  const wPriority = combine([openCond]);
-  const byPriority = db
-    .prepare(`SELECT t.priority, COUNT(*) AS n FROM tickets t ${wPriority.sql} GROUP BY t.priority ORDER BY n DESC`)
-    .all(...OPEN_STATUSES, ...wPriority.params);
+function byPriorityData(req) {
+  const { combine } = ctx(req);
+  const w = combine([OPEN_IN]);
+  return db
+    .prepare(`SELECT t.priority, COUNT(*) AS n FROM tickets t ${w.sql} GROUP BY t.priority ORDER BY n DESC`)
+    .all(...OPEN_STATUSES, ...w.params);
+}
 
-  const wCat = combine([`c.active = 1`]);
-  const byCategory = db
+function byCategoryData(req) {
+  const { combine } = ctx(req);
+  const w = combine(['c.active = 1']);
+  return db
     .prepare(
       `SELECT c.name, c.color, COUNT(t.id) AS n,
-         SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
+         SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
        FROM categories c
-       LEFT JOIN tickets t ON t.category_id = c.id ${wCat.sql.replace(/^WHERE /, 'AND ')}
+       LEFT JOIN tickets t ON t.category_id = c.id ${w.sql.replace(/^WHERE /, 'AND ')}
        GROUP BY c.id ORDER BY n DESC LIMIT 10`
     )
-    .all(...OPEN_STATUSES, ...wCat.params);
+    .all(...OPEN_STATUSES, ...w.params);
+}
 
-  const byDepartment = db
+function byDepartmentData(req) {
+  const { df, base } = ctx(req);
+  return db
     .prepare(
       `SELECT COALESCE(d.name, 'Sin departamento') AS name, COUNT(t.id) AS n,
-         SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
+         SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
        FROM tickets t
        LEFT JOIN departments d ON d.id = t.department_id ${base}
        GROUP BY d.id ORDER BY n DESC LIMIT 10`
     )
     .all(...OPEN_STATUSES, ...df.params);
+}
 
-  const wDay = combine([`(t.resolved_at IS NOT NULL OR t.closed_at IS NOT NULL)`]);
-  const byDay = db
+function byDayData(req) {
+  const { combine } = ctx(req);
+  const w = combine(['(t.resolved_at IS NOT NULL OR t.closed_at IS NOT NULL)']);
+  return db
     .prepare(
       `SELECT date(COALESCE(t.resolved_at, t.closed_at)) AS day, COUNT(*) AS n
-       FROM tickets t ${wDay.sql} GROUP BY day ORDER BY day DESC LIMIT 30`
+       FROM tickets t ${w.sql} GROUP BY day ORDER BY day DESC LIMIT 30`
     )
-    .all(...wDay.params);
+    .all(...w.params);
+}
 
-  const wUser = combine([]);
-  const byUser = db
+function byUserData(req) {
+  const { combine } = ctx(req);
+  const w = combine([]);
+  return db
     .prepare(
       `SELECT r.name || ' ' || r.last_name AS reporter, COUNT(*) AS total,
-         SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
-       FROM tickets t JOIN users r ON r.id = t.reporter_id ${wUser.sql}
+         SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
+       FROM tickets t JOIN users r ON r.id = t.reporter_id ${w.sql}
        GROUP BY t.reporter_id ORDER BY total DESC LIMIT 10`
     )
-    .all(...OPEN_STATUSES, ...wUser.params);
+    .all(...OPEN_STATUSES, ...w.params);
+}
 
+function rangeOf(req) {
+  return { from: req.query.from || null, to: req.query.to || null };
+}
+
+// Reporte completo (usado por /export y /full). Cada sección se calcula una vez.
+function reportData(req) {
   return {
-    range: { from: req.query.from || null, to: req.query.to || null },
-    summary: {
-      total,
-      open,
-      resolved,
-      unresolved_week: unresolved,
-      avg_resolution_hours: Math.round((avgResolution || 0) * 10) / 10,
-    },
-    by_status: byStatus,
-    by_priority: byPriority,
-    by_category: byCategory,
-    by_department: byDepartment,
-    by_day: byDay,
-    by_user: byUser,
+    range: rangeOf(req),
+    summary: summaryData(req),
+    by_status: byStatusData(req),
+    by_priority: byPriorityData(req),
+    by_category: byCategoryData(req),
+    by_department: byDepartmentData(req),
+    by_day: byDayData(req),
+    by_user: byUserData(req),
   };
 }
 
 router.get('/summary', (req, res) => {
-  const { summary, range } = reportData(req);
-  res.json({ ...summary, range });
+  res.json({ ...summaryData(req), range: rangeOf(req) });
 });
 
 router.get('/by-status', (req, res) => {
-  res.json({ data: reportData(req).by_status });
+  res.json({ data: byStatusData(req) });
 });
 
 router.get('/by-priority', (req, res) => {
-  res.json({ data: reportData(req).by_priority });
+  res.json({ data: byPriorityData(req) });
 });
 
 router.get('/by-category', (req, res) => {
-  res.json({ data: reportData(req).by_category });
+  res.json({ data: byCategoryData(req) });
 });
 
 router.get('/by-department', (req, res) => {
-  res.json({ data: reportData(req).by_department });
+  res.json({ data: byDepartmentData(req) });
 });
 
 router.get('/performance', (req, res) => {
+  res.json({ by_day: byDayData(req), by_user: byUserData(req) });
+});
+
+// Reporte completo en una sola petición (evita 6 llamadas desde el frontend).
+router.get('/full', (req, res) => {
   const r = reportData(req);
-  res.json({ by_day: r.by_day, by_user: r.by_user });
+  res.json({
+    range: r.range,
+    summary: r.summary,
+    byStatus: r.by_status,
+    byPriority: r.by_priority,
+    byCategory: r.by_category,
+    byDepartment: r.by_department,
+    byDay: r.by_day,
+    byUser: r.by_user,
+  });
 });
 
 // Exporta el reporte completo como CSV organizado por secciones (Excel/ES con ';').

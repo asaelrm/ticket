@@ -20,6 +20,10 @@ import {
 const router = express.Router();
 router.use(requireAuth);
 
+// Express 4 no reenvía rechazos de promesas al error handler (Node 24 los
+// convertiría en unhandledRejection). Este wrapper los propaga a `next`.
+const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 export const STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING', 'RESOLVED', 'CLOSED', 'CANCELLED'];
 export const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 
@@ -336,8 +340,9 @@ function buildConditions(req, viewOnlyOwn) {
   }
 
   if (q.team && ID_LIST_RE.test(String(q.team))) {
-    conds.push('t.assigned_team_id IN (?)');
-    params.push(parseInt(q.team, 10));
+    const teamIds = String(q.team).split(',').map((v) => parseInt(v, 10));
+    conds.push(`t.assigned_team_id IN (${teamIds.map(() => '?').join(',')})`);
+    params.push(...teamIds);
   }
 
   if (q.assigned === 'none') {
@@ -480,6 +485,7 @@ router.get('/counters', (req, res) => {
     pending: cnt(`t.status IN ('OPEN', 'PENDING')`),
     attended: cnt(`t.status IN ('ASSIGNED', 'IN_PROGRESS')`),
     in_progress: cnt(`t.status = 'IN_PROGRESS'`),
+    unassigned: cnt(`${openSql} AND t.assigned_to_id IS NULL AND t.assigned_team_id IS NULL`, openParams),
     overdue: cnt(`${openSql} AND t.sla_due_at IS NOT NULL AND t.sla_due_at < ?`, [...openParams, nowIso()]),
     assigned_to_me: cnt(`t.assigned_to_id = ?`, [user.id]),
     assigned_to_my_teams: myTeams,
@@ -503,7 +509,7 @@ router.get('/options', (req, res) => {
 router.post(
   '/',
   requirePermission('ticket.create'),
-  uploadMiddleware().array('files', 20),
+  uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
   (req, res) => {
     const body = req.body || {};
@@ -563,7 +569,7 @@ router.get('/', (req, res) => {
   res.json(listQuery(req, viewOnlyOwn));
 });
 
-router.get('/export', requirePermission('ticket.export'), async (req, res) => {
+router.get('/export', requirePermission('ticket.export'), asyncHandler(async (req, res) => {
   const { conds, params } = buildConditions(req, false);
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
   const rows = db.prepare(`${LIST_SQL} ${where} ORDER BY t.created_at DESC LIMIT 5000`).all(...params);
@@ -575,6 +581,11 @@ router.get('/export', requirePermission('ticket.export'), async (req, res) => {
   ];
   const sep = ';';
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  // Neutraliza inyección de fórmulas al abrir el XLSX (celdas que inician con = + - @).
+  const xlsxSafe = (v) => {
+    const s = String(v ?? '');
+    return /^[=+\-@]/.test(s) ? `'${s}` : s;
+  };
   const lines = [cols.map(esc).join(sep)];
   for (const r of rows) {
     lines.push([
@@ -611,9 +622,9 @@ router.get('/export', requirePermission('ticket.export'), async (req, res) => {
     sheet.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + cols.length)}1` };
     for (const r of rows) {
       sheet.addRow([
-        r.ticket_number, r.title, STATUS_LABEL[r.status] || r.status,
-        PRIORITY_LABEL[r.priority] || r.priority, r.category_name, r.department_name,
-        r.reporter_name, r.reporter_email || '', r.assigned_name, r.team_name,
+        xlsxSafe(r.ticket_number), xlsxSafe(r.title), STATUS_LABEL[r.status] || r.status,
+        PRIORITY_LABEL[r.priority] || r.priority, xlsxSafe(r.category_name), xlsxSafe(r.department_name),
+        xlsxSafe(r.reporter_name), xlsxSafe(r.reporter_email || ''), xlsxSafe(r.assigned_name), xlsxSafe(r.team_name),
         r.created_at, r.updated_at || '', r.resolved_at || '', r.closed_at || '',
         r.resolved_at || r.closed_at || '', r.sla_due_at || '', r.is_overdue ? 'Sí' : 'No',
       ]);
@@ -704,7 +715,7 @@ router.get('/export', requirePermission('ticket.export'), async (req, res) => {
   res.set('Content-Type', 'text/csv; charset=utf-8');
   res.set('Content-Disposition', `attachment; filename="tickets-${stamp}.csv"`);
   res.send('\uFEFF' + lines.join('\n'));
-});
+}));
 
 router.get('/:id', (req, res) => {
   const id = parseIntSafe(req.params.id);
@@ -831,6 +842,9 @@ router.patch('/:id', (req, res) => {
   if (body.status !== undefined) {
     if (!STATUSES.includes(body.status)) return res.status(400).json({ error: 'Estado inválido' });
     if (!canManage) return res.status(403).json({ error: 'No tiene permiso para cambiar el estado' });
+    if (ticket.status === 'CANCELLED' && body.status !== 'CANCELLED') {
+      return res.status(400).json({ error: 'No puede cambiar el estado de un ticket cancelado' });
+    }
     const reopening = ['RESOLVED', 'CLOSED'].includes(ticket.status) && body.status === 'OPEN';
     if (reopening && !canReopen) return res.status(403).json({ error: 'No tiene permiso para reabrir el ticket' });
     if (body.status !== ticket.status) {
@@ -999,6 +1013,7 @@ function processComment(req, res, attachOnly) {
 
   const hasFiles = Array.isArray(req.files) && req.files.length > 0;
   const message = safeStr(req.body.message);
+  if (message) validate({ message: rules.max(message, 4000, 'Mensaje') });
 
   if (req.files && req.files.length > config.uploads.maxFilesPerTicket) {
     return res.status(400).json({ error: `Máximo ${config.uploads.maxFilesPerTicket} archivos por solicitud` });
@@ -1068,14 +1083,14 @@ function processComment(req, res, attachOnly) {
 
 router.post(
   '/:id/comments',
-  uploadMiddleware().array('files', 20),
+  uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
   (req, res) => processComment(req, res, false)
 );
 
 router.post(
   '/:id/attachments',
-  uploadMiddleware().array('files', 20),
+  uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
   (req, res) => processComment(req, res, true)
 );
@@ -1220,12 +1235,15 @@ function isTruthyFlag(value) {
 router.post(
   '/:id/resolve',
   requirePermission('ticket.resolve'),
-  uploadMiddleware().array('files', 20),
+  uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
   (req, res) => {
     const id = parseIntSafe(req.params.id);
     const ticket = getTicket(id);
     if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+    if (['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status)) {
+      return res.status(400).json({ error: 'El ticket ya está en un estado terminal y no puede resolverse' });
+    }
 
     const body = req.body || {};
     const resolution = safeStr(body.resolution);
@@ -1315,6 +1333,7 @@ router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
   const ticket = getTicket(id);
   if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (ticket.status === 'CLOSED') return res.status(400).json({ error: 'El ticket ya está cerrado' });
+  if (ticket.status === 'CANCELLED') return res.status(400).json({ error: 'No puede cerrar un ticket cancelado' });
 
   if (requireResolutionToClose() && ticket.status !== 'CANCELLED' && !ticket.resolved_at && !ticket.resolution) {
     return res.status(400).json({ error: 'Debe registrar una resolución antes de cerrar el ticket.' });

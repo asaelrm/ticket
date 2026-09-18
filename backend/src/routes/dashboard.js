@@ -43,6 +43,36 @@ router.get('/by-status', (req, res) => {
   res.json({ data: db.prepare('SELECT status, COUNT(*) AS n FROM tickets GROUP BY status ORDER BY n DESC').all() });
 });
 
+// Estado SLA de los turnos/tickets abiertos: vencidos, próximos a vencer y dentro de plazo.
+router.get('/sla', (req, res) => {
+  const nowIso = new Date().toISOString();
+  const in24Iso = new Date(Date.now() + 24 * 3600000).toISOString();
+  const ph = OPEN_STATUSES.map(() => '?').join(',');
+  const inClause = 'status IN (' + ph + ') AND sla_due_at IS NOT NULL';
+  const overdue = db
+    .prepare(`SELECT COUNT(*) AS n FROM tickets WHERE ${inClause} AND sla_due_at < ?`)
+    .get(...OPEN_STATUSES, nowIso).n;
+  const atRisk = db
+    .prepare(`SELECT COUNT(*) AS n FROM tickets WHERE ${inClause} AND sla_due_at >= ? AND sla_due_at < ?`)
+    .get(...OPEN_STATUSES, nowIso, in24Iso).n;
+  const healthy = db
+    .prepare(`SELECT COUNT(*) AS n FROM tickets WHERE ${inClause} AND sla_due_at >= ?`)
+    .get(...OPEN_STATUSES, in24Iso).n;
+  const top = db
+    .prepare(
+      `SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.sla_due_at,
+              (t.sla_due_at < ?) AS is_overdue,
+              r.name || ' ' || r.last_name AS reporter_name
+       FROM tickets t
+       JOIN users r ON r.id = t.reporter_id
+       WHERE ${inClause}
+       ORDER BY is_overdue DESC, t.sla_due_at ASC
+       LIMIT 6`
+    )
+    .all(...OPEN_STATUSES, nowIso);
+  res.json({ overdue, atRisk, healthy, top });
+});
+
 router.get('/by-priority', (req, res) => {
   const data = db.prepare(
     `SELECT priority, COUNT(*) AS n FROM tickets WHERE status IN (${OPEN_STATUSES.map(() => '?').join(',')}) GROUP BY priority ORDER BY n DESC`

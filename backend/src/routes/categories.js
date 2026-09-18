@@ -14,9 +14,9 @@ router.get('/', (req, res) => {
 
   const withCounts = req.query.withCounts === '1' || req.query.withCounts === 'true';
   if (withCounts) {
-    for (const c of rows) {
-      c.tickets_count = db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE category_id = ?').get(c.id).n;
-    }
+    const counts = db.prepare('SELECT category_id, COUNT(*) AS n FROM tickets GROUP BY category_id').all();
+    const byCategory = new Map(counts.map((c) => [c.category_id, c.n]));
+    for (const c of rows) c.tickets_count = byCategory.get(c.id) || 0;
   }
   res.json({ data: rows });
 });

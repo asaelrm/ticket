@@ -199,16 +199,23 @@ router.get('/:id', requirePermission('user.view'), (req, res) => {
 
 router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT id, username, email, role_id FROM users WHERE id = ?').get(id);
+  const existing = db
+    .prepare('SELECT id, name, last_name, department_id, position, username, email, role_id FROM users WHERE id = ?')
+    .get(id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
 
   const body = req.body || {};
-  const name = body.name ?? existing.name;
-  const lastName = body.last_name ?? '';
-  const username = safeStr(body.username ?? existing.username);
-  const email = safeStr(body.email ?? existing.email);
-  const departmentId = body.department_id === '' || body.department_id == null ? null : parseIntSafe(body.department_id);
-  const position = safeStr(body.position ?? '');
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+  const name = safeStr(has('name') ? body.name : existing.name);
+  const lastName = safeStr(has('last_name') ? body.last_name : existing.last_name);
+  const username = safeStr(has('username') ? body.username : existing.username);
+  const email = safeStr(has('email') ? body.email : existing.email);
+  const departmentId = has('department_id')
+    ? body.department_id === '' || body.department_id == null
+      ? null
+      : parseIntSafe(body.department_id)
+    : existing.department_id;
+  const position = safeStr(has('position') ? body.position : existing.position ?? '');
   const roleId = body.role_id == null || body.role_id === '' ? existing.role_id : parseIntSafe(body.role_id);
 
   if (id === req.user.id && roleId && roleId !== existing.role_id) {

@@ -36,6 +36,9 @@ const KEYS = {
 // Claves que se guardan como lista (JSON) en la tabla settings.
 const LIST_KEYS = ['resolution_categories', 'root_causes', 'pending_reasons'];
 const BOOL_KEYS = ['require_resolution_to_close', 'notify_on_assign', 'notify_on_comment', 'notify_on_resolve', 'enable_csat'];
+const NUM_KEYS = ['sla_critical_hours', 'sla_high_hours', 'sla_medium_hours', 'sla_low_hours', 'rule_unassigned_hours', 'rule_critical_hours'];
+const PRIORITY_VALUES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+const PREFIX_RE = /^[A-Za-z0-9]{1,8}$/;
 const DEFAULT_PREFIX = 'TCK';
 
 // Valores por defecto para las claves numéricas y de texto.
@@ -118,6 +121,24 @@ router.patch('/', (req, res) => {
     } else if (BOOL_KEYS.includes(key)) {
       const on = ['1', 'true', 'on', 'si', 'sí', 'yes'].includes(String(body[key]).toLowerCase());
       value = on ? '1' : '0';
+    } else if (NUM_KEYS.includes(key)) {
+      const n = parseInt(String(body[key]), 10);
+      if (!Number.isFinite(n) || n < 0 || n > 8760) {
+        return res.status(400).json({ error: `${KEYS[key]} debe ser un número entre 0 y 8760` });
+      }
+      value = String(n);
+    } else if (key === 'ticket_prefix') {
+      const prefix = String(body[key] ?? '').trim().toUpperCase();
+      if (!PREFIX_RE.test(prefix)) {
+        return res.status(400).json({ error: 'El prefijo de tickets debe tener entre 1 y 8 caracteres alfanuméricos' });
+      }
+      value = prefix;
+    } else if (key === 'rule_unassigned_priority') {
+      const priority = String(body[key] ?? '').trim().toUpperCase();
+      if (!PRIORITY_VALUES.includes(priority)) {
+        return res.status(400).json({ error: 'Prioridad de escalación inválida' });
+      }
+      value = priority;
     } else {
       value = typeof body[key] === 'string' ? body[key].trim().slice(0, 300) : '';
       if (!value) continue;

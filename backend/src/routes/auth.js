@@ -82,7 +82,7 @@ router.post('/forgot-password', authRateLimit(), (req, res) => {
 
   // El enlace se envía por correo cuando el SMTP está configurado; si no, el
   // transporte de desarrollo registra el mensaje (email_logs / consola).
-  const resetUrlBase = process.env.PUBLIC_URL || '';
+  const resetUrlBase = process.env.PUBLIC_URL || config.publicUrl;
   notifyPasswordReset(user, token, resetUrlBase);
 
   // En desarrollo el token se devuelve para poder restablecer la contraseña.
