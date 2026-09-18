@@ -32,7 +32,7 @@ async function newTicket(client, over = {}) {
 
 before(async () => {
   adminC = createClient();
-  await adminC.login('admin', 'Admin1234!');
+  await adminC.login('admin', '123456');
   const me = await adminC.get('/api/auth/me');
   adminId = me.body.user.id;
 
@@ -256,5 +256,30 @@ describe('Jobs de escalación automática', () => {
     } finally {
       await adminC.patch('/api/settings', { rule_unassigned_hours: '8' });
     }
+  });
+});
+
+describe('Dashboard SLA', () => {
+  it('calcula vencidos, próximos 24h, dentro de plazo y top de urgencia', async () => {
+    const iso = (ms) => new Date(Date.now() + ms).toISOString();
+    const t = await newTicket(adminC, { priority: 'HIGH' });
+    await adminC.patch(`/api/tickets/${t.id}`, { status: 'IN_PROGRESS', assigned_to_id: adminId });
+    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(iso(-3 * 3600000), t.id);
+
+    const t2 = await newTicket(adminC, { priority: 'MEDIUM' });
+    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(iso(5 * 3600000), t2.id);
+
+    const t3 = await newTicket(adminC, { priority: 'LOW' });
+    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(iso(3 * 86400000), t3.id);
+
+    const res = await adminC.get('/api/dashboard/sla');
+    assert.equal(res.status, 200);
+    assert.ok(res.body.overdue >= 1, 'debe existir al menos un vencido');
+    assert.ok(res.body.atRisk >= 1, 'debe existir al menos una próxima a 24h');
+    assert.ok(res.body.healthy >= 1, 'debe existir al menos una dentro de plazo');
+    assert.ok(Array.isArray(res.body.top) && res.body.top.length > 0, 'debe devolver el top de urgencia');
+    const first = res.body.top[0];
+    assert.equal(first.is_overdue, 1, 'el primer ticket debe ser el más urgente (vencido)');
+    assert.ok(first.ticket_number && first.sla_due_at, 'debe incluir número y fecha SLA');
   });
 });

@@ -6,7 +6,7 @@ let adminC;
 
 before(async () => {
   adminC = createClient();
-  await adminC.login('admin', 'Admin1234!');
+  await adminC.login('admin', '123456');
 });
 
 describe('Smoke Auditoría + Bandeja', () => {

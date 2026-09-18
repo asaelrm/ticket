@@ -29,7 +29,7 @@ async function newTicket(client, over = {}) {
 
 before(async () => {
   adminC = createClient();
-  await adminC.login('admin', 'Admin1234!');
+  await adminC.login('admin', '123456');
   empleadoC = createClient();
   await empleadoC.login('empleado', 'Empleado1234!');
 

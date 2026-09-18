@@ -5,7 +5,7 @@ import { createClient } from './helpers.js';
 describe('Permisos', () => {
   it('admin puede acceder a usuarios, dashboard, categorías, roles', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const endpoints = ['/api/users', '/api/dashboard/summary', '/api/categories', '/api/roles'];
     for (const url of endpoints) {
       const res = await c.get(url);
@@ -50,7 +50,7 @@ describe('Permisos', () => {
 
   it('empleado NO puede ver tickets de otros (y un id inexistente devuelve 404)', async () => {
     const admin = createClient();
-    await admin.login('admin', 'Admin1234!');
+    await admin.login('admin', '123456');
     const emp = createClient();
     await emp.login('empleado', 'Empleado1234!');
 
@@ -82,7 +82,7 @@ describe('Permisos', () => {
 
   it('admin puede cambiar estado y asignar tickets', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const t = await c.post('/api/tickets', { title: 'T Admin', description: 'D', category_id: 1, priority: 'MEDIUM' });
     const id = t.body.ticket.id;
 

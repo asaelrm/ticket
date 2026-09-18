@@ -5,7 +5,7 @@ import { createClient } from './helpers.js';
 describe('Autenticación', () => {
   it('login con credenciales válidas devuelve el usuario', async () => {
     const c = createClient();
-    const res = await c.login('admin', 'Admin1234!');
+    const res = await c.login('admin', '123456');
     assert.equal(res.status, 200);
     assert.equal(res.body.user.role, 'ADMIN');
     assert.equal(res.body.user.username, 'admin');
@@ -22,7 +22,7 @@ describe('Autenticación', () => {
 
   it('GET /api/auth/me devuelve el usuario autenticado', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const res = await c.get('/api/auth/me');
     assert.equal(res.status, 200);
     assert.equal(res.body.user.username, 'admin');
@@ -36,7 +36,7 @@ describe('Autenticación', () => {
 
   it('logout destruye la sesión', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const out = await c.post('/api/auth/logout', {});
     assert.equal(out.status, 200);
     const me = await c.get('/api/auth/me');
@@ -76,7 +76,7 @@ describe('Autenticación', () => {
     assert.equal(login.status, 200);
     // Restaurar contraseña original
     await c3.get('/api/health');
-    await c3.post('/api/auth/reset-password', { token, password: 'Admin1234!' }).catch(() => {});
+    await c3.post('/api/auth/reset-password', { token, password: '123456' }).catch(() => {});
     // Usar forgot para restaurar
     const c4 = createClient();
     await c4.get('/api/health');
@@ -84,7 +84,7 @@ describe('Autenticación', () => {
     if (f2.body.token) {
       const c5 = createClient();
       await c5.get('/api/health');
-      await c5.post('/api/auth/reset-password', { token: f2.body.token, password: 'Admin1234!' });
+      await c5.post('/api/auth/reset-password', { token: f2.body.token, password: '123456' });
     }
   });
 

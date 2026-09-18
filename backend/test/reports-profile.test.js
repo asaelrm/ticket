@@ -8,7 +8,7 @@ let empleadoC;
 
 before(async () => {
   adminC = createClient();
-  await adminC.login('admin', 'Admin1234!');
+  await adminC.login('admin', '123456');
   empleadoC = createClient();
   await empleadoC.login('empleado', 'Empleado1234!');
 });
@@ -57,6 +57,21 @@ describe('Reportes con filtro de fecha', () => {
     const res = await adminC.get(`/api/reports/by-status?from=${today}&to=${today}`);
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body.data));
+  });
+
+  it('/full devuelve todas las secciones en una sola llamada', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const res = await adminC.get(`/api/reports/full?from=${today}&to=${today}`);
+    assert.equal(res.status, 200);
+    assert.equal(typeof res.body.summary.total, 'number');
+    for (const key of ['byStatus', 'byPriority', 'byCategory', 'byDepartment', 'byDay', 'byUser']) {
+      assert.ok(Array.isArray(res.body[key]), `${key} debe ser un arreglo`);
+    }
+  });
+
+  it('empleado tampoco puede usar /full', async () => {
+    const res = await empleadoC.get('/api/reports/full');
+    assert.equal(res.status, 403);
   });
 
   it('exporta el reporte en CSV organizado por secciones', async () => {

@@ -145,7 +145,7 @@ describe('Conversación en vivo por SSE', () => {
     await stream.waitFor('ready');
 
     const admin = makeClient();
-    await admin.post('/api/auth/login', { account: 'admin', password: 'Admin1234!', remember: false });
+    await admin.post('/api/auth/login', { account: 'admin', password: '123456', remember: false });
 
     const publicMsg = await admin.post(`/api/tickets/${ticketId}/comments`, { message: 'Hola, estamos revisando.' });
     assert.equal(publicMsg.status, 201);
@@ -180,7 +180,7 @@ describe('Conversación en vivo por SSE', () => {
 
   it('rechaza el stream en tickets ajenos sin permiso', async () => {
     const admin = makeClient();
-    await admin.post('/api/auth/login', { account: 'admin', password: 'Admin1234!', remember: false });
+    await admin.post('/api/auth/login', { account: 'admin', password: '123456', remember: false });
     const created = await admin.post('/api/tickets', {
       title: 'Ticket privado e2e',
       description: 'x',

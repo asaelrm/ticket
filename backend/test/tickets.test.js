@@ -17,7 +17,7 @@ const IMG_JPG = {
 describe('Tickets, adjuntos y filtros', () => {
   it('crear ticket con múltiples adjuntos válidos', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const res = await c.postMultipart(
       '/api/tickets',
       { title: 'Ticket con archivos', description: 'Prueba adjuntos', category_id: 1, priority: 'HIGH' },
@@ -30,7 +30,7 @@ describe('Tickets, adjuntos y filtros', () => {
 
   it('rechaza archivo cuyo contenido no coincide con la extensión', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const bad = {
       name: 'malicioso.png',
       mime: 'image/png',
@@ -46,7 +46,7 @@ describe('Tickets, adjuntos y filtros', () => {
 
   it('descarga de adjunto requiere autenticación', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const t = await c.postMultipart(
       '/api/tickets',
       { title: 'Con adjunto', description: 'D', category_id: 1, priority: 'LOW' },
@@ -61,7 +61,7 @@ describe('Tickets, adjuntos y filtros', () => {
 
   it('filtros combinados funcionan', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
 
     // Crear varios tickets en distintas categorías
     await c.post('/api/tickets', { title: 'Filtro A', description: 'Desc A', category_id: 1, priority: 'LOW' });
@@ -78,7 +78,7 @@ describe('Tickets, adjuntos y filtros', () => {
 
   it('historial registra cambios de estado y prioridad', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const t = await c.post('/api/tickets', { title: 'Historico', description: 'D', category_id: 1, priority: 'MEDIUM' });
     const id = t.body.ticket.id;
 
@@ -95,7 +95,7 @@ describe('Tickets, adjuntos y filtros', () => {
 
   it('cerrar un ticket registra resolución en historial', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const t = await c.post('/api/tickets', { title: 'Cierre', description: 'D', category_id: 1, priority: 'MEDIUM' });
     const id = t.body.ticket.id;
 
@@ -106,7 +106,7 @@ describe('Tickets, adjuntos y filtros', () => {
 
   it('export CSV devuelve archivo', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const res = await c.get('/api/tickets/export');
     assert.equal(res.status, 200);
     assert.match(String(res.headers['content-type']), /text\/csv/);
@@ -121,7 +121,7 @@ describe('Tickets, adjuntos y filtros', () => {
 
   it('comentario con adjunto queda vinculado', async () => {
     const c = createClient();
-    await c.login('admin', 'Admin1234!');
+    await c.login('admin', '123456');
     const t = await c.post('/api/tickets', { title: 'Comentario archivo', description: 'D', category_id: 1, priority: 'LOW' });
     const id = t.body.ticket.id;
 
