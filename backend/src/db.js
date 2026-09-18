@@ -17,6 +17,12 @@ function columnExists(table, column) {
   return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
 }
 
+function tableExists(table) {
+  return Boolean(
+    db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(table),
+  );
+}
+
 export function ensureColumn(table, column, ddl) {
   if (!columnExists(table, column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
@@ -27,44 +33,53 @@ export function runMigrations() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   db.exec('BEGIN');
   try {
-    db.exec(schema);
+    // En bases existentes con esquema antiguo, las columnas aditivas deben crearse
+    // ANTES de schema.sql, cuyos CREATE INDEX ya las referencian (idempotente).
+    if (tableExists('tickets')) {
+      ensureColumn('tickets', 'assigned_team_id', 'assigned_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL');
+      ensureColumn('tickets', 'sla_due_at', 'sla_due_at TEXT');
 
-    // Columnas nuevas en tickets (aditivas, solo si faltan).
-    ensureColumn('tickets', 'assigned_team_id', 'assigned_team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL');
-    ensureColumn('tickets', 'sla_due_at', 'sla_due_at TEXT');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_assigned_team ON tickets(assigned_team_id)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_sla_due ON tickets(sla_due_at)');
+      // Datos de resolución / cierre / reapertura / pendiente (flujo de trabajo).
+      ensureColumn('tickets', 'resolution', 'resolution TEXT');
+      ensureColumn('tickets', 'resolution_category', 'resolution_category TEXT');
+      ensureColumn('tickets', 'root_cause', 'root_cause TEXT');
+      ensureColumn('tickets', 'time_spent_minutes', 'time_spent_minutes INTEGER');
+      ensureColumn('tickets', 'resolved_by', 'resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
+      ensureColumn('tickets', 'resolved_at', 'resolved_at TEXT');
+      ensureColumn('tickets', 'closed_by', 'closed_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
+      ensureColumn('tickets', 'closed_at', 'closed_at TEXT');
+      ensureColumn('tickets', 'reopened_at', 'reopened_at TEXT');
+      ensureColumn('tickets', 'reopened_by', 'reopened_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
+      ensureColumn('tickets', 'reopen_reason', 'reopen_reason TEXT');
+      ensureColumn('tickets', 'pending_reason', 'pending_reason TEXT');
+      ensureColumn('tickets', 'resolution_notified', 'resolution_notified INTEGER NOT NULL DEFAULT 0');
 
-    // Datos de resolución / cierre / reapertura / pendiente (flujo de trabajo).
-    ensureColumn('tickets', 'resolution', 'resolution TEXT');
-    ensureColumn('tickets', 'resolution_category', 'resolution_category TEXT');
-    ensureColumn('tickets', 'root_cause', 'root_cause TEXT');
-    ensureColumn('tickets', 'time_spent_minutes', 'time_spent_minutes INTEGER');
-    ensureColumn('tickets', 'resolved_by', 'resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
-    ensureColumn('tickets', 'closed_by', 'closed_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
-    ensureColumn('tickets', 'reopened_at', 'reopened_at TEXT');
-    ensureColumn('tickets', 'reopened_by', 'reopened_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
-    ensureColumn('tickets', 'reopen_reason', 'reopen_reason TEXT');
-    ensureColumn('tickets', 'pending_reason', 'pending_reason TEXT');
-    ensureColumn('tickets', 'resolution_notified', 'resolution_notified INTEGER NOT NULL DEFAULT 0');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_resolved_by ON tickets(resolved_by)');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_closed_by ON tickets(closed_by)');
+      // Cancelación con motivo (flujo de cancelación).
+      ensureColumn('tickets', 'cancel_reason', 'cancel_reason TEXT');
+      ensureColumn('tickets', 'cancelled_by', 'cancelled_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
+      ensureColumn('tickets', 'cancelled_at', 'cancelled_at TEXT');
+
+      // Encuesta de satisfacción (CSAT).
+      ensureColumn('tickets', 'csat_rating', 'csat_rating INTEGER');
+      ensureColumn('tickets', 'csat_comment', 'csat_comment TEXT');
+      ensureColumn('tickets', 'csat_answered_at', 'csat_answered_at TEXT');
+    }
 
     // Nota interna vs. comentario público.
-    ensureColumn('ticket_comments', 'is_internal', 'is_internal INTEGER NOT NULL DEFAULT 0');
-    db.exec('CREATE INDEX IF NOT EXISTS idx_comments_internal ON ticket_comments(ticket_id, is_internal)');
+    if (tableExists('ticket_comments')) {
+      ensureColumn('ticket_comments', 'is_internal', 'is_internal INTEGER NOT NULL DEFAULT 0');
+    }
 
-    // Cancelación con motivo (flujo de cancelación).
-    ensureColumn('tickets', 'cancel_reason', 'cancel_reason TEXT');
-    ensureColumn('tickets', 'cancelled_by', 'cancelled_by INTEGER REFERENCES users(id) ON DELETE SET NULL');
-    ensureColumn('tickets', 'cancelled_at', 'cancelled_at TEXT');
+    db.exec(schema);
+
+    // Índices de columnas aditivas (idempotentes).
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_assigned_team ON tickets(assigned_team_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_sla_due ON tickets(sla_due_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_resolved_by ON tickets(resolved_by)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_closed_by ON tickets(closed_by)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_by ON tickets(cancelled_by)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_at ON tickets(cancelled_at)');
-
-    // Encuesta de satisfacción (CSAT).
-    ensureColumn('tickets', 'csat_rating', 'csat_rating INTEGER');
-    ensureColumn('tickets', 'csat_comment', 'csat_comment TEXT');
-    ensureColumn('tickets', 'csat_answered_at', 'csat_answered_at TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_comments_internal ON ticket_comments(ticket_id, is_internal)');
 
     // Notificaciones in-app.
     db.exec(`
