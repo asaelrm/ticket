@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth, can } from './context/AuthContext';
 import Layout from './components/Layout';
@@ -6,21 +7,22 @@ import { LoadingScreen } from './components/ui';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
-import NewTicket from './pages/NewTicket';
-import MyTickets from './pages/MyTickets';
-import Inbox from './pages/Inbox';
-import Audit from './pages/Audit';
-import TicketDetail from './pages/TicketDetail';
-import Dashboard from './pages/Dashboard';
-import Tickets from './pages/Tickets';
-import Users from './pages/Users';
-import Categories from './pages/Categories';
-import Departments from './pages/Departments';
-import Teams from './pages/Teams';
-import Roles from './pages/Roles';
-import Reports from './pages/Reports';
-import Settings from './pages/Settings';
-import Profile from './pages/Profile';
+
+const NewTicket = lazy(() => import('./pages/NewTicket'));
+const MyTickets = lazy(() => import('./pages/MyTickets'));
+const Inbox = lazy(() => import('./pages/Inbox'));
+const Audit = lazy(() => import('./pages/Audit'));
+const TicketDetail = lazy(() => import('./pages/TicketDetail'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Tickets = lazy(() => import('./pages/Tickets'));
+const Users = lazy(() => import('./pages/Users'));
+const Categories = lazy(() => import('./pages/Categories'));
+const Departments = lazy(() => import('./pages/Departments'));
+const Teams = lazy(() => import('./pages/Teams'));
+const Roles = lazy(() => import('./pages/Roles'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Profile = lazy(() => import('./pages/Profile'));
 
 function Protected({ children, permission }) {
   const { user, loading } = useAuth();
@@ -34,7 +36,8 @@ function Protected({ children, permission }) {
 
 export default function App() {
   return (
-    <Routes>
+    <Suspense fallback={<LoadingScreen />}>
+      <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
@@ -67,7 +70,8 @@ export default function App() {
       </Route>
 
       <Route path="*" element={<Navigate to="/app" replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }
 

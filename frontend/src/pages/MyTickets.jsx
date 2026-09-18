@@ -28,7 +28,17 @@ export default function MyTickets() {
   }, []);
 
   useEffect(() => {
-    load(filters);
+    // Debounce: evita una petición por cada tecla al escribir en la búsqueda.
+    const timer = setTimeout(() => load(filters), 250);
+    return () => clearTimeout(timer);
+  }, [load, filters]);
+
+  // Refresco silencioso en vivo cada 30 s (solo cuando la pestaña es visible).
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') load(filters);
+    }, 30000);
+    return () => clearInterval(timer);
   }, [load, filters]);
 
   return (

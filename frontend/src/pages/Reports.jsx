@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, download, STATUS_LABEL, PRIORITY_LABEL } from '../lib/api';
-import { LoadingScreen } from '../components/ui';
+import { LoadingScreen, ErrorBox } from '../components/ui';
 import { printDocument } from '../lib/print';
 
 const STATUS_COLORS = {
-  OPEN: '#3b82f6',
-  ASSIGNED: '#6366f1',
-  IN_PROGRESS: '#f59e0b',
-  PENDING: '#a855f7',
-  RESOLVED: '#10b981',
+  OPEN: '#f59e0b',
+  ASSIGNED: '#2196f3',
+  IN_PROGRESS: '#22c77a',
+  PENDING: '#38bdf8',
+  RESOLVED: '#20c7b7',
   CLOSED: '#94a3b8',
   CANCELLED: '#ef4444',
 };
 
-const PRIORITY_COLORS = { LOW: '#94a3b8', MEDIUM: '#0ea5e9', HIGH: '#f97316', CRITICAL: '#dc2626' };
+const PRIORITY_COLORS = { LOW: '#94a3b8', MEDIUM: '#38bdf8', HIGH: '#f97316', CRITICAL: '#ef4444' };
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -63,6 +63,8 @@ function rangeLabel(range) {
 export default function Reports() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const [form, setForm] = useState({ from: '', to: '' });
   const [query, setQuery] = useState({ from: '', to: '' });
 
@@ -76,24 +78,29 @@ export default function Reports() {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    Promise.all([
-      api.get(`/api/reports/summary${qs}`),
-      api.get(`/api/reports/by-status${qs}`),
-      api.get(`/api/reports/by-priority${qs}`),
-      api.get(`/api/reports/by-category${qs}`),
-      api.get(`/api/reports/by-department${qs}`),
-      api.get(`/api/reports/performance${qs}`),
-    ])
-      .then(([s, st, pr, ca, de, pf]) => {
+    setError('');
+    // Una sola petición: el backend calcula cada sección una única vez.
+    api
+      .get(`/api/reports/full${qs}`)
+      .then((r) => {
         if (!active) return;
-        setData({ summary: s, byStatus: st.data, byPriority: pr.data, byCategory: ca.data, byDepartment: de.data, performance: pf });
+        setData({
+          summary: r.summary,
+          byStatus: r.byStatus,
+          byPriority: r.byPriority,
+          byCategory: r.byCategory,
+          byDepartment: r.byDepartment,
+          performance: { by_day: r.byDay, by_user: r.byUser },
+        });
       })
-      .catch(() => {})
+      .catch((err) => {
+        if (active) setError(err.message || 'No se pudieron cargar los reportes');
+      })
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, [qs]);
+  }, [qs, reloadKey]);
 
   function applyPreset(preset) {
     const r = preset.range();
@@ -158,7 +165,16 @@ export default function Reports() {
   }
 
   if (loading && !data) return <LoadingScreen text="Cargando reportes…" />;
-  if (!data) return null;
+  if (!data) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <ErrorBox message={error || 'No se pudieron cargar los reportes'} />
+        <button className="btn-secondary mt-4" onClick={() => setReloadKey((k) => k + 1)}>
+          Reintentar
+        </button>
+      </div>
+    );
+  }
 
   const maxStatus = Math.max(...data.byStatus.map((d) => d.n), 1);
   const maxDept = Math.max(...data.byDepartment.map((d) => d.n), 1);
@@ -261,7 +277,7 @@ export default function Reports() {
         <ChartCard title="Tickets por departamento">
           {data.byDepartment.length === 0 && <p className="text-sm text-slate-400">Sin datos</p>}
           {data.byDepartment.map((d) => (
-            <Bar key={d.name} label={d.name} n={d.n} pct={maxDept ? (d.n / maxDept) * 100 : 0} color="#6366f1" />
+            <Bar key={d.name} label={d.name} n={d.n} pct={maxDept ? (d.n / maxDept) * 100 : 0} color="#20c7b7" />
           ))}
         </ChartCard>
       </div>

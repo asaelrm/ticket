@@ -196,6 +196,7 @@ export default function TicketDetail() {
   const can = data.can || {};
   const sla = slaInfo(t);
   const locked = ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(t.status);
+  const isReporter = Number(t.reporter_id) === Number(user?.id);
 
   async function patchTicket(payload) {
     setSaving(true);
@@ -208,6 +209,8 @@ export default function TicketDetail() {
       setStatusDraft(t.status);
       setPriorityDraft(t.priority);
       setCategoryDraft(t.category_id ? String(t.category_id) : '');
+      setAssignDraft(t.assigned_to_id ? String(t.assigned_to_id) : '');
+      setTeamDraft(t.assigned_team_id ? String(t.assigned_team_id) : '');
       throw err;
     } finally {
       setSaving(false);

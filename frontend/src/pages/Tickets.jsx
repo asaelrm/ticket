@@ -93,6 +93,14 @@ export default function Tickets() {
     reload();
   }, [reload]);
 
+  // Refresco silencioso en vivo cada 30 s (solo cuando la pestaña es visible).
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') reload();
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [reload]);
+
   useEffect(() => {
     setSearchDraft(filters.search);
   }, [filters.search]);

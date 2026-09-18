@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatRelative, formatSla, slaInfo, PRIORITY_LABEL, STATUS_LABEL, STATUS_DOT } from '../lib/api';
-import { EmptyState, Pagination, Menu, Avatar, Modal } from './ui';
+import { formatRelative, formatSla, slaInfo } from '../lib/api';
+import { EmptyState, Pagination, Menu, Avatar, Modal, StatusBadge, PriorityBadge } from './ui';
 
 function SortHeader({ col, label, sort, dir, onSort, className = '' }) {
   if (!onSort) return <th className={`th ${className}`}>{label}</th>;
@@ -95,11 +95,19 @@ export function TicketTable({
   canManage,
   onAssignMe,
   onStatusChange,
+  selectable = false,
+  selected,
+  onToggle,
+  onToggleAll,
 }) {
   const navigate = useNavigate();
   const [cancelTicket, setCancelTicket] = useState(null);
 
   const showActions = canAssign || canManage;
+  const sel = selected || new Set();
+  const pageIds = (list.data || []).map((t) => t.id);
+  const allSelected = pageIds.length > 0 && pageIds.every((id) => sel.has(id));
+  const someSelected = pageIds.some((id) => sel.has(id));
 
   if (!list.data?.length) {
     return (
@@ -113,6 +121,20 @@ export function TicketTable({
         <table className="w-full">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
+              {selectable && (
+                <th className="th w-10">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 cursor-pointer rounded"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allSelected && someSelected;
+                    }}
+                    onChange={(e) => onToggleAll?.(pageIds, e.target.checked)}
+                    aria-label="Seleccionar todos los de la página"
+                  />
+                </th>
+              )}
               <SortHeader col="ticket_number" label="Ticket" sort={sort} dir={dir} onSort={onSort} />
               <th className="th">Título</th>
               <th className="th hidden lg:table-cell">Categoría</th>
@@ -125,8 +147,21 @@ export function TicketTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {list.data.map((t) => (
-              <tr key={t.id} className={`transition hover:bg-slate-50 ${t.is_overdue ? 'bg-red-50/40' : ''}`}>
+            {list.data.map((t) => {
+              const isSelected = sel.has(t.id);
+              return (
+              <tr key={t.id} className={`transition hover:bg-slate-50 ${isSelected ? 'bg-brand-50' : t.is_overdue ? 'bg-red-50/40' : ''}`}>
+                {selectable && (
+                  <td className="td w-10">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 cursor-pointer rounded"
+                      checked={isSelected}
+                      onChange={() => onToggle?.(t.id)}
+                      aria-label={`Seleccionar ${t.ticket_number}`}
+                    />
+                  </td>
+                )}
                 <td className="td font-semibold text-brand-600">
                   <Link to={`${basePath}/${t.id}`} className="hover:underline">
                     {t.ticket_number}
@@ -159,20 +194,10 @@ export function TicketTable({
                   </span>
                 </td>
                 <td className="td whitespace-nowrap">
-                  <span className="inline-flex items-center gap-1.5" title={PRIORITY_LABEL[t.priority]}>
-                    <span
-                      className={`inline-block h-2 w-2 rounded-full ${
-                        { LOW: 'bg-slate-400', MEDIUM: 'bg-sky-500', HIGH: 'bg-orange-500', CRITICAL: 'bg-red-600' }[t.priority]
-                      }`}
-                    />
-                    <span className="text-slate-600">{PRIORITY_LABEL[t.priority]}</span>
-                  </span>
+                  <PriorityBadge priority={t.priority} />
                 </td>
                 <td className="td whitespace-nowrap">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className={`h-2 w-2 rounded-full ${STATUS_DOT[t.status] || 'bg-slate-400'}`} />
-                    <span className="text-slate-600">{STATUS_LABEL[t.status]}</span>
-                  </span>
+                  <StatusBadge status={t.status} />
                 </td>
                 <td className="td hidden whitespace-nowrap md:table-cell">
                   <SlaCell ticket={t} />
@@ -196,7 +221,8 @@ export function TicketTable({
                   </td>
                 )}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
