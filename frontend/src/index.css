@@ -49,8 +49,13 @@
   }
   input[type='date'],
   input[type='time'],
-  input[type='datetime-local'] {
+  input[type='datetime-local'],
+  select {
     color-scheme: dark;
+  }
+  select option {
+    background-color: var(--surface-2);
+    color: #e6eef5;
   }
   input[type='date']::-webkit-calendar-picker-indicator,
   input[type='time']::-webkit-calendar-picker-indicator,

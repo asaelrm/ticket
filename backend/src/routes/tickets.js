@@ -15,6 +15,7 @@ import {
   createNotifications,
   notifyTicketParticipants,
   notifyAdmins,
+  notifyStaff,
 } from '../utils/notifications.js';
 
 const router = express.Router();
@@ -556,8 +557,19 @@ router.post(
     recordHistory(ticketId, req.user.id, 'CREATED', `Ticket creado por ${req.user.name} ${req.user.last_name}`);
     touchTicket(ticketId);
 
+    // Avisa al personal de soporte (quien puede ver todos los tickets) de que llegó un ticket nuevo.
+    const created = getTicket(ticketId);
+    notifyStaff({
+      type: 'NEW_TICKET',
+      title: `Nuevo ticket: ${created.ticket_number}`,
+      body: `${PRIORITY_LABEL[created.priority] || created.priority} · ${created.title}`,
+      ticketId: created.id,
+      excludeUserId: req.user.id,
+      link: `/app/tickets/${created.id}`,
+    });
+
     emitTicketEvent(ticketId, 'refresh');
-    return res.status(201).json({ ticket: getTicket(ticketId), attachments });
+    return res.status(201).json({ ticket: created, attachments });
   }
 );
 

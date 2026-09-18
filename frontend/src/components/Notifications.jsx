@@ -4,6 +4,7 @@ import { api, formatRelative } from '../lib/api';
 import { Spinner } from './ui';
 
 const TYPE_ICON = {
+  NEW_TICKET: '🆕',
   ASSIGNED: '🙋',
   COMMENT: '💬',
   RESOLVED: '✅',
