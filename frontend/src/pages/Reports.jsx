@@ -194,7 +194,7 @@ export default function Reports() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="btn-secondary" onClick={exportCsv}>
+            <button className="btn-secondary !text-white" onClick={exportCsv}>
               Exportar CSV
             </button>
             <button className="btn-primary" onClick={exportPdf}>
