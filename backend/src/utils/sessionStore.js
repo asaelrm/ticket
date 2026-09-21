@@ -67,3 +67,7 @@ export default class SqliteSessionStore extends Store {
     return expires;
   }
 }
+
+export function destroyUserSessions(userId) {
+  db.prepare("DELETE FROM sessions WHERE json_extract(sess, '$.userId') = ?").run(userId);
+}

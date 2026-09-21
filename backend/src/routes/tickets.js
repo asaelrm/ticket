@@ -743,8 +743,12 @@ router.get('/:id', (req, res) => {
 
   const attachments = db.prepare(`
     SELECT ta.*, u.name || ' ' || u.last_name AS uploader_name
-    FROM ticket_attachments ta LEFT JOIN users u ON u.id = ta.uploader_id
-    WHERE ta.ticket_id = ? ORDER BY ta.created_at ASC, ta.id ASC`).all(id);
+    FROM ticket_attachments ta
+    LEFT JOIN users u ON u.id = ta.uploader_id
+    LEFT JOIN ticket_comments tc ON tc.id = ta.comment_id
+    WHERE ta.ticket_id = ?
+      AND (ta.comment_id IS NULL OR tc.is_internal = 0 OR ?)
+    ORDER BY ta.created_at ASC, ta.id ASC`).all(id, canSeeInternal ? 1 : 0);
 
   const comments = db.prepare(`
     SELECT tc.*, u.name || ' ' || u.last_name AS user_name,
@@ -854,6 +858,9 @@ router.patch('/:id', (req, res) => {
   if (body.status !== undefined) {
     if (!STATUSES.includes(body.status)) return res.status(400).json({ error: 'Estado inválido' });
     if (!canManage) return res.status(403).json({ error: 'No tiene permiso para cambiar el estado' });
+    if (['RESOLVED', 'CLOSED', 'CANCELLED'].includes(body.status)) {
+      return res.status(400).json({ error: 'Use el flujo específico para resolver, cerrar o cancelar el ticket' });
+    }
     if (ticket.status === 'CANCELLED' && body.status !== 'CANCELLED') {
       return res.status(400).json({ error: 'No puede cambiar el estado de un ticket cancelado' });
     }

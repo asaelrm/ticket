@@ -63,13 +63,14 @@ describe('Autenticación', () => {
 
   it('reset-password con token válido funciona', async () => {
     const c = createClient();
-    await c.get('/api/health');
+    await c.login('admin', '123456');
     const forgot = await c.post('/api/auth/forgot-password', { account: 'admin' });
     const token = forgot.body.token;
     const c2 = createClient();
     await c2.get('/api/health');
     const res = await c2.post('/api/auth/reset-password', { token, password: 'Nueva1234!' });
     assert.equal(res.status, 200);
+    assert.equal((await c.get('/api/auth/me')).status, 401, 'el restablecimiento invalida sesiones existentes');
     // Login con nueva contraseña funciona
     const c3 = createClient();
     const login = await c3.login('admin', 'Nueva1234!');

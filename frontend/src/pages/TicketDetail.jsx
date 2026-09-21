@@ -830,6 +830,30 @@ export default function TicketDetail() {
         </div>
       </Modal>
 
+      <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title="Cancelar ticket">
+        <p className="text-sm text-slate-600">
+          Esta acción cancelará el ticket y notificará al reportante. Indique el motivo.
+        </p>
+        <label className="label mt-4" htmlFor="cancel-reason">Motivo de cancelación *</label>
+        <textarea
+          id="cancel-reason"
+          className="input min-h-[100px] resize-y"
+          value={cancelReason}
+          onChange={(e) => setCancelReason(e.target.value)}
+          placeholder="Explique por qué se cancela el ticket..."
+          maxLength={2000}
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="btn-secondary" onClick={() => setCancelOpen(false)}>
+            Volver
+          </button>
+          <button className="btn-secondary !text-red-600" onClick={submitCancel} disabled={saving || !cancelReason.trim()}>
+            {saving && <Spinner className="h-4 w-4 text-red-600" />}
+            Cancelar ticket
+          </button>
+        </div>
+      </Modal>
+
       <Drawer
         open={reopenOpen}
         onClose={() => setReopenOpen(false)}

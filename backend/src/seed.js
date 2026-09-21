@@ -94,12 +94,14 @@ function seedPermissionsAndRoles() {
   const link = db.prepare(
     'INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)'
   );
-  const clear = db.prepare('DELETE FROM role_permissions WHERE role_id = ?');
 
   for (const [code, role] of Object.entries(ROLES)) {
+    const existingRole = getRole.get(code);
     insertRole.run(code, role.name, role.description);
     const roleId = getRole.get(code).id;
-    clear.run(roleId);
+    // Los permisos iniciales solo se asignan al crear el rol; una configuración
+    // modificada desde la UI no debe revertirse al reiniciar el servidor.
+    if (existingRole && code !== 'ADMIN') continue;
     for (const perm of role.permissions) {
       const permRow = getPerm.get(perm);
       if (permRow) link.run(roleId, permRow.id);

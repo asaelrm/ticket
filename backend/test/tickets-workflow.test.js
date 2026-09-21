@@ -123,13 +123,13 @@ describe('Flujo de resolución de tickets', () => {
     assert.ok(actions.includes('REOPENED'));
   });
 
-  it('las notas internas se ocultan al empleado', async () => {
+  it('las notas internas y sus adjuntos se ocultan al empleado', async () => {
     const t = await newTicket(empleadoC, { title: 'Nota interna' });
 
-    const nota = await adminC.post(`/api/tickets/${t.id}/comments`, {
+    const nota = await adminC.postMultipart(`/api/tickets/${t.id}/comments`, {
       message: 'Nota interna: validar garantía del equipo',
       is_internal: '1',
-    });
+    }, [IMG_JPG]);
     assert.equal(nota.status, 201);
     assert.equal(nota.body.comment.is_internal, true);
 
@@ -140,6 +140,9 @@ describe('Flujo de resolución de tickets', () => {
     const empDetail = await empleadoC.get(`/api/tickets/${t.id}`);
     assert.ok(empDetail.body.comments.every((c) => !c.is_internal), 'el empleado no ve notas internas');
     assert.ok(empDetail.body.history.every((h) => h.action !== 'NOTE_ADDED'), 'el historial no expone notas internas');
+    assert.ok(empDetail.body.attachments.every((a) => a.comment_id !== nota.body.comment.id), 'el empleado no ve adjuntos internos');
+    const download = await empleadoC.get(`/api/files/${nota.body.attachments[0].id}`);
+    assert.equal(download.status, 404, 'el empleado no descarga adjuntos internos');
 
     const forbidden = await empleadoC.post(`/api/tickets/${t.id}/comments`, { message: 'x', is_internal: '1' });
     assert.equal(forbidden.status, 403);
@@ -157,6 +160,16 @@ describe('Flujo de resolución de tickets', () => {
 
     const detail = await adminC.get(`/api/tickets/${t.id}`);
     assert.ok(detail.body.history.some((h) => h.action === 'PENDING_REASON_SET'));
+  });
+
+  it('no permite usar PATCH para resolver, cerrar o cancelar', async () => {
+    const t = await newTicket(adminC);
+    for (const status of ['RESOLVED', 'CLOSED', 'CANCELLED']) {
+      const res = await adminC.patch(`/api/tickets/${t.id}`, { status });
+      assert.equal(res.status, 400);
+    }
+    const detail = await adminC.get(`/api/tickets/${t.id}`);
+    assert.equal(detail.body.ticket.status, 'OPEN');
   });
 
   it('el empleado no puede resolver, cerrar ni reabrir', async () => {

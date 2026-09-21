@@ -8,6 +8,7 @@ import { validate, rules, safeStr } from '../utils/validation.js';
 import { requireAuth, touchLastLogin, loadUser } from '../middleware/auth.js';
 import { nowIso } from '../db.js';
 import { notifyPasswordReset } from '../utils/mailer.js';
+import { destroyUserSessions } from '../utils/sessionStore.js';
 
 const router = express.Router();
 
@@ -119,6 +120,7 @@ router.post('/change-password', requireAuth, (req, res) => {
     nowIso(),
     req.user.id
   );
+  destroyUserSessions(req.user.id);
   return res.json({ ok: true });
 });
 
@@ -142,6 +144,7 @@ router.post('/reset-password', (req, res) => {
     `UPDATE users SET password_hash = ?, password_reset_token = NULL, password_reset_expires = NULL,
      last_password_change_at = ?, updated_at = ? WHERE id = ?`
   ).run(hashPassword(next), nowIso(), nowIso(), row.id);
+  destroyUserSessions(row.id);
 
   return res.json({ ok: true });
 });
