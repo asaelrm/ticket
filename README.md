@@ -195,3 +195,4 @@ Los valores se configuran en **Configuración → Escalación automática** (`0`
 ## Extensibilidad
 
 La arquitectura queda lista para: flujos de aprobación, encuestas avanzadas, inventario, integración LDAP/AD y multiempresa sin rehacer el núcleo.
+<!-- Prueba auto-push 09/20/2026 23:18:30 -->
