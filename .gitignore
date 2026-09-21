@@ -31,3 +31,5 @@ auto-push.ps1
 auto-push-hidden.vbs
 
 git-watch.ps1
+
+git-watch-hidden.vbs
