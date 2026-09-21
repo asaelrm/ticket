@@ -25,3 +25,5 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 auto-push.ps1
+
+.auto-git.lock
