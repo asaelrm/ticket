@@ -1,4 +1,6 @@
 import bcrypt from 'bcryptjs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import db, { transaction } from './db.js';
 import config from './config.js';
 
@@ -215,8 +217,9 @@ export function seed() {
   });
 }
 
-// Ejecución directa (npm run db:seed)
-if (process.argv[1] && process.argv[1].endsWith('seed.js')) {
+// Solo se ejecuta directamente como `node src/seed.js`, no al importarlo desde
+// `src/scripts/seed.js`, que primero aplica las migraciones.
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   seed();
   console.log('Seed completado.');
 }
