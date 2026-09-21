@@ -15,7 +15,7 @@ services:
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-5}
       MAX_FILES_PER_TICKET: ${MAX_FILES_PER_TICKET:-5}
       # Administrador inicial (solo se crea si define SEED_ADMIN_PASSWORD).
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-123456}
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@empresa.com}
     volumes:
