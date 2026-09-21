@@ -115,7 +115,7 @@ export default function Layout() {
   if (can(user, 'dashboard.view')) primary.push({ to: '/app/dashboard', label: 'Dashboard', icon: ICONS.home });
   primary.push({ to: '/app/my-tickets', label: 'Mis tickets', icon: ICONS.tickets });
   if (can(user, 'ticket.view.all')) {
-    primary.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox, alwaysWhite: true });
+    primary.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox });
   }
 
   const management = [];
