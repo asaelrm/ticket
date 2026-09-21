@@ -90,12 +90,12 @@ describe('Contadores de filtros rápidos', () => {
 
     // Resuelto hoy → suma en today/mes/trimestre/año
     const today = await createTicket(adminC);
-    await adminC.patch(`/api/tickets/${today.id}`, { status: 'RESOLVED' });
+    await adminC.post(`/api/tickets/${today.id}/resolve`, { resolution: 'Resolución de prueba' });
 
     // Cerrado ayer
     const yesterday = await createTicket(adminC);
     const yesterISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    await adminC.patch(`/api/tickets/${yesterday.id}`, { status: 'RESOLVED' });
+    await adminC.post(`/api/tickets/${yesterday.id}/resolve`, { resolution: 'Resolución de prueba' });
     db.prepare('UPDATE tickets SET resolved_at = ?, closed_at = NULL WHERE id = ?').run(yesterISO, yesterday.id);
 
     const after = await adminC.get('/api/tickets/counters');

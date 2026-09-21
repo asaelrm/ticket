@@ -82,14 +82,14 @@ describe('Tickets, adjuntos y filtros', () => {
     const t = await c.post('/api/tickets', { title: 'Historico', description: 'D', category_id: 1, priority: 'MEDIUM' });
     const id = t.body.ticket.id;
 
-    await c.patch(`/api/tickets/${id}`, { status: 'RESOLVED' });
+    await c.post(`/api/tickets/${id}/resolve`, { resolution: 'Resolución de prueba' });
     await c.patch(`/api/tickets/${id}`, { priority: 'CRITICAL' });
 
     const detail = await c.get(`/api/tickets/${id}`);
     assert.equal(detail.status, 200);
     const actions = detail.body.history.map((h) => h.action);
     assert.ok(actions.includes('CREATED'));
-    assert.ok(actions.includes('STATUS_CHANGED'));
+    assert.ok(actions.includes('RESOLVED'));
     assert.ok(actions.includes('PRIORITY_CHANGED'));
   });
 
@@ -99,7 +99,7 @@ describe('Tickets, adjuntos y filtros', () => {
     const t = await c.post('/api/tickets', { title: 'Cierre', description: 'D', category_id: 1, priority: 'MEDIUM' });
     const id = t.body.ticket.id;
 
-    await c.patch(`/api/tickets/${id}`, { status: 'RESOLVED' });
+    await c.post(`/api/tickets/${id}/resolve`, { resolution: 'Resolución de prueba' });
     const detail = await c.get(`/api/tickets/${id}`);
     assert.ok(detail.body.ticket.resolved_at);
   });
