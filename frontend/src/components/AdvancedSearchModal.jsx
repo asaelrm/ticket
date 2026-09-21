@@ -46,15 +46,16 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
     let active = true;
     setLoading(true);
     Promise.all([
-      api.get('/api/categories').then((d) => d.data || []),
-      api.get('/api/departments').then((d) => d.data || []),
-      api.get('/api/users/assignable').catch(() => api.get('/api/users?perPage=100').then((d) => d.data || [])),
-      api.get('/api/teams/assignable').catch(() => ({ data: [] })),
+      api.get('/api/categories').then((d) => d.data || []).catch(() => []),
+      api.get('/api/departments').then((d) => d.data || []).catch(() => []),
+      api.get('/api/users/assignable')
+        .then((d) => d.data || [])
+        .catch(() => api.get('/api/users?perPage=100').then((d) => d.data || []).catch(() => [])),
+      api.get('/api/teams/assignable').then((d) => d.data || []).catch(() => []),
     ])
       .then(([categories, departments, users, teams]) => {
-        if (active) setOptions({ categories, departments, users, teams: teams.data || [] });
+        if (active) setOptions({ categories, departments, users, teams });
       })
-      .catch(() => {})
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
@@ -180,7 +181,6 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
           <button
             type="button"
             className="btn-primary"
-            disabled={loading}
             onClick={() => {
               onApply(form);
               onClose();

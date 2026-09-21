@@ -114,7 +114,9 @@ export default function Layout() {
   const primary = [];
   if (can(user, 'dashboard.view')) primary.push({ to: '/app/dashboard', label: 'Dashboard', icon: ICONS.home });
   primary.push({ to: '/app/my-tickets', label: 'Mis tickets', icon: ICONS.tickets });
-  if (can(user, 'ticket.view.all')) primary.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox });
+  if (can(user, 'ticket.view.all')) {
+    primary.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox, alwaysWhite: true });
+  }
 
   const management = [];
   if (can(user, 'ticket.view.all')) management.push({ to: '/app/tickets', label: 'Todos los tickets', icon: ICONS.tickets });
@@ -185,7 +187,7 @@ export default function Layout() {
                   end={item.to === '/app/dashboard' || item.to === '/app/my-tickets' || item.to === '/app/inbox'}
                   className={({ isActive }) =>
                     `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
-                      isActive ? 'app-nav-active' : 'app-nav-item'
+                      isActive ? 'app-nav-active' : `app-nav-item${item.alwaysWhite ? ' app-nav-item-white' : ''}`
                     }`
                   }
                 >

@@ -378,6 +378,9 @@ tbody.divide-slate-100 > tr + tr {
   color: #e6eef5;
   background: rgba(255, 255, 255, 0.05);
 }
+.app-nav-item-white {
+  color: #ffffff !important;
+}
 
 /* Paneles glass (modales, drawer, menús, notificaciones) */
 .panel-glass {

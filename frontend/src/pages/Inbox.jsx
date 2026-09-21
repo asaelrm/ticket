@@ -310,11 +310,11 @@ export default function Inbox() {
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="btn-secondary" onClick={() => setShowAdvanced(true)}>
+            <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
               Búsqueda avanzada
               {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
             </button>
-            <button type="button" className="btn-secondary" onClick={() => setSavedOpen(true)}>
+            <button type="button" className="btn-secondary !text-white" onClick={() => setSavedOpen(true)}>
               Filtros guardados
               {savedFilters.length > 0 && <span className="badge bg-brand-600 text-white">{savedFilters.length}</span>}
             </button>
