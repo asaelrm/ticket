@@ -437,6 +437,42 @@ tbody.divide-slate-100 > tr + tr {
   animation: nexslide 240ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* El glass se conserva en escritorio; en pantallas pequeñas se prioriza fluidez. */
+@media (max-width: 640px) {
+  body {
+    background-attachment: scroll;
+  }
+  .card,
+  .panel-glass,
+  .panel-blur,
+  .app-sidebar,
+  .app-topbar,
+  .bg-white,
+  .bg-white\/90,
+  .bg-white\/95 {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .card,
+  .panel-glass {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 10px;

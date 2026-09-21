@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { STATUS_LABEL, STATUS_COLOR, PRIORITY_LABEL, PRIORITY_COLOR } from '../lib/api';
 
@@ -67,15 +67,52 @@ export function EmptyState({ icon = '📋', title, subtitle }) {
   );
 }
 
-export function Modal({ open, onClose, title, children, wide }) {
+function useDialogFocus(open, onClose, ref) {
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
+    const previouslyFocused = document.activeElement;
+    const focusable = () => ref.current?.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ) || [];
+    const focusFirst = () => (focusable()[0] || ref.current)?.focus();
+    const timer = setTimeout(focusFirst, 0);
+
     const onKey = (e) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+      if (e.key !== 'Tab') return;
+      const elements = focusable();
+      if (!elements.length) {
+        e.preventDefault();
+        ref.current?.focus();
+        return;
+      }
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('keydown', onKey);
+      previouslyFocused?.focus?.();
+    };
+  }, [open, onClose, ref]);
+}
+
+export function Modal({ open, onClose, title, children, wide }) {
+  const dialogRef = useRef(null);
+  const titleId = useId();
+  useDialogFocus(open, onClose, dialogRef);
 
   if (!open) return null;
   return (
@@ -85,9 +122,12 @@ export function Modal({ open, onClose, title, children, wide }) {
         className={`panel-glass relative max-h-[90vh] w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} overflow-y-auto rounded-2xl nex-pop`}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        ref={dialogRef}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h3 className="text-base font-semibold text-slate-800">{title}</h3>
+          <h3 id={titleId} className="text-base font-semibold text-slate-800">{title}</h3>
           <button
             onClick={onClose}
             className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
@@ -105,14 +145,9 @@ export function Modal({ open, onClose, title, children, wide }) {
 }
 
 export function Drawer({ open, onClose, title, subtitle, children, footer, wide }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  const dialogRef = useRef(null);
+  const titleId = useId();
+  useDialogFocus(open, onClose, dialogRef);
 
   if (!open) return null;
   return (
@@ -122,10 +157,13 @@ export function Drawer({ open, onClose, title, subtitle, children, footer, wide 
         className={`panel-glass relative flex h-full w-full flex-col nex-slide ${wide ? 'sm:max-w-2xl' : 'sm:max-w-xl'}`}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        ref={dialogRef}
       >
         <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
           <div>
-            <h3 className="text-base font-semibold text-slate-800">{title}</h3>
+            <h3 id={titleId} className="text-base font-semibold text-slate-800">{title}</h3>
             {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
           </div>
           <button
