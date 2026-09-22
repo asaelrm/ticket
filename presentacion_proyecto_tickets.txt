@@ -1,0 +1,243 @@
+PRESENTACION: SISTEMA DE GESTION DE TICKETS
+
+1. INTRODUCCION
+
+Este proyecto es un sistema empresarial para gestionar tickets e incidencias.
+Su objetivo es centralizar los problemas reportados por los empleados,
+
+Por ejemplo, un empleado puede reportar que su computadora no enciende, que
+no tiene acceso a un sistema o que su correo presenta fallas. El sistema
+permite registrar, atender, documentar y medir esos casos.
+
+2. PROBLEMA QUE RESUELVE
+
+Sin un sistema como este, las incidencias suelen reportarse por mensajes,
+llamadas o correos. Esto puede causar perdida de informacion, falta de
+seguimiento y dificultad para medir el trabajo de soporte.
+
+El sistema resuelve ese problema mediante:
+- Registro organizado de incidencias.
+- Asignacion a tecnicos o equipos.
+- Estados y prioridades para controlar el trabajo.
+- Historial completo de cada cambio.
+- Notificaciones y reportes para tomar decisiones.
+
+3. TECNOLOGIAS UTILIZADAS
+
+El proyecto se divide en dos partes principales:
+
+- Frontend: React, Vite y Tailwind CSS.
+  React construye la interfaz de usuario. Vite permite desarrollar y
+  compilar rapidamente. Tailwind CSS proporciona el estilo visual adaptable
+  a computadoras y dispositivos moviles.
+
+- Backend: Node.js y Express.
+  Express crea la API que recibe y procesa las solicitudes de la aplicacion.
+
+- Base de datos: SQLite.
+  Guarda usuarios, tickets, comentarios, adjuntos, roles, notificaciones y
+  auditoria. Es una base de datos ligera y practica para esta aplicacion.
+
+4. ARQUITECTURA
+
+Se utiliza una arquitectura cliente-servidor:
+
+Usuario
+  |
+Frontend React
+  |
+API REST
+  |
+Backend Express
+  |
+Base de datos SQLite
+
+El usuario interactua con React. La interfaz envia solicitudes a la API de
+Express. El backend valida permisos, aplica las reglas de negocio y guarda o
+consulta la informacion en SQLite.
+
+En produccion, el backend tambien puede servir el frontend compilado, por lo
+que la aplicacion puede desplegarse como un solo servicio.
+
+5. TIPOS DE USUARIO Y PERMISOS
+
+El sistema usa control de acceso basado en roles, tambien llamado RBAC.
+
+- Empleado:
+  Puede crear tickets, consultar sus propios tickets y agregar comentarios
+  publicos.
+
+- Tecnico o soporte:
+  Puede ver todos los tickets, asignarse o recibir asignaciones, cambiar
+  prioridades y estados, agregar notas internas, resolver, cerrar y reabrir
+  tickets.
+
+- Administrador:
+  Tiene control total del sistema. Gestiona usuarios, roles, departamentos,
+  categorias y equipos. Tambien consulta auditoria, reportes, dashboard y
+  configuraciones.
+
+Es importante aclarar que los permisos no solo se aplican ocultando botones
+en la interfaz: tambien se validan en el backend. Esto evita acciones no
+autorizadas directamente desde la API.
+
+6. FLUJO DE VIDA DE UN TICKET
+
+El flujo principal es:
+
+Abierto -> Asignado -> En proceso -> Pendiente -> Resuelto -> Cerrado
+
+Un ticket tambien puede ser cancelado si ya no requiere atencion, o reabierto
+si la solucion no resolvio el problema.
+
+Ejemplo:
+1. Un empleado crea un ticket llamado "No tengo acceso al correo".
+2. Selecciona categoria, departamento, prioridad y puede adjuntar evidencias.
+3. El ticket recibe un numero unico, por ejemplo: TCK-000001.
+4. El tecnico lo visualiza en la bandeja de soporte.
+5. El tecnico se asigna el ticket y cambia el estado a "En proceso".
+6. Puede agregar comentarios publicos o notas internas.
+7. Al resolverlo, registra la solucion, causa raiz y tiempo invertido.
+8. El empleado recibe una notificacion y puede calificar la atencion.
+9. Finalmente, el ticket se cierra o se reabre si el problema continua.
+
+7. FUNCIONALIDADES PRINCIPALES
+
+Gestion de tickets:
+- Creacion de tickets con titulo, descripcion, categoria y prioridad.
+- Numeracion automatica.
+- Estados controlados.
+- Asignacion a tecnicos o equipos.
+- Comentarios y conversacion en vivo.
+- Adjuntos de archivos.
+- Historial de cambios.
+
+Bandeja de soporte:
+- Tickets abiertos.
+- Tickets pendientes.
+- Tickets en proceso.
+- Tickets retrasados por SLA.
+- Tickets asignados a mi.
+- Tickets de mi equipo.
+- Tickets sin asignar.
+
+La bandeja incluye busqueda, filtros por fecha, categoria, departamento,
+prioridad, estado y usuario.
+
+Notificaciones:
+El sistema tiene notificaciones internas, mostradas en la campana de la
+aplicacion, y notificaciones por correo mediante SMTP.
+
+Se notifican eventos como la creacion y asignacion de tickets, nuevos
+comentarios, resolucion, cierre, cancelacion, encuesta de satisfaccion y
+vencimiento de SLA.
+
+Auditoria:
+Cada accion relevante queda registrada: quien creo el ticket, cambios de
+estado, cambios de prioridad, asignaciones, comentarios, cancelaciones y
+resoluciones. Esto permite saber que ocurrio, quien lo hizo y cuando.
+
+8. SLA Y ESCALACION AUTOMATICA
+
+SLA significa Acuerdo de Nivel de Servicio. Es el tiempo esperado para atender
+o resolver un ticket.
+
+El sistema calcula una fecha limite segun la prioridad. Ademas, ejecuta tareas
+automaticas cada 10 minutos para:
+- Detectar tickets vencidos.
+- Alertar al responsable.
+- Escalar tickets sin asignar.
+- Alertar sobre tickets criticos que llevan demasiado tiempo abiertos.
+- Limpiar notificaciones antiguas.
+
+Por ejemplo, si un ticket permanece sin asignar durante cierto numero de
+horas, el sistema puede aumentar automaticamente su prioridad y alertar a los
+administradores.
+
+9. SEGURIDAD
+
+El proyecto aplica varias medidas de seguridad:
+- Contrasenas cifradas con bcrypt.
+- Sesiones con cookies httpOnly.
+- Proteccion CSRF para evitar solicitudes maliciosas.
+- Rate limiting para limitar intentos excesivos, especialmente en el login.
+- Validacion de datos en el backend.
+- Validacion de archivos por su contenido real, no solo por su extension.
+- Descargas de archivos protegidas por permisos.
+- Errores controlados sin exponer detalles internos.
+
+Estas medidas son importantes porque el sistema maneja usuarios, credenciales,
+
+10. BASE DE DATOS
+
+Las entidades principales son:
+- users: usuarios del sistema.
+- roles y permissions: control de acceso.
+- departments: departamentos de la empresa.
+- categories: tipos de incidencias.
+- teams: equipos de soporte.
+- tickets: informacion principal del incidente.
+- ticket_comments: conversaciones.
+- ticket_attachments: archivos.
+- ticket_history: auditoria.
+- notifications: alertas internas.
+- email_logs: registro de correos.
+- sessions: sesiones activas.
+
+Relacion principal:
+
+Usuario reporta Ticket
+Ticket tiene Comentarios, Adjuntos e Historial
+Ticket puede estar asignado a un Usuario o Equipo
+Usuario tiene un Rol
+Rol tiene Permisos
+
+11. DASHBOARD Y REPORTES
+
+Los administradores pueden consultar metricas como:
+- Cantidad de tickets por estado.
+- Tickets por prioridad.
+- Tickets por categoria o departamento.
+- Tickets vencidos por SLA.
+- Casos criticos.
+- Seguimiento del trabajo de soporte.
+
+La informacion se puede exportar en CSV, Excel y PDF para compartirla con
+responsables o gerencia.
+
+12. CALIDAD DEL PROYECTO
+
+El backend cuenta con pruebas automatizadas usando node:test y supertest.
+
+Se ejecutaron correctamente 93 pruebas y no hubo fallos. Las pruebas cubren
+autenticacion, permisos, tickets, comentarios, adjuntos, notificaciones,
+
+13. DEMOSTRACION RECOMENDADA
+
+1. Iniciar sesion como empleado.
+2. Crear un ticket con prioridad alta y un archivo adjunto.
+3. Mostrar la seccion "Mis tickets".
+4. Cerrar sesion e iniciar como tecnico.
+5. Abrir la bandeja, asignarse el ticket y cambiarlo a "En proceso".
+6. Agregar una nota interna y un comentario publico.
+7. Resolver el ticket incluyendo solucion, causa y tiempo empleado.
+8. Iniciar sesion nuevamente como empleado.
+9. Mostrar la notificacion, el historial y la encuesta de satisfaccion.
+10. Iniciar sesion como administrador para mostrar dashboard, reportes,
+    usuarios, roles y auditoria.
+
+Cuentas de demostracion en desarrollo:
+- Administrador: admin / 123456
+- Tecnico: tecnico / Tecnico1234!
+- Empleado: empleado / Empleado1234!
+
+14. CONCLUSION
+
+En conclusion, el proyecto ofrece una solucion completa para gestionar
+incidencias empresariales. No solo registra tickets: controla permisos,
+organiza el trabajo de soporte, automatiza alertas, protege la informacion,
+conserva auditoria y genera metricas para mejorar el servicio.
+
+Su arquitectura separa claramente la interfaz, la logica de negocio y la base
+de datos. Esto facilita el mantenimiento y futuras ampliaciones, como la
+integracion con LDAP, inventario o flujos de aprobacion.
