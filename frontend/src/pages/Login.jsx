@@ -46,8 +46,8 @@ export default function Login() {
             <span className="flex h-24 w-48 items-center rounded-3xl bg-[#0a253a] p-3 shadow-xl shadow-slate-950/15">
               <img
                 alt="Centro Médico UCE"
-                className="logo-mark-green h-full w-full object-contain"
-                src="/logo-centro-medico-uce.png"
+                className="h-full w-full object-contain"
+                src="/logo-centro-medico-uce-white.png"
               />
             </span>
             <h1 className="text-2xl font-extrabold text-slate-800">Tickets</h1>
