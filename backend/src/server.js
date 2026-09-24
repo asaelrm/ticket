@@ -2,10 +2,12 @@ import { createApp } from './app.js';
 import config from './config.js';
 import { runMigrations } from './db.js';
 import { seed } from './seed.js';
+import { restoreDirectorySnapshot } from './directorySync.js';
 import { startJobs } from './utils/jobs.js';
 
 runMigrations();
 seed();
+restoreDirectorySnapshot();
 
 const app = createApp();
 startJobs();

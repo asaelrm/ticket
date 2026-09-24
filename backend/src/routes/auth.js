@@ -4,6 +4,7 @@ import db from '../db.js';
 import config from '../config.js';
 import { authRateLimit } from '../utils/rateLimit.js';
 import { verifyPassword, hashPassword } from '../utils/password.js';
+import { saveDirectorySnapshot } from '../directorySync.js';
 import { validate, rules, safeStr } from '../utils/validation.js';
 import { requireAuth, touchLastLogin, loadUser } from '../middleware/auth.js';
 import { nowIso } from '../db.js';
@@ -120,6 +121,7 @@ router.post('/change-password', requireAuth, (req, res) => {
     nowIso(),
     req.user.id
   );
+  saveDirectorySnapshot();
   destroyUserSessions(req.user.id);
   return res.json({ ok: true });
 });
@@ -144,6 +146,7 @@ router.post('/reset-password', (req, res) => {
     `UPDATE users SET password_hash = ?, password_reset_token = NULL, password_reset_expires = NULL,
      last_password_change_at = ?, updated_at = ? WHERE id = ?`
   ).run(hashPassword(next), nowIso(), nowIso(), row.id);
+  saveDirectorySnapshot();
   destroyUserSessions(row.id);
 
   return res.json({ ok: true });

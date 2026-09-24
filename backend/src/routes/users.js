@@ -4,6 +4,7 @@ import db, { nowIso } from '../db.js';
 import { hashPassword } from '../utils/password.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission, publicUser } from '../middleware/auth.js';
+import { saveDirectorySnapshot } from '../directorySync.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -116,6 +117,7 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(name, lastName, username, email, hashPassword(password), departmentId, position, roleId, nowIso());
 
+  saveDirectorySnapshot();
   const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(info.lastInsertRowid);
   res.status(201).json({ user: publicUser(row) });
 });
@@ -241,6 +243,7 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
     `UPDATE users SET name = ?, last_name = ?, username = ?, email = ?, department_id = ?, position = ?, role_id = ?, updated_at = ? WHERE id = ?`
   ).run(name, lastName, username, email, departmentId, position, roleId, nowIso(), id);
 
+  saveDirectorySnapshot();
   const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(id);
   res.json({ user: publicUser(row) });
 });
@@ -264,6 +267,7 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
   }
 
   db.prepare('UPDATE users SET active = ?, updated_at = ? WHERE id = ?').run(active ? 1 : 0, nowIso(), id);
+  saveDirectorySnapshot();
   const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(id);
   res.json({ user: publicUser(row) });
 });

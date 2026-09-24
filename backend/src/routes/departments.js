@@ -2,6 +2,7 @@ import express from 'express';
 import db, { nowIso } from '../db.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { saveDirectorySnapshot } from '../directorySync.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -31,6 +32,7 @@ router.post('/', requirePermission('department.manage'), (req, res) => {
     return res.status(409).json({ error: 'Ya existe un departamento con ese nombre' });
   }
   const info = db.prepare('INSERT INTO departments (name, description) VALUES (?, ?)').run(name, description);
+  saveDirectorySnapshot();
   res.status(201).json({ department: db.prepare('SELECT * FROM departments WHERE id = ?').get(info.lastInsertRowid) });
 });
 
@@ -49,6 +51,7 @@ router.patch('/:id', requirePermission('department.manage'), (req, res) => {
   if (dup) return res.status(409).json({ error: 'Ya existe un departamento con ese nombre' });
 
   db.prepare('UPDATE departments SET name = ?, description = ?, active = ? WHERE id = ?').run(name, description, active, id);
+  saveDirectorySnapshot();
   res.json({ department: db.prepare('SELECT * FROM departments WHERE id = ?').get(id) });
 });
 
