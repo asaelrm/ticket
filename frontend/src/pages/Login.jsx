@@ -43,12 +43,12 @@ export default function Login() {
       <div className="relative w-full max-w-md">
         <div className="card nex-pop p-8">
           <div className="mb-6 flex flex-col items-center gap-2 text-center">
-            <span className="app-logo grid h-14 w-14 place-items-center rounded-2xl text-white">
-              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21s-7-4.6-9.3-9a5.2 5.2 0 0 1 9.3-3 5.2 5.2 0 0 1 9.3 3C19 16.4 12 21 12 21z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h4l1.5-2.5 2 5 1.5-2.5h6" />
-              </svg>
-            </span>
+            <object
+              aria-label="Logo del Centro Médico UCE"
+              className="h-14 w-14 rounded-2xl"
+              data="/logo-uce.pdf"
+              type="application/pdf"
+            />
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-300">Centro Médico UCE</p>
             <h1 className="text-2xl font-extrabold text-slate-800">Tickets</h1>
             <p className="max-w-xs text-sm text-slate-400">Gestión de incidencias</p>

@@ -149,12 +149,12 @@ export default function Layout() {
         onClick={() => navigate('/app')}
         title="Centro Médico UCE · NexTurn"
       >
-        <span className="app-logo grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-white">
-          <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 21s-7-4.6-9.3-9a5.2 5.2 0 0 1 9.3-3 5.2 5.2 0 0 1 9.3 3C19 16.4 12 21 12 21z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h4l1.5-2.5 2 5 1.5-2.5h6" />
-          </svg>
-        </span>
+        <object
+          aria-label="Logo del Centro Médico UCE"
+          className="h-11 w-11 shrink-0 rounded-2xl"
+          data="/logo-uce.pdf"
+          type="application/pdf"
+        />
         <span className="hidden min-w-0 md:block">
           <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
             Centro Médico UCE

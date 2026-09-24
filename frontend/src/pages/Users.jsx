@@ -15,6 +15,16 @@ const EMPTY = {
   role_id: '',
 };
 
+function TextField({ label, value, onChange, type = 'text', help }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+      {help && <p className="mt-1 text-xs text-slate-400">{help}</p>}
+    </div>
+  );
+}
+
 export default function Users() {
   const { user } = useAuth();
   const [list, setList] = useState(null);
@@ -325,16 +335,6 @@ export default function Users() {
       >
         {historyUser && <UserTicketHistory userId={historyUser.id} />}
       </Modal>
-    </div>
-  );
-}
-
-function TextField({ label, value, onChange, type = 'text', help }) {
-  return (
-    <div>
-      <label className="label">{label}</label>
-      <input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
-      {help && <p className="mt-1 text-xs text-slate-400">{help}</p>}
     </div>
   );
 }
