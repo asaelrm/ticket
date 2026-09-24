@@ -49,6 +49,21 @@ npm run dev:frontend  # http://localhost:5173
 
 La primera vez que arranca, el backend aplica migraciones y crea el seed automáticamente.
 
+## Sincronización de usuarios y departamentos
+
+El archivo `backend/directory.json` se actualiza al crear, editar o desactivar un
+usuario o departamento. Está versionado en Git para que, después de hacer
+`git pull` en otra PC e iniciar el backend, se restauren las mismas cuentas,
+departamentos, roles y contraseñas.
+
+Después de modificar el directorio en una PC, confirme y publique
+`backend/directory.json`. En la otra PC ejecute `git pull` antes de iniciar el
+backend. No edite el directorio desde dos PCs sin sincronizar primero, porque
+Git puede generar conflictos.
+
+> El archivo contiene nombres, correos y hashes de contraseña. Mantenga el
+> repositorio privado y limite quién puede acceder a él.
+
 ## Cuentas iniciales (seed)
 
 En **desarrollo** se crean automáticamente estas cuentas de demostración:
