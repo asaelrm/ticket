@@ -69,6 +69,14 @@ describe('Reportes con filtro de fecha', () => {
     }
   });
 
+  it('el detalle del reporte respeta los filtros de prioridad', async () => {
+    const ticket = await createTicket(adminC, { priority: 'CRITICAL' });
+    const res = await adminC.get('/api/reports/full?priority=CRITICAL');
+    assert.equal(res.status, 200);
+    assert.ok(res.body.details.some((item) => item.ticket_number === ticket.ticket_number));
+    assert.ok(res.body.details.every((item) => item.priority === 'CRITICAL'));
+  });
+
   it('empleado tampoco puede usar /full', async () => {
     const res = await empleadoC.get('/api/reports/full');
     assert.equal(res.status, 403);
@@ -88,6 +96,16 @@ describe('Reportes con filtro de fecha', () => {
     assert.ok(body.includes('TICKETS POR CATEGORÍA'));
     assert.ok(body.includes('TOP REPORTEROS'));
     assert.ok(body.includes(';'), 'usa punto y coma como separador (Excel ES)');
+  });
+
+  it('exporta únicamente las secciones seleccionadas', async () => {
+    const res = await adminC.get('/api/reports/export?sections=details,status');
+    assert.equal(res.status, 200);
+    const body = String(res.text);
+    assert.ok(body.includes('DETALLE DE TICKETS'));
+    assert.ok(body.includes('TICKETS POR ESTADO'));
+    assert.ok(!body.includes('TICKETS POR CATEGORÍA'));
+    assert.ok(!body.includes('RESUMEN'));
   });
 
   it('empleado no puede ver reportes', async () => {
