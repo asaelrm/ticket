@@ -145,20 +145,21 @@ export default function Layout() {
   const sidebar = (
     <div className="flex h-full flex-col">
       <button
-        className="flex items-center gap-3 px-5 pb-4 pt-5 text-left"
+        className="mx-3 mt-4 flex items-center gap-3 rounded-2xl border border-cyan-300/20 bg-[#0e3a50] px-3 py-3 text-left shadow-lg shadow-slate-950/20"
         onClick={() => navigate('/app')}
         title="Centro Médico UCE · NexTurn"
       >
-        <span className="flex h-16 w-36 shrink-0 items-center rounded-2xl bg-[#dceef6] p-2 shadow-lg shadow-slate-950/20">
+        <span className="flex h-12 w-24 shrink-0 items-center">
           <img
             alt="Centro Médico UCE"
-            className="h-full w-full object-contain"
+            className="h-full w-full object-contain brightness-0 invert"
             src="/logo-centro-medico-uce.png"
           />
         </span>
         <span className="hidden min-w-0 md:block">
-          <span className="block text-lg font-extrabold leading-tight text-slate-800">Tickets</span>
-          <span className="block truncate text-[11px] text-slate-400">Gestión de incidencias</span>
+          <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">Centro Médico UCE</span>
+          <span className="block text-base font-extrabold leading-tight text-white">Tickets</span>
+          <span className="block truncate text-[11px] text-slate-300/70">Gestión de incidencias</span>
         </span>
       </button>
 

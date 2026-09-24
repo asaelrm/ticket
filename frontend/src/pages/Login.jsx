@@ -43,10 +43,10 @@ export default function Login() {
       <div className="relative w-full max-w-md">
         <div className="card nex-pop p-8">
           <div className="mb-6 flex flex-col items-center gap-2 text-center">
-            <span className="flex h-24 w-48 items-center rounded-3xl bg-[#dceef6] p-3 shadow-xl shadow-slate-950/15">
+            <span className="flex h-24 w-48 items-center rounded-3xl bg-[#0a253a] p-3 shadow-xl shadow-slate-950/15">
               <img
                 alt="Centro Médico UCE"
-                className="h-full w-full object-contain"
+                className="h-full w-full object-contain brightness-0 invert"
                 src="/logo-centro-medico-uce.png"
               />
             </span>
