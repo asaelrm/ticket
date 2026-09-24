@@ -221,7 +221,6 @@ export default function Tickets() {
                 Limpiar
               </button>
             )}
-          </div>
         </div>
 
         {filters.view === 'closed' && (
