@@ -12,11 +12,12 @@ const STATUS_LABEL = {
   RESOLVED: 'Resuelto', CLOSED: 'Cerrado', CANCELLED: 'Cancelado',
 };
 const PRIORITY_LABEL = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRITICAL: 'Crítica' };
+const EXPORT_SECTIONS = new Set(['summary', 'status', 'priority', 'category', 'department', 'reporters', 'resolved', 'details']);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Filtro por rango de fecha de creación. Devuelve condiciones ya parametrizadas.
-function dateFilter(req) {
+// Filtros compartidos por todas las métricas y el detalle del reporte.
+function ticketFilter(req) {
   const conds = [];
   const params = [];
   if (req.query.from && DATE_RE.test(String(req.query.from))) {
@@ -27,6 +28,21 @@ function dateFilter(req) {
     conds.push('t.created_at <= ?');
     params.push(`${req.query.to}T23:59:59.999Z`);
   }
+  if (Object.hasOwn(STATUS_LABEL, req.query.status)) {
+    conds.push('t.status = ?');
+    params.push(req.query.status);
+  }
+  if (Object.hasOwn(PRIORITY_LABEL, req.query.priority)) {
+    conds.push('t.priority = ?');
+    params.push(req.query.priority);
+  }
+  for (const [key, column] of [['department', 'department_id'], ['category', 'category_id']]) {
+    const value = Number(req.query[key]);
+    if (Number.isSafeInteger(value) && value > 0) {
+      conds.push(`t.${column} = ?`);
+      params.push(value);
+    }
+  }
   return { conds, params };
 }
 
@@ -36,7 +52,7 @@ function whereFrom(conds) {
 
 // Contexto reutilizable: filtro de fecha, WHERE base y combinador de condiciones.
 function ctx(req) {
-  const df = dateFilter(req);
+  const df = ticketFilter(req);
   return {
     df,
     base: whereFrom(df.conds),
@@ -146,8 +162,34 @@ function byUserData(req) {
     .all(...OPEN_STATUSES, ...w.params);
 }
 
+function ticketDetailsData(req) {
+  const { df, base } = ctx(req);
+  return db.prepare(`
+    SELECT t.ticket_number, t.title, t.status, t.priority, t.created_at, t.resolved_at, t.closed_at,
+           COALESCE(d.name, 'Sin departamento') AS department,
+           COALESCE(c.name, 'Sin categoría') AS category,
+           r.name || ' ' || r.last_name AS reporter,
+           COALESCE(a.name || ' ' || a.last_name, 'Sin asignar') AS assigned_to
+    FROM tickets t
+    JOIN users r ON r.id = t.reporter_id
+    LEFT JOIN users a ON a.id = t.assigned_to_id
+    LEFT JOIN departments d ON d.id = t.department_id
+    LEFT JOIN categories c ON c.id = t.category_id
+    ${base}
+    ORDER BY t.created_at DESC, t.id DESC
+    LIMIT 500
+  `).all(...df.params);
+}
+
 function rangeOf(req) {
-  return { from: req.query.from || null, to: req.query.to || null };
+  return {
+    from: req.query.from || null,
+    to: req.query.to || null,
+    status: Object.hasOwn(STATUS_LABEL, req.query.status) ? req.query.status : null,
+    priority: Object.hasOwn(PRIORITY_LABEL, req.query.priority) ? req.query.priority : null,
+    department: Number.isSafeInteger(Number(req.query.department)) ? Number(req.query.department) : null,
+    category: Number.isSafeInteger(Number(req.query.category)) ? Number(req.query.category) : null,
+  };
 }
 
 // Reporte completo (usado por /export y /full). Cada sección se calcula una vez.
@@ -161,6 +203,7 @@ function reportData(req) {
     by_department: byDepartmentData(req),
     by_day: byDayData(req),
     by_user: byUserData(req),
+    details: ticketDetailsData(req),
   };
 }
 
@@ -200,12 +243,15 @@ router.get('/full', (req, res) => {
     byDepartment: r.by_department,
     byDay: r.by_day,
     byUser: r.by_user,
+    details: r.details,
   });
 });
 
 // Exporta el reporte completo como CSV organizado por secciones (Excel/ES con ';').
 router.get('/export', (req, res) => {
   const r = reportData(req);
+  const requested = String(req.query.sections || '').split(',').filter((section) => EXPORT_SECTIONS.has(section));
+  const sections = new Set(requested.length ? requested : EXPORT_SECTIONS);
   const sep = ';';
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const row = (...cells) => cells.map(esc).join(sep);
@@ -220,50 +266,38 @@ router.get('/export', (req, res) => {
   lines.push(row('Generado', new Date().toLocaleString('es-ES')));
   lines.push('');
 
-  lines.push(row('RESUMEN'));
-  lines.push(row('Métrica', 'Valor'));
-  lines.push(row('Total de tickets', r.summary.total));
-  lines.push(row('Tickets abiertos', r.summary.open));
-  lines.push(row('Resueltos + cerrados', r.summary.resolved));
-  lines.push(row('Sin resolver > 7 días', r.summary.unresolved_week));
-  lines.push(
-    row(
-      'Tiempo medio de resolución',
-      r.summary.avg_resolution_hours >= 24
-        ? `${(r.summary.avg_resolution_hours / 24).toFixed(1)} días`
-        : `${r.summary.avg_resolution_hours} h`
-    )
-  );
-  lines.push('');
-
-  lines.push(row('TICKETS POR ESTADO'));
-  lines.push(row('Estado', 'Cantidad'));
-  for (const d of r.by_status) lines.push(row(STATUS_LABEL[d.status] || d.status, d.n));
-  lines.push('');
-
-  lines.push(row('TICKETS ABIERTOS POR PRIORIDAD'));
-  lines.push(row('Prioridad', 'Cantidad'));
-  for (const d of r.by_priority) lines.push(row(PRIORITY_LABEL[d.priority] || d.priority, d.n));
-  lines.push('');
-
-  lines.push(row('TICKETS POR CATEGORÍA'));
-  lines.push(row('Categoría', 'Total', 'Abiertos'));
-  for (const d of r.by_category) lines.push(row(d.name, d.n, d.open));
-  lines.push('');
-
-  lines.push(row('TICKETS POR DEPARTAMENTO'));
-  lines.push(row('Departamento', 'Total', 'Abiertos'));
-  for (const d of r.by_department) lines.push(row(d.name, d.n, d.open));
-  lines.push('');
-
-  lines.push(row('TOP REPORTEROS'));
-  lines.push(row('Empleado', 'Total', 'Abiertos'));
-  for (const u of r.by_user) lines.push(row(u.reporter, u.total, u.open));
-  lines.push('');
-
-  lines.push(row('RESUELTOS POR DÍA (últimos 30)'));
-  lines.push(row('Día', 'Cantidad'));
-  for (const d of r.by_day) lines.push(row(d.day, d.n));
+  if (sections.has('summary')) {
+    lines.push(row('RESUMEN'));
+    lines.push(row('Métrica', 'Valor'));
+    lines.push(row('Total de tickets', r.summary.total));
+    lines.push(row('Tickets abiertos', r.summary.open));
+    lines.push(row('Resueltos + cerrados', r.summary.resolved));
+    lines.push(row('Sin resolver > 7 días', r.summary.unresolved_week));
+    lines.push(row('Tiempo medio de resolución', r.summary.avg_resolution_hours >= 24 ? `${(r.summary.avg_resolution_hours / 24).toFixed(1)} días` : `${r.summary.avg_resolution_hours} h`));
+    lines.push('');
+  }
+  if (sections.has('status')) {
+    lines.push(row('TICKETS POR ESTADO'), row('Estado', 'Cantidad'), ...r.by_status.map((d) => row(STATUS_LABEL[d.status] || d.status, d.n)), '');
+  }
+  if (sections.has('priority')) {
+    lines.push(row('TICKETS ABIERTOS POR PRIORIDAD'), row('Prioridad', 'Cantidad'), ...r.by_priority.map((d) => row(PRIORITY_LABEL[d.priority] || d.priority, d.n)), '');
+  }
+  if (sections.has('category')) {
+    lines.push(row('TICKETS POR CATEGORÍA'), row('Categoría', 'Total', 'Abiertos'), ...r.by_category.map((d) => row(d.name, d.n, d.open)), '');
+  }
+  if (sections.has('department')) {
+    lines.push(row('TICKETS POR DEPARTAMENTO'), row('Departamento', 'Total', 'Abiertos'), ...r.by_department.map((d) => row(d.name, d.n, d.open)), '');
+  }
+  if (sections.has('reporters')) {
+    lines.push(row('TOP REPORTEROS'), row('Empleado', 'Total', 'Abiertos'), ...r.by_user.map((u) => row(u.reporter, u.total, u.open)), '');
+  }
+  if (sections.has('resolved')) {
+    lines.push(row('RESUELTOS POR DÍA (últimos 30)'), row('Día', 'Cantidad'), ...r.by_day.map((d) => row(d.day, d.n)), '');
+  }
+  if (sections.has('details')) {
+    lines.push(row('DETALLE DE TICKETS'), row('Ticket', 'Título', 'Estado', 'Prioridad', 'Reportero', 'Asignado a', 'Departamento', 'Categoría', 'Creado', 'Resuelto/cerrado'));
+    for (const ticket of r.details) lines.push(row(ticket.ticket_number, ticket.title, STATUS_LABEL[ticket.status] || ticket.status, PRIORITY_LABEL[ticket.priority] || ticket.priority, ticket.reporter, ticket.assigned_to, ticket.department, ticket.category, ticket.created_at, ticket.resolved_at || ticket.closed_at || ''));
+  }
 
   const suffix = r.range.from || r.range.to ? `${r.range.from || 'inicio'}_${r.range.to || 'hoy'}` : 'completo';
   res.set('Content-Type', 'text/csv; charset=utf-8');
