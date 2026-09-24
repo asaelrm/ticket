@@ -52,7 +52,7 @@ export default function ResetPassword() {
             <span className="flex h-14 w-28 shrink-0 items-center rounded-2xl bg-[#0a253a] p-2 shadow-md shadow-slate-950/15">
               <img
                 alt="Centro Médico UCE"
-                className="h-full w-full object-contain brightness-0 invert"
+                className="logo-mark-green h-full w-full object-contain"
                 src="/logo-centro-medico-uce.png"
               />
             </span>

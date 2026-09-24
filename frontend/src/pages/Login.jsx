@@ -46,7 +46,7 @@ export default function Login() {
             <span className="flex h-24 w-48 items-center rounded-3xl bg-[#0a253a] p-3 shadow-xl shadow-slate-950/15">
               <img
                 alt="Centro Médico UCE"
-                className="h-full w-full object-contain brightness-0 invert"
+                className="logo-mark-green h-full w-full object-contain"
                 src="/logo-centro-medico-uce.png"
               />
             </span>

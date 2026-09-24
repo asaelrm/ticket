@@ -152,13 +152,13 @@ export default function Layout() {
         <span className="flex h-12 w-24 shrink-0 items-center">
           <img
             alt="Centro Médico UCE"
-            className="h-full w-full object-contain brightness-0 invert"
+            className="logo-mark-green h-full w-full object-contain"
             src="/logo-centro-medico-uce.png"
           />
         </span>
         <span className="hidden min-w-0 md:block">
           <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">Centro Médico UCE</span>
-          <span className="block text-base font-extrabold leading-tight text-white">Tickets</span>
+          <span className="block text-base font-extrabold leading-tight text-emerald-300">Tickets</span>
           <span className="block truncate text-[11px] text-slate-300/70">Gestión de incidencias</span>
         </span>
       </button>
