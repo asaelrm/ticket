@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "departments": [
+    {
+      "name": "Administración",
+      "description": null,
+      "active": 1
+    },
+    {
+      "name": "Finanzas",
+      "description": null,
+      "active": 1
+    },
+    {
+      "name": "Marketing",
+      "description": null,
+      "active": 1
+    },
+    {
+      "name": "Operaciones",
+      "description": null,
+      "active": 1
+    },
+    {
+      "name": "Recursos Humanos",
+      "description": null,
+      "active": 1
+    },
+    {
+      "name": "Tecnología",
+      "description": null,
+      "active": 1
+    },
+    {
+      "name": "Ventas",
+      "description": null,
+      "active": 1
+    }
+  ],
+  "users": [
+    {
+      "name": "Administrador",
+      "last_name": "Sistema",
+      "username": "admin",
+      "email": "admin@empresa.com",
+      "password_hash": "$2b$12$2mcUk8Y8M9E9.vO2MPF3xOWV9AxiuoHAtd9FAJSdJtm0Jbz149Wga",
+      "position": "Administrador del sistema",
+      "active": 1,
+      "last_password_change_at": "2026-09-21T03:08:25.472Z",
+      "department_name": "Tecnología",
+      "role_code": "ADMIN"
+    },
+    {
+      "name": "Empleado",
+      "last_name": "Demo",
+      "username": "empleado",
+      "email": "empleado@empresa.com",
+      "password_hash": "$2b$12$14AJcnIDLKu7yva2q2K/0Oj91lQiWpeUGL2pbx2ggfXXM8/WuEBZG",
+      "position": "Analista",
+      "active": 1,
+      "last_password_change_at": "2026-09-21T03:08:25.860Z",
+      "department_name": "Recursos Humanos",
+      "role_code": "EMPLOYEE"
+    },
+    {
+      "name": "Técnico",
+      "last_name": "Soporte",
+      "username": "tecnico",
+      "email": "tecnico@empresa.com",
+      "password_hash": "$2b$12$gkvah1kJV222tb1XsvUIYe5kYQRghKZcqs0byr3kGkqXFcxP2Z9zK",
+      "position": "Soporte Técnico",
+      "active": 1,
+      "last_password_change_at": "2026-09-21T03:08:26.376Z",
+      "department_name": "Tecnología",
+      "role_code": "TECHNICIAN"
+    }
+  ]
+}
