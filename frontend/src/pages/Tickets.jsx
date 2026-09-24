@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, download, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -44,8 +44,6 @@ export default function Tickets() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [searchDraft, setSearchDraft] = useState(filters.search);
-  const loadedOnce = useRef(false);
 
   const canExport = user?.permissions?.includes('ticket.export');
   const canAssign = user?.permissions?.includes('ticket.assign');
@@ -83,7 +81,6 @@ export default function Tickets() {
       ]);
       setList(data);
       if (counterData) setCounters(counterData);
-      loadedOnce.current = true;
     } catch (err) {
       setError(err.message || 'No se pudieron cargar los tickets');
     }
@@ -100,16 +97,6 @@ export default function Tickets() {
     }, 30000);
     return () => clearInterval(timer);
   }, [reload]);
-
-  useEffect(() => {
-    setSearchDraft(filters.search);
-  }, [filters.search]);
-
-  useEffect(() => {
-    if (searchDraft === filters.search) return undefined;
-    const t = setTimeout(() => update({ search: searchDraft }), 350);
-    return () => clearTimeout(t);
-  }, [searchDraft, filters.search, update]);
 
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
 
@@ -204,20 +191,7 @@ export default function Tickets() {
 
       {/* Barra de herramientas */}
       <div className="card mb-4">
-        <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
-          <div className="relative flex-1">
-            <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="7" />
-              <path strokeLinecap="round" d="m20 20-3.5-3.5" />
-            </svg>
-            <input
-              className="input !pl-9"
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder="Buscar por número, título, texto, solicitante, correo, técnico, equipo…"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 p-3">
             <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
               Búsqueda avanzada
               {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
