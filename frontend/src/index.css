@@ -364,11 +364,6 @@ tbody.divide-slate-100 > tr + tr {
   border-bottom: 1px solid var(--border-glass-soft);
 }
 
-.app-logo {
-  background-image: linear-gradient(135deg, #22c77a, #149e72);
-  box-shadow: 0 8px 22px rgba(34, 199, 122, 0.32);
-}
-
 .app-nav-active {
   position: relative;
   background-image: linear-gradient(135deg, #22c77a, #149e72);
