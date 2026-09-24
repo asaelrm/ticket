@@ -277,7 +277,7 @@ export default function Layout() {
 
           <div className="ml-auto flex items-center gap-2">
             <div className="mr-1 hidden text-right xl:block">
-              <p className="text-sm font-semibold leading-tight text-slate-200">
+              <p className="text-sm font-semibold leading-tight text-white">
                 {now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
               </p>
               <p className="text-[11px] capitalize leading-tight text-slate-400">
