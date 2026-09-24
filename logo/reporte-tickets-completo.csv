@@ -1,0 +1,43 @@
+﻿"REPORTE DE TICKETS"
+"Rango";"Todo el historial"
+"Generado";"24/9/2026, 22:20:32"
+
+"RESUMEN"
+"Métrica";"Valor"
+"Total de tickets";"1"
+"Tickets abiertos";"0"
+"Resueltos + cerrados";"1"
+"Sin resolver > 7 días";"0"
+"Tiempo medio de resolución";"0.1 h"
+
+"TICKETS POR ESTADO"
+"Estado";"Cantidad"
+"Resuelto";"1"
+
+"TICKETS ABIERTOS POR PRIORIDAD"
+"Prioridad";"Cantidad"
+
+"TICKETS POR CATEGORÍA"
+"Categoría";"Total";"Abiertos"
+"Impresoras";"1";"0"
+"Computadoras";"0";"0"
+"Internet";"0";"0"
+"Red";"0";"0"
+"Telefonía";"0";"0"
+"Software";"0";"0"
+"Correo electrónico";"0";"0"
+"Accesos";"0";"0"
+"Equipos";"0";"0"
+"Mantenimiento";"0";"0"
+
+"TICKETS POR DEPARTAMENTO"
+"Departamento";"Total";"Abiertos"
+"Negocios Y Contrataciones";"1";"0"
+
+"TOP REPORTEROS"
+"Empleado";"Total";"Abiertos"
+"YASMIN  FRANCISCO";"1";"0"
+
+"RESUELTOS POR DÍA (últimos 30)"
+"Día";"Cantidad"
+"2026-09-24";"1"
