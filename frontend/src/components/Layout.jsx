@@ -149,11 +149,11 @@ export default function Layout() {
         onClick={() => navigate('/app')}
         title="Centro Médico UCE · NexTurn"
       >
-        <span className="flex h-12 w-32 shrink-0 items-center rounded-xl bg-white p-1.5 shadow-sm">
+        <span className="flex h-16 w-36 shrink-0 items-center rounded-2xl bg-[#0a253a] p-2 shadow-lg shadow-slate-950/20">
           <img
             alt="Centro Médico UCE"
             className="h-full w-full object-contain"
-            src="/logo-centro-medico-uce.jpg"
+            src="/logo-centro-medico-uce.png"
           />
         </span>
         <span className="hidden min-w-0 md:block">
