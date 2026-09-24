@@ -598,8 +598,8 @@ export default function TicketDetail() {
               </div>
 
               <form onSubmit={onSubmitComment} className="space-y-3" noValidate>
-                <div className="overflow-hidden rounded-xl border border-slate-200 focus-within:border-brand-400">
-                  <div className="flex flex-wrap items-center gap-1 border-b border-slate-100 bg-slate-50 px-2 py-1.5">
+                <div className="overflow-hidden rounded-xl border border-cyan-300/40 bg-[#0b3046] focus-within:border-brand-400">
+                  <div className="flex flex-wrap items-center gap-1 border-b border-cyan-300/20 bg-[#08283d] px-2 py-1.5">
                     <ToolbarButton label="Negrita" onClick={() => applyFormat('**', '**', 'negrita')}>
                       <b>N</b>
                     </ToolbarButton>
@@ -615,7 +615,7 @@ export default function TicketDetail() {
                   </div>
                   <textarea
                     ref={textareaRef}
-                    className="min-h-[110px] w-full resize-y border-0 px-3.5 py-3 text-sm text-slate-700 focus:outline-none"
+                    className="min-h-[110px] w-full resize-y border-0 bg-[#0b3046] px-3.5 py-3 text-sm text-slate-100 placeholder:text-slate-300/70 focus:outline-none"
                     value={message}
                     onChange={(e) => onMessageChange(e.target.value)}
                     placeholder={
