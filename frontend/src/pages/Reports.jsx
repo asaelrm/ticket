@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, download, STATUS_LABEL, PRIORITY_LABEL } from '../lib/api';
+import { api, download, STATUS_LABEL, PRIORITY_LABEL, STATUSES, PRIORITIES } from '../lib/api';
 import { LoadingScreen, ErrorBox } from '../components/ui';
 import { printDocument } from '../lib/print';
 
@@ -14,6 +14,16 @@ const STATUS_COLORS = {
 };
 
 const PRIORITY_COLORS = { LOW: '#94a3b8', MEDIUM: '#38bdf8', HIGH: '#f97316', CRITICAL: '#ef4444' };
+const SECTIONS = [
+  ['summary', 'Resumen'],
+  ['status', 'Estados'],
+  ['priority', 'Prioridades'],
+  ['category', 'Categorías'],
+  ['department', 'Departamentos'],
+  ['reporters', 'Reporteros'],
+  ['resolved', 'Resueltos por día'],
+  ['details', 'Detalle de tickets'],
+];
 
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -65,15 +75,30 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
-  const [form, setForm] = useState({ from: '', to: '' });
-  const [query, setQuery] = useState({ from: '', to: '' });
+  const [form, setForm] = useState({ from: '', to: '', status: '', priority: '', department: '', category: '' });
+  const [query, setQuery] = useState({ from: '', to: '', status: '', priority: '', department: '', category: '' });
+  const [departments, setDepartments] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [sections, setSections] = useState(SECTIONS.map(([key]) => key));
 
   const qs = useMemo(() => {
     const p = new URLSearchParams();
-    if (query.from) p.append('from', query.from);
-    if (query.to) p.append('to', query.to);
+    for (const key of ['from', 'to', 'status', 'priority', 'department', 'category']) {
+      if (query[key]) p.append(key, query[key]);
+    }
     return p.toString() ? `?${p.toString()}` : '';
   }, [query]);
+
+  const exportQs = `${qs}${qs ? '&' : '?'}sections=${encodeURIComponent(sections.join(','))}`;
+
+  useEffect(() => {
+    Promise.all([api.get('/api/departments?active=1'), api.get('/api/categories?active=1')])
+      .then(([departmentData, categoryData]) => {
+        setDepartments(departmentData.data || []);
+        setCategories(categoryData.data || []);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -88,9 +113,10 @@ export default function Reports() {
           summary: r.summary,
           byStatus: r.byStatus,
           byPriority: r.byPriority,
-          byCategory: r.byCategory,
-          byDepartment: r.byDepartment,
-          performance: { by_day: r.byDay, by_user: r.byUser },
+            byCategory: r.byCategory,
+            byDepartment: r.byDepartment,
+            performance: { by_day: r.byDay, by_user: r.byUser },
+            details: r.details,
         });
       })
       .catch((err) => {
@@ -104,18 +130,35 @@ export default function Reports() {
 
   function applyPreset(preset) {
     const r = preset.range();
-    setForm(r);
-    setQuery(r);
+    setForm((current) => ({ ...current, ...r }));
+    setQuery((current) => ({ ...current, ...r }));
   }
 
   function exportCsv() {
-    download(`/api/reports/export${qs}`);
+    if (!sections.length) return;
+    download(`/api/reports/export${exportQs}`);
   }
 
   function exportPdf() {
-    if (!data) return;
+    if (!data || !sections.length) return;
     const avgH = data.summary.avg_resolution_hours;
     const avgLabel = avgH >= 24 ? `${(avgH / 24).toFixed(1)} días` : `${avgH} h`;
+    const reportSections = [
+      ['summary', 'Resumen', ['Métrica', 'Valor'], [
+        ['Total de tickets', data.summary.total],
+        ['Tickets abiertos', data.summary.open],
+        ['Resueltos + cerrados', data.summary.resolved],
+        ['Sin resolver > 7 días', data.summary.unresolved_week],
+        ['Tiempo medio resolución', avgLabel],
+      ]],
+      ['status', 'Tickets por estado', ['Estado', 'Cantidad'], data.byStatus.map((d) => [STATUS_LABEL[d.status] || d.status, d.n])],
+      ['priority', 'Tickets abiertos por prioridad', ['Prioridad', 'Cantidad'], data.byPriority.map((d) => [PRIORITY_LABEL[d.priority] || d.priority, d.n])],
+      ['category', 'Tickets por categoría', ['Categoría', 'Total', 'Abiertos'], data.byCategory.map((d) => [d.name, d.n, d.open])],
+      ['department', 'Tickets por departamento', ['Departamento', 'Total', 'Abiertos'], data.byDepartment.map((d) => [d.name, d.n, d.open])],
+      ['reporters', 'Top reporteros', ['Empleado', 'Total', 'Abiertos'], data.performance.by_user.map((u) => [u.reporter, u.total, u.open])],
+      ['resolved', 'Resueltos por día', ['Día', 'Cantidad'], data.performance.by_day.map((d) => [d.day, d.n])],
+      ['details', 'Detalle de tickets', ['Ticket', 'Título', 'Estado', 'Prioridad', 'Reportero', 'Asignado a', 'Departamento', 'Categoría', 'Creado', 'Resuelto/cerrado'], data.details.map((t) => [t.ticket_number, t.title, STATUS_LABEL[t.status] || t.status, PRIORITY_LABEL[t.priority] || t.priority, t.reporter, t.assigned_to, t.department, t.category, t.created_at, t.resolved_at || t.closed_at || ''])],
+    ];
     const opened = printDocument({
       title: 'Reporte de tickets',
       subtitle: rangeLabel(query),
@@ -126,38 +169,9 @@ export default function Reports() {
         ['Sin resolver > 7 días', data.summary.unresolved_week],
         ['Tiempo medio resolución', avgLabel],
       ],
-      sections: [
-        {
-          title: 'Tickets por estado',
-          headers: ['Estado', 'Cantidad'],
-          rows: data.byStatus.map((d) => [STATUS_LABEL[d.status] || d.status, d.n]),
-        },
-        {
-          title: 'Tickets abiertos por prioridad',
-          headers: ['Prioridad', 'Cantidad'],
-          rows: data.byPriority.map((d) => [PRIORITY_LABEL[d.priority] || d.priority, d.n]),
-        },
-        {
-          title: 'Tickets por categoría',
-          headers: ['Categoría', 'Total', 'Abiertos'],
-          rows: data.byCategory.map((d) => [d.name, d.n, d.open]),
-        },
-        {
-          title: 'Tickets por departamento',
-          headers: ['Departamento', 'Total', 'Abiertos'],
-          rows: data.byDepartment.map((d) => [d.name, d.n, d.open]),
-        },
-        {
-          title: 'Top reporteros',
-          headers: ['Empleado', 'Total', 'Abiertos'],
-          rows: data.performance.by_user.map((u) => [u.reporter, u.total, u.open]),
-        },
-        {
-          title: 'Resueltos por día',
-          headers: ['Día', 'Cantidad'],
-          rows: data.performance.by_day.map((d) => [d.day, d.n]),
-        },
-      ],
+      sections: reportSections
+        .filter(([key]) => sections.includes(key))
+        .map(([, title, headers, rows]) => ({ title, headers, rows })),
     });
     if (!opened) {
       alert('El navegador bloqueó la ventana del PDF. Habilite las ventanas emergentes e intente nuevamente.');
@@ -197,7 +211,7 @@ export default function Reports() {
             <button className="btn-white" onClick={exportCsv}>
               Exportar CSV
             </button>
-            <button className="btn-primary" onClick={exportPdf}>
+            <button className="btn-primary" onClick={exportPdf} disabled={!sections.length}>
               Descargar PDF
             </button>
           </div>
@@ -229,6 +243,34 @@ export default function Reports() {
           <button className="btn-primary" onClick={() => setQuery(form)}>
             Aplicar
           </button>
+          <div>
+            <label className="label" htmlFor="report-status">Estado</label>
+            <select id="report-status" className="input !w-auto" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+              <option value="">Todos</option>
+              {STATUSES.map((status) => <option key={status} value={status}>{STATUS_LABEL[status]}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="report-priority">Prioridad</label>
+            <select id="report-priority" className="input !w-auto" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
+              <option value="">Todas</option>
+              {PRIORITIES.map((priority) => <option key={priority} value={priority}>{PRIORITY_LABEL[priority]}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="report-department">Departamento</label>
+            <select id="report-department" className="input !w-auto" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}>
+              <option value="">Todos</option>
+              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="report-category">Categoría</label>
+            <select id="report-category" className="input !w-auto" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
+              <option value="">Todas</option>
+              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {PRESETS.map((p) => (
               <button key={p.key} className="btn-ghost !px-2.5 !py-1.5 text-xs" onClick={() => applyPreset(p)}>
@@ -237,6 +279,22 @@ export default function Reports() {
             ))}
           </div>
         </div>
+        <fieldset className="mt-4 border-t border-slate-200 pt-4">
+          <legend className="mb-2 text-sm font-medium text-slate-500">Incluir en la exportación</legend>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {SECTIONS.map(([key, label]) => (
+              <label key={key} className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-brand-600"
+                  checked={sections.includes(key)}
+                  onChange={() => setSections((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key])}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -303,6 +361,27 @@ export default function Reports() {
                     <td className="td">{u.total}</td>
                     <td className="td">{u.open}</td>
                   </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-slate-700">Detalle de tickets</h3>
+          <span className="text-xs text-slate-400">{data.details.length} registro(s), máximo 500 en exportación</span>
+        </div>
+        {data.details.length === 0 ? (
+          <p className="text-sm text-slate-400">Sin datos</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50"><tr><th className="th">Ticket</th><th className="th">Título</th><th className="th">Estado</th><th className="th">Prioridad</th><th className="th">Departamento</th><th className="th">Reportero</th><th className="th">Creado</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.details.slice(0, 20).map((ticket) => (
+                  <tr key={ticket.ticket_number} className="hover:bg-slate-50"><td className="td font-mono text-xs">{ticket.ticket_number}</td><td className="td">{ticket.title}</td><td className="td">{STATUS_LABEL[ticket.status] || ticket.status}</td><td className="td">{PRIORITY_LABEL[ticket.priority] || ticket.priority}</td><td className="td">{ticket.department}</td><td className="td">{ticket.reporter}</td><td className="td whitespace-nowrap">{ticket.created_at}</td></tr>
                 ))}
               </tbody>
             </table>
