@@ -267,37 +267,38 @@ export default function Inbox() {
 
   return (
     <div className={selected.size > 0 ? 'pb-28' : ''}>
-      {/* Pestañas de la bandeja con contadores */}
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-        {TABS.map((t) => {
-          const active = tab === t.key;
-          const count = counters?.[t.counter];
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => update({ tab: t.key, page: 1 })}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${
-                active
-                  ? 'border-brand-600 bg-brand-600 text-white shadow-sm'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:text-brand-700'
-              }`}
-            >
-              {t.label}
-              {count != null && (
-                <span className={`rounded-full px-1.5 text-xs ${active ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Barra de búsqueda y filtros */}
       <div className="card mb-4">
-        <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
-          <div className="relative flex-1">
+        <div className="border-b border-slate-200 px-4 py-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Vista de trabajo</p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {TABS.map((t) => {
+              const active = tab === t.key;
+              const count = counters?.[t.counter];
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => update({ tab: t.key, page: 1 })}
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                    active
+                      ? 'border-brand-600 bg-brand-600 text-white shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:text-brand-700'
+                  }`}
+                >
+                  {t.label}
+                  {count != null && (
+                    <span className={`rounded-full px-1.5 text-xs ${active ? 'bg-white/20' : 'bg-slate-100 text-slate-500'}`}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid gap-3 p-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+          <div className="relative">
             <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="7" />
               <path strokeLinecap="round" d="m20 20-3.5-3.5" />
@@ -309,58 +310,70 @@ export default function Inbox() {
               placeholder="Buscar por número, título, solicitante, correo…"
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
-              Búsqueda avanzada
+              Más filtros
               {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
             </button>
             <button type="button" className="btn-secondary !text-white" onClick={() => setSavedOpen(true)}>
-              Filtros guardados
+              Vistas guardadas
               {savedFilters.length > 0 && <span className="badge bg-brand-600 text-white">{savedFilters.length}</span>}
             </button>
-            <select className="input !w-auto" value={filters.status} onChange={(e) => update({ status: e.target.value })} title="Estado">
+          </div>
+        </div>
+
+        <div className="grid gap-3 border-t border-slate-200 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1.4fr_auto_auto] xl:items-end">
+          <div>
+            <label className="label" htmlFor="inbox-status">Estado</label>
+            <select id="inbox-status" className="input" value={filters.status} onChange={(e) => update({ status: e.target.value })}>
               <option value="">Todos los estados</option>
               {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
-                </option>
+                <option key={s} value={s}>{STATUS_LABEL[s]}</option>
               ))}
             </select>
-            <select className="input !w-auto" value={filters.priority} onChange={(e) => update({ priority: e.target.value })} title="Prioridad">
+          </div>
+          <div>
+            <label className="label" htmlFor="inbox-priority">Prioridad</label>
+            <select id="inbox-priority" className="input" value={filters.priority} onChange={(e) => update({ priority: e.target.value })}>
               <option value="">Todas las prioridades</option>
               {PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {PRIORITY_LABEL[p]}
-                </option>
+                <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
               ))}
             </select>
-            <select className="input !w-auto" value={filters.category} onChange={(e) => update({ category: e.target.value })} title="Categoría">
+          </div>
+          <div>
+            <label className="label" htmlFor="inbox-category">Categoría</label>
+            <select id="inbox-category" className="input" value={filters.category} onChange={(e) => update({ category: e.target.value })}>
               <option value="">Todas las categorías</option>
               {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
+                <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
-            <select className="input !w-auto" value={filters.sort} onChange={(e) => update({ sort: e.target.value })} title="Ordenar por">
+          </div>
+          <div>
+            <label className="label" htmlFor="inbox-sort">Ordenar por</label>
+            <select className="input !w-auto" value={filters.status} onChange={(e) => update({ status: e.target.value })} title="Estado">
+            <select id="inbox-sort" className="input" value={filters.sort} onChange={(e) => update({ sort: e.target.value })}>
               {SORT_OPTIONS.map(([v, l]) => (
-                <option key={v} value={v}>
-                  Ordenar: {l}
-                </option>
+                <option key={v} value={v}>{l}</option>
               ))}
             </select>
+          </div>
+          <div className="flex items-end">
             <button
               type="button"
-              className="btn-secondary !px-2.5"
+              className="btn-secondary w-full whitespace-nowrap"
               onClick={() => update({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
               title={filters.dir === 'asc' ? 'Ascendente' : 'Descendente'}
             >
               {filters.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
             </button>
+          </div>
+          <div className="flex items-end">
             {hasAnyFilter && (
               <button
                 type="button"
-                className="btn-ghost text-sm"
+                className="btn-ghost w-full text-sm"
                 onClick={() => update({ search: '', ...Object.fromEntries(ADVANCED_KEYS.map((k) => [k, ''])) })}
               >
                 Limpiar
