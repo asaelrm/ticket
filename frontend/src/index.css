@@ -81,7 +81,7 @@
     transform: translateY(1px);
   }
   .btn-secondary {
-    @apply btn text-slate-200;
+    @apply btn text-white;
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
@@ -110,7 +110,7 @@
     transform: translateY(1px);
   }
   .btn-ghost {
-    @apply btn text-slate-400 hover:text-slate-100;
+    @apply btn text-white;
   }
   .btn-ghost:hover {
     background: rgba(255, 255, 255, 0.07);
@@ -130,7 +130,7 @@
   }
   .label {
     @apply mb-1 block text-sm font-medium;
-    color: var(--text-2);
+    color: #ffffff;
   }
   .card {
     @apply rounded-2xl border;
@@ -145,7 +145,7 @@
   }
   .th {
     @apply px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.08em];
-    color: rgba(175, 196, 212, 0.8);
+    color: #ffffff;
   }
   .td {
     @apply px-3 py-2.5 text-sm leading-snug;
@@ -288,20 +288,12 @@
    Utilidades Tailwind del tema claro → escala clara sobre glass navy.
    Evita texto oscuro/invisible sobre las tarjetas oscuras.
    ------------------------------------------------------------------ */
-[class~='text-slate-400'] {
-  color: #8ca5b8 !important;
-}
-[class~='text-slate-500'] {
-  color: #a9c0d0 !important;
-}
-[class~='text-slate-600'] {
-  color: #c6d6e2 !important;
-}
-[class~='text-slate-700'] {
-  color: #dce7ee !important;
-}
+[class~='text-slate-400'],
+[class~='text-slate-500'],
+[class~='text-slate-600'],
+[class~='text-slate-700'],
 [class~='text-slate-800'] {
-  color: #e8f1f6 !important;
+  color: #ffffff !important;
 }
 [class~='hover:text-slate-600']:hover {
   color: #c6d6e2 !important;
