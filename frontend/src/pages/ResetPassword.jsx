@@ -49,7 +49,7 @@ export default function ResetPassword() {
       <div className="w-full max-w-md">
         <div className="card nex-pop p-8">
           <div className="mb-4 flex items-center gap-3">
-            <span className="flex h-14 w-28 shrink-0 items-center rounded-2xl bg-[#0a253a] p-2 shadow-md shadow-slate-950/15">
+            <span className="flex h-14 w-28 shrink-0 items-center rounded-2xl bg-[#dceef6] p-2 shadow-md shadow-slate-950/15">
               <img
                 alt="Centro Médico UCE"
                 className="h-full w-full object-contain"
