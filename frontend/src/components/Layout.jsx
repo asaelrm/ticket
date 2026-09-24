@@ -149,16 +149,14 @@ export default function Layout() {
         onClick={() => navigate('/app')}
         title="Centro Médico UCE · NexTurn"
       >
-        <object
-          aria-label="Logo del Centro Médico UCE"
-          className="h-11 w-11 shrink-0 rounded-2xl"
-          data="/logo-uce.pdf"
-          type="application/pdf"
-        />
+        <span className="flex h-12 w-32 shrink-0 items-center rounded-xl bg-white p-1.5 shadow-sm">
+          <img
+            alt="Centro Médico UCE"
+            className="h-full w-full object-contain"
+            src="/logo-centro-medico-uce.jpg"
+          />
+        </span>
         <span className="hidden min-w-0 md:block">
-          <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
-            Centro Médico UCE
-          </span>
           <span className="block text-lg font-extrabold leading-tight text-slate-800">Tickets</span>
           <span className="block truncate text-[11px] text-slate-400">Gestión de incidencias</span>
         </span>

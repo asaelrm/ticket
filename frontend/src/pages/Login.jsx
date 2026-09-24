@@ -43,13 +43,13 @@ export default function Login() {
       <div className="relative w-full max-w-md">
         <div className="card nex-pop p-8">
           <div className="mb-6 flex flex-col items-center gap-2 text-center">
-            <object
-              aria-label="Logo del Centro Médico UCE"
-              className="h-14 w-14 rounded-2xl"
-              data="/logo-uce.pdf"
-              type="application/pdf"
-            />
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-300">Centro Médico UCE</p>
+            <span className="flex h-20 w-52 items-center rounded-2xl bg-white p-2 shadow-sm">
+              <img
+                alt="Centro Médico UCE"
+                className="h-full w-full object-contain"
+                src="/logo-centro-medico-uce.jpg"
+              />
+            </span>
             <h1 className="text-2xl font-extrabold text-slate-800">Tickets</h1>
             <p className="max-w-xs text-sm text-slate-400">Gestión de incidencias</p>
             <p className="mt-1 text-xs font-medium italic text-emerald-200/70">Comprometidos con tu salud</p>

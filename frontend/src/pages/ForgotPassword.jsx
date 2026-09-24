@@ -29,14 +29,14 @@ export default function ForgotPassword() {
       <div className="w-full max-w-md">
         <div className="card nex-pop p-8">
           <div className="mb-4 flex items-center gap-3">
-            <span className="app-logo grid h-10 w-10 shrink-0 place-items-center rounded-xl text-white">
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21s-7-4.6-9.3-9a5.2 5.2 0 0 1 9.3-3 5.2 5.2 0 0 1 9.3 3C19 16.4 12 21 12 21z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12h4l1.5-2.5 2 5 1.5-2.5h6" />
-              </svg>
+            <span className="flex h-12 w-28 shrink-0 items-center rounded-xl bg-white p-1.5 shadow-sm">
+              <img
+                alt="Centro Médico UCE"
+                className="h-full w-full object-contain"
+                src="/logo-centro-medico-uce.jpg"
+              />
             </span>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">Centro Médico UCE</p>
               <h1 className="text-xl font-extrabold text-slate-800">Recuperar contraseña</h1>
             </div>
           </div>
