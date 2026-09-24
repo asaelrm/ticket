@@ -68,6 +68,12 @@ export function EmptyState({ icon = '📋', title, subtitle }) {
 }
 
 function useDialogFocus(open, onClose, ref) {
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return undefined;
     const previouslyFocused = document.activeElement;
@@ -80,7 +86,7 @@ function useDialogFocus(open, onClose, ref) {
     const onKey = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        onClose();
+        onCloseRef.current();
       }
       if (e.key !== 'Tab') return;
       const elements = focusable();
@@ -106,7 +112,7 @@ function useDialogFocus(open, onClose, ref) {
       document.removeEventListener('keydown', onKey);
       previouslyFocused?.focus?.();
     };
-  }, [open, onClose, ref]);
+  }, [open, ref]);
 }
 
 export function Modal({ open, onClose, title, children, wide }) {
