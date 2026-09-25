@@ -211,7 +211,7 @@ describe('Categories', () => {
     await user.type(fieldFor('Nombre *', 'input', within(dialog)), 'Duplicada');
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('El nombre es obligatorio');
+    expect(await screen.findByRole('alert')).toHaveTextContent('El nombre es obligatorio');
     expect(screen.getByRole('dialog', { name: 'Nueva categoría' })).toBeInTheDocument();
   });
 
@@ -227,6 +227,7 @@ describe('Categories', () => {
     await user.type(fieldFor('Nombre *', 'input', within(dialog)), 'Hardware');
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Ya existe una categoría con ese nombre');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe una categoría con ese nombre');
+    expect(screen.getByRole('dialog', { name: 'Nueva categoría' })).toBeInTheDocument();
   });
 });
