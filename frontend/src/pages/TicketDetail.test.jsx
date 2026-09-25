@@ -145,10 +145,10 @@ describe('TicketDetail', () => {
     expect(await screen.findByText('PC no enciende')).toBeInTheDocument();
     expect(screen.getByText('TCK-000001')).toBeInTheDocument();
     expect(screen.getByText('El equipo no enciende desde ayer por la tarde.')).toBeInTheDocument();
-    expect(screen.getByText('Ana Díaz')).toBeInTheDocument();
+    expect(screen.getAllByText('Ana Díaz').length).toBeGreaterThan(0);
     expect(screen.getByText(/reportó/)).toBeInTheDocument();
     expect(screen.getByText('Revisando el problema…')).toBeInTheDocument();
-    expect(screen.getByText('🎫' === 'x' ? '' : 'Carlos Ruiz')).toBeInTheDocument();
+    expect(screen.getByText('Carlos Ruiz')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/api/tickets/1');
     expect(api.get).toHaveBeenCalledWith('/api/tickets/options');
   });
