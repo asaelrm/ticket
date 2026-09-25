@@ -30,7 +30,7 @@ export default function Roles() {
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
 
-  const { data, error: queryError } = useQuery({
+  const { data } = useQuery({
     queryKey: ['roles'],
     queryFn: () =>
       Promise.all([api.get('/api/roles'), api.get('/api/roles/permissions')]).then(([roles, perms]) => ({
