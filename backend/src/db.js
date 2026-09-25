@@ -23,6 +23,12 @@ function tableExists(table) {
   );
 }
 
+/**
+ * Ensures a column exists in a SQLite table. If not, it runs the ALTER TABLE statement.
+ * @param {string} table - The name of the table.
+ * @param {string} column - The name of the column.
+ * @param {string} ddl - The column definition (e.g. 'column_name TEXT').
+ */
 export function ensureColumn(table, column, ddl) {
   if (!columnExists(table, column)) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
@@ -123,6 +129,11 @@ export function runMigrations() {
   return user_version;
 }
 
+/**
+ * Executes a function within a SQLite transaction.
+ * @param {Function} fn - The callback to execute.
+ * @returns {*} The result of the callback.
+ */
 export function transaction(fn) {
   db.exec('BEGIN');
   try {
@@ -140,3 +151,4 @@ export function nowIso() {
 }
 
 export default db;
+
