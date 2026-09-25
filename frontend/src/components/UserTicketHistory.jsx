@@ -1,33 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api, formatDateTime, formatSla, OPEN_STATUSES } from '../lib/api';
 import { StatusBadge, PriorityBadge, EmptyState, Spinner, ErrorBox } from './ui';
 
 export default function UserTicketHistory({ userId, self = false, perPage = 8 }) {
   const [scope, setScope] = useState('reported');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     setPage(1);
   }, [scope, userId]);
 
-  useEffect(() => {
-    if (!userId) return;
-    let active = true;
-    setLoading(true);
-    setError('');
-    api
-      .get(`/api/users/${userId}/tickets?scope=${scope}&page=${page}&perPage=${perPage}`)
-      .then((d) => active && setData(d))
-      .catch((err) => active && setError(err.message || 'No se pudo cargar el historial'))
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [userId, scope, page, perPage]);
+  const { data, isPending, error } = useQuery({
+    queryKey: ['user-ticket-history', userId, scope, page, perPage],
+    queryFn: () => api.get(`/api/users/${userId}/tickets?scope=${scope}&page=${page}&perPage=${perPage}`),
+    enabled: !!userId,
+    // Conserva el historial previo al cambiar de pestaña/página mientras carga la nueva.
+    placeholderData: keepPreviousData,
+  });
 
   const byStatus = data?.by_status || {};
   const openCount = OPEN_STATUSES.reduce((acc, s) => acc + (byStatus[s] || 0), 0);
@@ -53,9 +44,9 @@ export default function UserTicketHistory({ userId, self = false, perPage = 8 })
         )}
       </div>
 
-      {error && <ErrorBox message={error} />}
+      {error && <ErrorBox message={error.message || 'No se pudo cargar el historial'} />}
 
-      {loading && !data ? (
+      {isPending && !data ? (
         <div className="flex justify-center py-8">
           <Spinner />
         </div>
