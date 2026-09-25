@@ -301,7 +301,7 @@ export default function Tickets() {
         </div>
       </div>
 
-      {error && <ErrorBox message={error} />}
+      {(error || queryError) && <ErrorBox message={error || queryError.message || 'No se pudieron cargar los tickets'} />}
 
       {!list ? (
         <LoadingScreen />
