@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { api, PRIORITIES, PRIORITY_LABEL, isImage } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
@@ -10,9 +11,6 @@ const MAX_FILES = 5;
 export default function NewTicket() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [categories, setCategories] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [loadingInit, setLoadingInit] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -23,21 +21,48 @@ export default function NewTicket() {
   const [departmentId, setDepartmentId] = useState('');
   const [files, setFiles] = useState([]);
 
+  const categoriesQuery = useQuery({
+    queryKey: ['categories-active'],
+    queryFn: () => api.get('/api/categories?active=1').then((d) => d.data || []),
+    retry: false,
+  });
+
+  const departmentsQuery = useQuery({
+    queryKey: ['active-departments'],
+    queryFn: () => api.get('/api/departments?active=1').then((d) => d.data || []),
+    retry: false,
+  });
+
+  // Al montar se preselecciona el departamento del usuario (equivalente al efecto original).
   useEffect(() => {
-    let active = true;
-    Promise.all([api.get('/api/categories?active=1'), api.get('/api/departments?active=1')])
-      .then(([cat, dep]) => {
-        if (!active) return;
-        setCategories(cat.data || []);
-        setDepartments(dep.data || []);
-        setDepartmentId(user?.department_id ? String(user.department_id) : '');
-      })
-      .catch(() => {})
-      .finally(() => active && setLoadingInit(false));
-    return () => {
-      active = false;
-    };
+    setDepartmentId(user?.department_id ? String(user.department_id) : '');
   }, [user]);
+
+  const loadingInit = categoriesQuery.isLoading || departmentsQuery.isLoading;
+  const categories = categoriesQuery.data || [];
+  const departments = departmentsQuery.data || [];
+
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const fd = new FormData();
+      fd.append('title', title.trim());
+      fd.append('description', description.trim());
+      fd.append('category_id', categoryId);
+      fd.append('priority', priority);
+      if (departmentId) fd.append('department_id', departmentId);
+      for (const f of files) fd.append('files', f);
+      return api.post('/api/tickets', null, fd);
+    },
+    onMutate: () => {
+      setError('');
+      setSaving(true);
+    },
+    onSuccess: (data) => {
+      navigate(`/app/my-tickets/${data.ticket.id}`);
+    },
+    onError: (err) => setError(err.message || 'No se pudo crear el ticket'),
+    onSettled: () => setSaving(false),
+  });
 
   function onFiles(e) {
     const list = Array.from(e.target.files || []);
@@ -62,26 +87,9 @@ export default function NewTicket() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function onSubmit(e) {
+  function onSubmit(e) {
     e.preventDefault();
-    setError('');
-    setSaving(true);
-    try {
-      const fd = new FormData();
-      fd.append('title', title.trim());
-      fd.append('description', description.trim());
-      fd.append('category_id', categoryId);
-      fd.append('priority', priority);
-      if (departmentId) fd.append('department_id', departmentId);
-      for (const f of files) fd.append('files', f);
-
-      const data = await api.post('/api/tickets', null, fd);
-      navigate(`/app/my-tickets/${data.ticket.id}`);
-    } catch (err) {
-      setError(err.message || 'No se pudo crear el ticket');
-    } finally {
-      setSaving(false);
-    }
+    createMutation.mutate();
   }
 
   if (loadingInit) return <LoadingScreen text="Cargando formulario…" />;
