@@ -1,97 +1,104 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth, can } from '../context/AuthContext';
 import { LoadingScreen, ErrorBox, EmptyState, Modal, ConfirmDialog, Spinner, Avatar } from '../components/ui';
 
 export default function Teams() {
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const canManage = can(user, 'team.manage');
 
-  const [teams, setTeams] = useState(null);
-  const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const [editing, setEditing] = useState(null); // { id?, name, description }
-  const [saving, setSaving] = useState(false);
   const [membersTeam, setMembersTeam] = useState(null);
   const [selected, setSelected] = useState([]);
   const [toDelete, setToDelete] = useState(null);
 
-  const load = useCallback(async () => {
-    setError('');
-    try {
-      const data = await api.get('/api/teams');
-      setTeams(data.data || []);
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar los equipos');
-    }
-  }, []);
+  const { data: teams } = useQuery({
+    queryKey: ['teams'],
+    queryFn: () => api.get('/api/teams').then((d) => d.data || []),
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['users-assignable'],
+    queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []),
+  });
+
+  const membersQuery = useQuery({
+    queryKey: ['team-members', membersTeam?.id ?? null],
+    queryFn: () => api.get(`/api/teams/${membersTeam.id}`),
+    enabled: !!membersTeam,
+  });
 
   useEffect(() => {
-    load();
-    api
-      .get('/api/users/assignable')
-      .then((d) => setUsers(d.data || []))
-      .catch(() => {});
-  }, [load]);
+    if (!membersTeam) return;
+    setSelected((membersQuery.data?.members || []).map((m) => m.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membersTeam?.id, membersQuery.data]);
 
-  async function onSave(e) {
-    e.preventDefault();
-    setSaving(true);
-    setError('');
-    try {
-      if (editing.id) await api.patch(`/api/teams/${editing.id}`, { name: editing.name, description: editing.description });
-      else await api.post('/api/teams', { name: editing.name, description: editing.description });
+  const saveTeam = useMutation({
+    mutationFn: ({ id, name, description }) =>
+      id
+        ? api.patch(`/api/teams/${id}`, { name, description })
+        : api.post('/api/teams', { name, description }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
       setEditing(null);
       setNotice('Equipo guardado');
-      await load();
-    } catch (err) {
+    },
+    onError: (err) => {
       setError(err.message || 'No se pudo guardar el equipo');
-    } finally {
-      setSaving(false);
-    }
-  }
+    },
+  });
 
-  async function openMembers(team) {
-    setMembersTeam(team);
-    setError('');
-    try {
-      const data = await api.get(`/api/teams/${team.id}`);
-      setSelected((data.members || []).map((m) => m.id));
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar los miembros');
-    }
-  }
-
-  async function saveMembers() {
-    setSaving(true);
-    setError('');
-    try {
-      const data = await api.put(`/api/teams/${membersTeam.id}/members`, { user_ids: selected });
+  const saveMembersMutation = useMutation({
+    mutationFn: ({ id, user_ids }) => api.put(`/api/teams/${id}/members`, { user_ids }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
       setMembersTeam(data.team);
       setNotice('Miembros actualizados');
-      await load();
-    } catch (err) {
+    },
+    onError: (err) => {
       setError(err.message || 'No se pudieron guardar los miembros');
-    } finally {
-      setSaving(false);
-    }
-  }
+    },
+  });
 
-  async function confirmDelete() {
-    setSaving(true);
-    setError('');
-    try {
-      await api.del(`/api/teams/${toDelete.id}`);
+  const deleteTeam = useMutation({
+    mutationFn: (id) => api.del(`/api/teams/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
       setToDelete(null);
       setNotice('Equipo eliminado');
-      await load();
-    } catch (err) {
+    },
+    onError: (err) => {
       setError(err.message || 'No se pudo eliminar el equipo');
-    } finally {
-      setSaving(false);
-    }
+    },
+  });
+
+  const saving = saveTeam.isPending || saveMembersMutation.isPending || deleteTeam.isPending;
+
+  function onSave(e) {
+    e.preventDefault();
+    setError('');
+    saveTeam.mutate({ id: editing.id, name: editing.name, description: editing.description });
+  }
+
+  function openMembers(team) {
+    setMembersTeam(team);
+    setError('');
+  }
+
+  function saveMembers() {
+    setError('');
+    saveMembersMutation.mutate({ id: membersTeam.id, user_ids: selected });
+  }
+
+  function confirmDelete() {
+    setError('');
+    deleteTeam.mutate(toDelete.id);
   }
 
   if (!teams) return <LoadingScreen text="Cargando equipos…" />;
