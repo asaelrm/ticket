@@ -261,14 +261,12 @@ describe('Settings', () => {
     expect(settingsCalls()).toBe(before);
   });
 
-  it('muestra los campos de la pantalla sin alterar los permisos', async () => {
-    const user = userEvent.setup();
+  it('expone los campos de SLA y de escalación dentro del mismo formulario', async () => {
     renderWithProviders(<Settings />, { route: '/app/settings' });
     await screen.findByText('Configuración del sistema');
 
     const form = screen.getByRole('button', { name: 'Guardar configuración' }).closest('form');
-    const fields = within(form).getAllByRole('textbox');
-    expect(fields.length).toBeGreaterThanOrEqual(6);
     expect(within(form).getAllByRole('spinbutton').length).toBe(6);
+    expect(within(form).getAllByRole('checkbox').length).toBe(5);
   });
 });
