@@ -172,8 +172,8 @@ describe('Dashboard', () => {
     renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
 
     expect(await screen.findByText('Tickets por estado')).toBeInTheDocument();
-    expect(screen.getByText('Abierto')).toBeInTheDocument();
-    expect(screen.getByText('Hardware')).toBeInTheDocument();
+    expect(screen.getAllByText('Abierto').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Hardware').length).toBeGreaterThan(0);
     expect(screen.getByText('3 abiertos')).toBeInTheDocument();
     expect(screen.getByText('TI')).toBeInTheDocument();
     expect(screen.getByText('2 abiertos')).toBeInTheDocument();

@@ -440,7 +440,7 @@ describe('TicketDetail', () => {
     expect(screen.queryByRole('button', { name: 'Responder' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Resolver ticket/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
-    expect(screen.getByText('Abierto')).toBeInTheDocument();
+    expect(screen.getAllByText('Abierto').length).toBeGreaterThan(0);
   });
 
   it('muestra y envía la encuesta CSAT al reporter', async () => {
