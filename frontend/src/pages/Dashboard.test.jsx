@@ -90,7 +90,7 @@ beforeEach(() => {
 });
 
 function cardValue(label) {
-  return within(screen.getByText(label).closest('.card')).getByText(/^\d+$/);
+  return within(screen.getByText(label, { selector: 'p.truncate' }).closest('.card')).getByText(/^\d+$/);
 }
 
 describe('Dashboard', () => {
@@ -139,7 +139,7 @@ describe('Dashboard', () => {
   it('muestra el estado de atención SLA y la tabla de top tickets', async () => {
     renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
 
-    expect(await screen.findByText('TCK-000005')).toBeInTheDocument();
+    expect(await screen.findByText(/#TCK-000005/)).toBeInTheDocument();
     expect(screen.getByText('Impresora no imprime')).toBeInTheDocument();
     expect(screen.getByText('Luis')).toBeInTheDocument();
     expect(screen.getByText('Vencidos').parentElement).toHaveTextContent('1');
@@ -157,7 +157,7 @@ describe('Dashboard', () => {
     });
 
     renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
-    await screen.findByText('TCK-000005');
+    await screen.findByText(/#TCK-000005/);
     expect(screen.getByText(/Vencido hace/)).toBeInTheDocument();
   });
 
@@ -177,7 +177,7 @@ describe('Dashboard', () => {
     expect(screen.getByText('3 abiertos')).toBeInTheDocument();
     expect(screen.getByText('TI')).toBeInTheDocument();
     expect(screen.getByText('2 abiertos')).toBeInTheDocument();
-    expect(screen.getByText('Actualizado a las')).toBeInTheDocument();
+    expect(screen.getByText(/Actualizado a las/)).toBeInTheDocument();
   });
 
   it('muestra los tickets recientes con sus enlaces', async () => {
