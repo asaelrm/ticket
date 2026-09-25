@@ -190,22 +190,14 @@ export default function TicketDetail() {
     if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [data?.comments?.length]);
 
-  useEffect(() => {
-    if (!data?.can) return;
-    if (data.can.assign) {
-      api.get('/api/users/assignable').then((d) => setUsers(d.data || [])).catch(() => {});
-      api.get('/api/teams/assignable').then((d) => setTeams(d.data || [])).catch(() => {});
-    }
-    if (data.can.manage) {
-      api.get('/api/categories?active=1').then((d) => setCategories(d.data || [])).catch(() => {});
-    }
-  }, [data?.can]);
+  // Las opciones de gestión (usuarios/equipos/categorías asignables) se cargan
+  // mediante useQuery habilitadas por data.can (ver arriba).
 
-  if (error && !data) {
+  if ((error || queryError) && !data) {
     return (
       <div className="mx-auto max-w-3xl">
-        <ErrorBox message={error} />
-        <button className="btn-secondary mt-4" onClick={load}>
+        <ErrorBox message={error || queryError?.message || 'No se pudo cargar el ticket'} />
+        <button className="btn-secondary mt-4" onClick={() => { setError(''); reload(); }}>
           Reintentar
         </button>
       </div>
@@ -219,22 +211,42 @@ export default function TicketDetail() {
   const locked = ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(t.status);
   const isReporter = Number(t.reporter_id) === Number(user?.id);
 
+  // Escrituras sobre el ticket (estado, prioridad, asignación, cierre, etc.).
+  // Una sola mutation genérica: la rama API se elige por descriptor y UI/errores
+  // se conservan igual que antes.
+  const apiAction = useMutation({
+    mutationFn: ({ method, path, body, formData }) => api[method](path, body, formData),
+    onMutate: () => {
+      setSaving(true);
+      setError('');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
+    },
+    onError: (err, variables) => {
+      setError(err.message || variables.errorMessage || 'No se pudo actualizar el ticket');
+    },
+    onSettled: () => {
+      setSaving(false);
+    },
+  });
+
   async function patchTicket(payload) {
-    setSaving(true);
-    setError('');
     try {
-      await api.patch(`/api/tickets/${t.id}`, payload);
-      await load();
+      await apiAction.mutateAsync({
+        method: 'patch',
+        path: `/api/tickets/${t.id}`,
+        body: payload,
+        errorMessage: 'No se pudo actualizar el ticket',
+      });
     } catch (err) {
-      setError(err.message || 'No se pudo actualizar el ticket');
+      // Restaurar borradores al estado servidor (como con load() en el error anterior).
       setStatusDraft(t.status);
       setPriorityDraft(t.priority);
       setCategoryDraft(t.category_id ? String(t.category_id) : '');
       setAssignDraft(t.assigned_to_id ? String(t.assigned_to_id) : '');
       setTeamDraft(t.assigned_team_id ? String(t.assigned_team_id) : '');
       throw err;
-    } finally {
-      setSaving(false);
     }
   }
 
