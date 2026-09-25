@@ -37,11 +37,10 @@ function parseFilters(searchParams) {
 
 export default function Tickets() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
 
-  const [list, setList] = useState(null);
-  const [counters, setCounters] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -73,31 +72,29 @@ export default function Tickets() {
     return sp.toString();
   }, [filters]);
 
-  const reload = useCallback(async () => {
+  const { data: list, error: queryError } = useQuery({
+    queryKey: ['tickets', query],
+    queryFn: () => api.get(`/api/tickets?${query}`),
+    // Refresco silencioso en vivo cada 30 s (React Query pausa en background, equivalente al chequeo de visibilidad).
+    refetchInterval: 30000,
+  });
+
+  const { data: counters } = useQuery({
+    queryKey: ['tickets-counters'],
+    queryFn: () => api.get('/api/tickets/counters').catch(() => null),
+    refetchInterval: 30000,
+  });
+
+  // Equivale al efecto [reload]: al cambiar filtros se limpia el error previo y se refrescan los contadores.
+  useEffect(() => {
     setError('');
-    try {
-      const [data, counterData] = await Promise.all([
-        api.get(`/api/tickets?${query}`),
-        api.get('/api/tickets/counters').catch(() => null),
-      ]);
-      setList(data);
-      if (counterData) setCounters(counterData);
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar los tickets');
-    }
-  }, [query]);
+    queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
+  }, [query, queryClient]);
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
-
-  // Refresco silencioso en vivo cada 30 s (solo cuando la pestaña es visible).
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') reload();
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [reload]);
+  const reload = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
+  }, [queryClient]);
 
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
 
@@ -120,34 +117,51 @@ export default function Tickets() {
     return counters[counterKey] ?? null;
   }
 
-  async function assignMe(t) {
-    setBusy(true);
-    setError('');
-    try {
-      await api.patch(`/api/tickets/${t.id}`, { assigned_to_id: user.id });
-      await reload();
-    } catch (err) {
+  const assignMeMutation = useMutation({
+    mutationFn: (t) => api.patch(`/api/tickets/${t.id}`, { assigned_to_id: user.id }),
+    onMutate: () => {
+      setBusy(true);
+      setError('');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
+    },
+    onError: (err) => {
       setError(err.message || 'No se pudo asignar el ticket');
-    } finally {
+    },
+    onSettled: () => {
       setBusy(false);
-    }
+    },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ t, status, body }) =>
+      status === 'CANCELLED'
+        ? api.post(`/api/tickets/${t.id}/cancel`, body)
+        : api.patch(`/api/tickets/${t.id}`, { status }),
+    onMutate: () => {
+      setBusy(true);
+      setError('');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
+    },
+    onError: (err) => {
+      setError(err.message || 'No se pudo actualizar el estado');
+    },
+    onSettled: () => {
+      setBusy(false);
+    },
+  });
+
+  function assignMe(t) {
+    assignMeMutation.mutate(t);
   }
 
-  async function changeStatus(t, status, body = {}) {
-    setBusy(true);
-    setError('');
-    try {
-      if (status === 'CANCELLED') {
-        await api.post(`/api/tickets/${t.id}/cancel`, body);
-      } else {
-        await api.patch(`/api/tickets/${t.id}`, { status });
-      }
-      await reload();
-    } catch (err) {
-      setError(err.message || 'No se pudo actualizar el estado');
-    } finally {
-      setBusy(false);
-    }
+  function changeStatus(t, status, body = {}) {
+    statusMutation.mutate({ t, status, body });
   }
 
   function exportTickets(format = 'csv') {
