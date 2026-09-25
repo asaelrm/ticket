@@ -303,102 +303,55 @@ export default function TicketDetail() {
     setTimeout(() => textareaRef.current?.focus(), 250);
   }
 
-  async function submitClose() {
-    setSaving(true);
-    setError('');
-    try {
-      await api.post(`/api/tickets/${t.id}/close`, { note: closeNote.trim() || undefined });
-      setCloseOpen(false);
-      setCloseNote('');
-      await load();
-    } catch (err) {
-      setError(err.message || 'No se pudo cerrar el ticket');
-    } finally {
-      setSaving(false);
-    }
+  function submitClose() {
+    apiAction.mutate(
+      { method: 'post', path: `/api/tickets/${t.id}/close`, body: { note: closeNote.trim() || undefined }, errorMessage: 'No se pudo cerrar el ticket' },
+      { onSuccess: () => { setCloseOpen(false); setCloseNote(''); } }
+    );
   }
 
-  async function submitReopen() {
+  function submitReopen() {
     if (!reopenReason.trim()) return;
-    setSaving(true);
-    setError('');
-    try {
-      await api.post(`/api/tickets/${t.id}/reopen`, { reason: reopenReason.trim() });
-      setReopenOpen(false);
-      setReopenReason('');
-      await load();
-    } catch (err) {
-      setError(err.message || 'No se pudo reabrir el ticket');
-    } finally {
-      setSaving(false);
-    }
+    apiAction.mutate(
+      { method: 'post', path: `/api/tickets/${t.id}/reopen`, body: { reason: reopenReason.trim() }, errorMessage: 'No se pudo reabrir el ticket' },
+      { onSuccess: () => { setReopenOpen(false); setReopenReason(''); } }
+    );
   }
 
-  async function submitPending() {
+  function submitPending() {
     const reason = pendingDetail.trim() || pendingReason;
-    setSaving(true);
-    setError('');
-    try {
-      await api.patch(`/api/tickets/${t.id}`, { status: 'PENDING', pending_reason: reason || null });
-      setPendingOpen(false);
-      setPendingDetail('');
-      await load();
-    } catch (err) {
-      setError(err.message || 'No se pudo marcar como pendiente');
-    } finally {
-      setSaving(false);
-    }
+    apiAction.mutate(
+      { method: 'patch', path: `/api/tickets/${t.id}`, body: { status: 'PENDING', pending_reason: reason || null }, errorMessage: 'No se pudo marcar como pendiente' },
+      { onSuccess: () => { setPendingOpen(false); setPendingDetail(''); } }
+    );
   }
 
-  async function submitCancel() {
-    setSaving(true);
-    setError('');
-    try {
-      await api.post(`/api/tickets/${t.id}/cancel`, { reason: cancelReason.trim() });
-      setCancelOpen(false);
-      setCancelReason('');
-      await load();
-    } catch (err) {
-      setError(err.message || 'No se pudo cancelar el ticket');
-    } finally {
-      setSaving(false);
-    }
+  function submitCancel() {
+    apiAction.mutate(
+      { method: 'post', path: `/api/tickets/${t.id}/cancel`, body: { reason: cancelReason.trim() }, errorMessage: 'No se pudo cancelar el ticket' },
+      { onSuccess: () => { setCancelOpen(false); setCancelReason(''); } }
+    );
   }
 
-  async function submitCsat() {
+  function submitCsat() {
     if (!csatRating) return;
-    setSaving(true);
-    setError('');
-    try {
-      await api.post(`/api/tickets/${t.id}/csat`, { rating: csatRating, comment: csatComment.trim() || undefined });
-      setCsatSent(true);
-      await load();
-    } catch (err) {
-      setError(err.message || 'No se pudo enviar la calificación');
-    } finally {
-      setSaving(false);
-    }
+    apiAction.mutate(
+      { method: 'post', path: `/api/tickets/${t.id}/csat`, body: { rating: csatRating, comment: csatComment.trim() || undefined }, errorMessage: 'No se pudo enviar la calificación' },
+      { onSuccess: () => setCsatSent(true) }
+    );
   }
 
-  async function onSubmitComment(e) {
+  function onSubmitComment(e) {
     e.preventDefault();
     if (!message.trim() && files.length === 0) return;
-    setSaving(true);
-    setError('');
-    try {
-      const fd = new FormData();
-      if (message.trim()) fd.append('message', message.trim());
-      if (internalMode) fd.append('is_internal', '1');
-      for (const f of files) fd.append('files', f);
-      await api.post(`/api/tickets/${t.id}/comments`, null, fd);
-      setMessage('');
-      setFiles([]);
-      await load();
-    } catch (err) {
-      setError(err.message || 'No se pudo enviar el mensaje');
-    } finally {
-      setSaving(false);
-    }
+    const fd = new FormData();
+    if (message.trim()) fd.append('message', message.trim());
+    if (internalMode) fd.append('is_internal', '1');
+    for (const f of files) fd.append('files', f);
+    apiAction.mutate(
+      { method: 'post', path: `/api/tickets/${t.id}/comments`, formData: fd, errorMessage: 'No se pudo enviar el mensaje' },
+      { onSuccess: () => { setMessage(''); setFiles([]); } }
+    );
   }
 
   function onMessageChange(value) {
@@ -504,7 +457,7 @@ export default function TicketDetail() {
         </div>
       </div>
 
-      {error && <ErrorBox message={error} />}
+      {(error || queryError) && <ErrorBox message={error || queryError?.message || 'No se pudo cargar el ticket'} />}
 
       {isReporter && ['RESOLVED', 'CLOSED'].includes(t.status) && !t.csat_answered_at && options?.csat_enabled !== false && (
         <div className="card border-brand-200 bg-brand-50/50 p-5">
