@@ -131,9 +131,11 @@ export default function Dashboard() {
         sla,
       };
     },
-    // Refresco silencioso en vivo cada 30 s (React Query pausa en background, equivalente al chequeo de visibilidad).
-    refetchInterval: 30000,
+    // Sin polling: los cambios llegan por SSE (conexión global) y se refresca al
+    // volver a la pestaña/recuperar la conexión (refetchOnWindowFocus por defecto).
   });
+
+  useTicketEventInvalidator(['dashboard']);
 
   if (isLoading) return <LoadingScreen text="Cargando dashboard…" />;
   if (error && !data) {
