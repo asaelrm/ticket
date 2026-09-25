@@ -1,6 +1,33 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #e7faf1;
+  --color-brand-100: #c9f3df;
+  --color-brand-200: #9aeac5;
+  --color-brand-300: #63dfa6;
+  --color-brand-400: #3ad48b;
+  --color-brand-500: #22C77A;
+  --color-brand-600: #17a963;
+  --color-brand-700: #128d56;
+  --color-brand-800: #0e6e44;
+  --color-brand-900: #0a5233;
+  --color-brand-950: #06301d;
+
+  --color-slate-50: #0E3A50;
+  --color-slate-100: #0C3347;
+  --color-slate-200: #154E59;
+  --color-slate-300: #2A5F75;
+  --color-slate-400: #8CA5B8;
+  --color-slate-500: #AFC4D4;
+  --color-slate-600: #C6D6E2;
+  --color-slate-700: #DDE8F0;
+  --color-slate-800: #F8FAFC;
+  --color-slate-900: #FFFFFF;
+  --color-slate-950: #FFFFFF;
+
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.08);
+  --shadow-pop: 0 8px 30px rgb(0 0 0 / 0.12);
+}
 
 :root {
   --navy-1: #061b2c;
@@ -489,3 +516,4 @@ tbody.divide-slate-100 > tr + tr {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
