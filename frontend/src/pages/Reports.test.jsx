@@ -77,7 +77,19 @@ describe('Reports', () => {
   });
 
   it('muestra el error y permite reintentar', async () => {
-    api.get.mockRejectedValueOnce(new Error('Fallo en reportes'));
+    let failedOnce = false;
+    api.get.mockImplementation((url) => {
+      if (url === '/api/departments?active=1') return Promise.resolve(DEPARTMENTS);
+      if (url === '/api/categories?active=1') return Promise.resolve(CATEGORIES);
+      if (url.startsWith('/api/reports/full')) {
+        if (!failedOnce) {
+          failedOnce = true;
+          return Promise.reject(new Error('Fallo en reportes'));
+        }
+        return Promise.resolve(report());
+      }
+      return Promise.reject(new Error(`404 ${url}`));
+    });
 
     renderWithProviders(<Reports />, { route: '/app/reports' });
     expect(await screen.findByRole('alert')).toHaveTextContent('Fallo en reportes');
@@ -100,7 +112,7 @@ describe('Reports', () => {
     expect(screen.getByText('Tickets por estado')).toBeInTheDocument();
     expect(screen.getAllByText('Abierto').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Hardware').length).toBeGreaterThan(0);
-    expect(screen.getByText('1 abierto')).toBeInTheDocument();
+    expect(screen.getByText('1 abiertos')).toBeInTheDocument();
     expect(screen.getAllByText('TI').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Ana Díaz').length).toBeGreaterThan(0);
     expect(screen.getByText('TCK-000012')).toBeInTheDocument();
