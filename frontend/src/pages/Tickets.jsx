@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, download, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
