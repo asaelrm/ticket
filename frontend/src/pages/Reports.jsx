@@ -125,9 +125,6 @@ export default function Reports() {
   const departments = departmentsData || [];
   const categories = categoriesData || [];
 
-  const departments = departmentsData || [];
-  const categories = categoriesData || [];
-
   function applyPreset(preset) {
     const r = preset.range();
     setForm((current) => ({ ...current, ...r }));
@@ -190,8 +187,6 @@ export default function Reports() {
     );
   }
 
-  const departments = departmentsData || [];
-  const categories = categoriesData || [];
   const loading = isFetching;
 
   const maxStatus = Math.max(...data.byStatus.map((d) => d.n), 1);
