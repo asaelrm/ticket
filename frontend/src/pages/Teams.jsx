@@ -22,8 +22,9 @@ export default function Teams() {
     queryFn: () => api.get('/api/teams').then((d) => d.data || []),
   });
 
+  // Misma fuente de datos que Inbox/AdvancedSearchModal/TicketDetail.
   const { data: users = [] } = useQuery({
-    queryKey: ['users-assignable'],
+    queryKey: ['assignable-users'],
     queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []),
   });
 

@@ -12,7 +12,9 @@ export default function Categories() {
 
   // Reemplazando useEffect con useQuery para fetching y caché
   const { data: list, isLoading, error: queryError } = useQuery({
-    queryKey: ['categories'],
+    // Key propia: este listado incluye conteos (?withCounts=1) y es distinto de
+    // la lista base compartida ['categories'] de los filtros/selects.
+    queryKey: ['categories-manage'],
     queryFn: () => api.get('/api/categories?withCounts=1').then(res => res.data),
   });
 
@@ -23,7 +25,7 @@ export default function Categories() {
         ? api.patch(`/api/categories/${modal.id}`, { ...form, active: true })
         : api.post('/api/categories', form),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      queryClient.invalidateQueries({ queryKey: ['categories-manage'] });
       setModal(null);
     },
   });
@@ -31,7 +33,7 @@ export default function Categories() {
   // Muta para alternar estado
   const toggleMutation = useMutation({
     mutationFn: (c) => api.patch(`/api/categories/${c.id}`, { active: !c.active }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories-manage'] }),
   });
 
   async function onSave(e) {
