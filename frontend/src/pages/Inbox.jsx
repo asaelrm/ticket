@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   api,
   STATUSES,
@@ -51,20 +52,17 @@ function parseFilters(sp) {
 
 export default function Inbox() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
   const tab = searchParams.get('tab') || 'mine';
 
-  const [list, setList] = useState(null);
-  const [counters, setCounters] = useState(null);
-  const [categories, setCategories] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const [selected, setSelected] = useState(() => new Set());
   const [assignOpen, setAssignOpen] = useState(false);
-  const [assignUsers, setAssignUsers] = useState([]);
   const [assignValue, setAssignValue] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -108,33 +106,40 @@ export default function Inbox() {
     return sp.toString();
   }, [tab, filters]);
 
-  const reload = useCallback(async () => {
+  const { data: list } = useQuery({
+    queryKey: ['inbox-tickets', tab, filters],
+    queryFn: () => api.get(`/api/tickets?${query}`),
+    refetchInterval: 30000,
+  });
+
+  const { data: counters } = useQuery({
+    queryKey: ['inbox-ticket-counters'],
+    queryFn: () => api.get('/api/tickets/counters'),
+    refetchInterval: 30000,
+  });
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.get('/api/categories').then((d) => d.data || []),
+  });
+
+  const { data: assignUsers = [] } = useQuery({
+    queryKey: ['assignable-users'],
+    queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []),
+    enabled: assignOpen,
+  });
+
+  const reload = useCallback(() => {
     setError('');
-    try {
-      const [data, counterData] = await Promise.all([
-        api.get(`/api/tickets?${query}`),
-        api.get('/api/tickets/counters').catch(() => null),
-      ]);
-      setList(data);
-      if (counterData) setCounters(counterData);
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar los tickets');
-    }
-  }, [query]);
+    queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
+    queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
+  }, [queryClient]);
 
+  // Equivale al efecto [reload, tab]: limpia selección y recarga contadores al cambiar pestaña/filtros.
   useEffect(() => {
-    setList(null);
     setSelected(new Set());
-    reload();
-  }, [reload, tab]);
-
-  // Refresco silencioso en vivo cada 30 s (solo cuando la pestaña es visible).
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') reload();
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [reload]);
+    queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
+  }, [query, queryClient]);
 
   useEffect(() => {
     setSearchDraft(filters.search);
@@ -146,45 +151,74 @@ export default function Inbox() {
     return () => clearTimeout(t);
   }, [searchDraft, filters.search, update]);
 
-  useEffect(() => {
-    api.get('/api/categories')
-      .then((d) => setCategories(d.data || []))
-      .catch(() => {});
-  }, []);
-
   const canManage = user?.permissions?.includes('ticket.update.any');
   const canAssign = user?.permissions?.includes('ticket.assign');
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
   const hasAnyFilter = Boolean(filters.search) || advancedCount > 0;
 
-  async function changeStatus(t, status, body = {}) {
-    setBusy(true);
-    setError('');
-    try {
-      if (status === 'CANCELLED') {
-        await api.post(`/api/tickets/${t.id}/cancel`, body);
-      } else {
-        await api.patch(`/api/tickets/${t.id}`, { status });
-      }
-      await reload();
-    } catch (err) {
+  const statusMutation = useMutation({
+    mutationFn: ({ t, status, body }) =>
+      status === 'CANCELLED'
+        ? api.post(`/api/tickets/${t.id}/cancel`, body)
+        : api.patch(`/api/tickets/${t.id}`, { status }),
+    onMutate: () => {
+      setBusy(true);
+      setError('');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
+    },
+    onError: (err) => {
       setError(err.message || 'No se pudo actualizar el ticket');
-    } finally {
+    },
+    onSettled: () => {
       setBusy(false);
-    }
+    },
+  });
+
+  const assignMeMutation = useMutation({
+    mutationFn: (t) => api.patch(`/api/tickets/${t.id}`, { assigned_to_id: user.id }),
+    onMutate: () => {
+      setBusy(true);
+      setError('');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
+    },
+    onError: (err) => {
+      setError(err.message || 'No se pudo asignar el ticket');
+    },
+    onSettled: () => {
+      setBusy(false);
+    },
+  });
+
+  const bulkMutation = useMutation({
+    mutationFn: ({ ids, fn }) => Promise.allSettled(ids.map((id) => fn(id))),
+    onMutate: () => {
+      setBusy(true);
+      setError('');
+    },
+    onSuccess: (results, { ids }) => {
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
+      if (failed) setError(`${failed} de ${ids.length} ticket(s) no se pudieron actualizar.`);
+    },
+    onSettled: () => {
+      setBusy(false);
+    },
+  });
+
+  function changeStatus(t, status, body = {}) {
+    statusMutation.mutate({ t, status, body });
   }
 
-  async function assignMe(t) {
-    setBusy(true);
-    setError('');
-    try {
-      await api.patch(`/api/tickets/${t.id}`, { assigned_to_id: user.id });
-      await reload();
-    } catch (err) {
-      setError(err.message || 'No se pudo asignar el ticket');
-    } finally {
-      setBusy(false);
-    }
+  function assignMe(t) {
+    assignMeMutation.mutate(t);
   }
 
   function toggleOne(id) {
@@ -207,32 +241,16 @@ export default function Inbox() {
     });
   }
 
-  async function runBulk(fn) {
-    const ids = [...selected];
-    if (!ids.length) return;
-    setBusy(true);
-    setError('');
-    const results = await Promise.allSettled(ids.map((id) => fn(id)));
-    const failed = results.filter((r) => r.status === 'rejected').length;
-    setSelected(new Set());
-    await reload();
-    if (failed) setError(`${failed} de ${ids.length} ticket(s) no se pudieron actualizar.`);
-    setBusy(false);
-  }
+  const bulkAssignMe = () =>
+    bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: user.id }) });
+  const bulkStatus = (status) =>
+    bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { status }) });
+  const bulkCancel = (reason) =>
+    bulkMutation.mutate({ ids: [...selected], fn: (id) => api.post(`/api/tickets/${id}/cancel`, { reason }) });
 
-  const bulkAssignMe = () => runBulk((id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: user.id }));
-  const bulkStatus = (status) => runBulk((id) => api.patch(`/api/tickets/${id}`, { status }));
-  const bulkCancel = (reason) => runBulk((id) => api.post(`/api/tickets/${id}/cancel`, { reason }));
-
-  async function openAssign() {
+  function openAssign() {
     setAssignValue('');
     setAssignOpen(true);
-    try {
-      const d = await api.get('/api/users/assignable');
-      setAssignUsers(d.data || []);
-    } catch {
-      setAssignUsers([]);
-    }
   }
 
   function persistSavedFilters(list) {
@@ -509,7 +527,10 @@ export default function Inbox() {
             disabled={busy || !assignValue}
             onClick={async () => {
               setAssignOpen(false);
-              await runBulk((id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: Number(assignValue) }));
+              bulkMutation.mutate({
+                ids: [...selected],
+                fn: (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: Number(assignValue) }),
+              });
             }}
           >
             Asignar
@@ -539,7 +560,7 @@ export default function Inbox() {
             disabled={busy || !cancelReason.trim()}
             onClick={async () => {
               setCancelOpen(false);
-              await bulkCancel(cancelReason.trim());
+              bulkCancel(cancelReason.trim());
               setCancelReason('');
             }}
           >
