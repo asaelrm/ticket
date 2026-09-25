@@ -258,11 +258,27 @@ describe('UserTicketHistory', () => {
   });
 
   it('recarga el historial del usuario cuando cambia el userId', async () => {
-    const { rerender } = renderWithProviders(<UserTicketHistory userId={2} />, { route: '/app/users' });
+    const user = userEvent.setup();
+    setup((u) =>
+      Promise.resolve(
+        historyResp([u.includes('/users/5/') ? ticket({ id: 21, title: 'Otro usuario' }) : ticket()], { total: 1, pages: 1 })
+      )
+    );
+
+    function Harness() {
+      const [id, setId] = React.useState(2);
+      return (
+        <>
+          <button onClick={() => setId(5)}>cambiar usuario</button>
+          <UserTicketHistory userId={id} />
+        </>
+      );
+    }
+
+    renderWithProviders(<Harness />, { route: '/app/users' });
     await screen.findByText('PC no enciende');
 
-    api.get.mockImplementation((u) => Promise.resolve(historyResp([ticket({ id: 21, title: 'Otro usuario' })])));
-    rerender(<UserTicketHistory userId={5} />);
+    await user.click(screen.getByRole('button', { name: 'cambiar usuario' }));
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/users/5/tickets?scope=reported&page=1&perPage=8'));
     expect(await screen.findByText('Otro usuario')).toBeInTheDocument();
