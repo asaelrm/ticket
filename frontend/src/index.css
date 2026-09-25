@@ -99,7 +99,33 @@
   .btn-white,
   .btn-danger,
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#061b2c] disabled:cursor-not-allowed disabled:opacity-60;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: all 150ms;
+  }
+  .btn:focus-visible,
+  .btn-primary:focus-visible,
+  .btn-secondary:focus-visible,
+  .btn-white:focus-visible,
+  .btn-danger:focus-visible,
+  .btn-ghost:focus-visible {
+    outline: 2px solid rgba(34, 199, 122, 0.7);
+    outline-offset: 2px;
+  }
+  .btn:disabled,
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-white:disabled,
+  .btn-danger:disabled,
+  .btn-ghost:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
   }
   .btn-primary {
     @apply text-white shadow-[0_8px_24px_rgba(34,199,122,0.28)];
