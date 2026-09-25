@@ -3,11 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Tickets from './Tickets';
-import { api } from '../lib/api';
+import { api, download } from '../lib/api';
 import { renderWithProviders } from '../test/utils';
 
-const { authState } = vi.hoisted(() => ({
+const { authState, download } = vi.hoisted(() => ({
   authState: { user: null },
+  download: vi.fn(),
 }));
 
 vi.mock('../context/AuthContext', () => ({
