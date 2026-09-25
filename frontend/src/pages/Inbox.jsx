@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import {
   api,
   STATUSES,
@@ -109,14 +110,19 @@ export default function Inbox() {
   const { data: list, error: queryError } = useQuery({
     queryKey: ['inbox-tickets', tab, filters],
     queryFn: () => api.get(`/api/tickets?${query}`),
-    refetchInterval: 30000,
+    // Sin polling: los cambios llegan por SSE (conexión global) y se refresca al
+    // volver a la pestaña/recuperar la conexión (refetchOnWindowFocus por defecto).
   });
 
   const { data: counters } = useQuery({
     queryKey: ['inbox-ticket-counters'],
     queryFn: () => api.get('/api/tickets/counters'),
+    // Respaldo de polling: los contadores son baratos y cubren cambios de fondo
+    // (SLA vencido) que no generan eventos de usuario.
     refetchInterval: 30000,
   });
+
+  useTicketEventInvalidator(['inbox-tickets', 'inbox-ticket-counters']);
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
