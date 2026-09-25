@@ -68,35 +68,58 @@ export default function TicketDetail() {
   const [live, setLive] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
 
-  const load = useCallback(async () => {
-    setError('');
-    try {
-      const d = await api.get(`/api/tickets/${id}`);
-      if (dataRef.current !== d.ticket.id) {
-        seenComments.current = new Set();
-        dataRef.current = d.ticket.id;
-      }
-      for (const c of d.comments) seenComments.current.add(c.id);
-      setData(d);
-      setStatusDraft(d.ticket.status);
-      setPriorityDraft(d.ticket.priority);
-      setAssignDraft(d.ticket.assigned_to_id ? String(d.ticket.assigned_to_id) : '');
-      setTeamDraft(d.ticket.assigned_team_id ? String(d.ticket.assigned_team_id) : '');
-      setCategoryDraft(d.ticket.category_id ? String(d.ticket.category_id) : '');
-    } catch (err) {
-      setError(err.message || 'No se pudo cargar el ticket');
+  const queryClient = useQueryClient();
+
+  const { data, error: queryError, refetch: reload } = useQuery({
+    queryKey: ['ticket', ticketId],
+    queryFn: () => api.get(`/api/tickets/${id}`),
+    // Sin reintentos: el error debe reflejarse de inmediato como antes.
+    retry: 0,
+    // Mantiene visible el ticket anterior mientras se carga el siguiente
+    // (comportamiento original de load()).
+    placeholderData: keepPreviousData,
+  });
+
+  const { data: options } = useQuery({
+    queryKey: ['ticket-options'],
+    queryFn: () => api.get('/api/tickets/options').catch(() => ({})),
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['assignable-users'],
+    queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []).catch(() => []),
+    enabled: !!data?.can?.assign,
+  });
+
+  const { data: teams = [] } = useQuery({
+    queryKey: ['assignable-teams'],
+    queryFn: () => api.get('/api/teams/assignable').then((d) => d.data || []).catch(() => []),
+    enabled: !!data?.can?.assign,
+  });
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories-active'],
+    queryFn: () => api.get('/api/categories?active=1').then((d) => d.data || []).catch(() => []),
+    enabled: !!data?.can?.manage,
+  });
+
+  const handleResolved = () => queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
+
+  // Al llegar datos (carga inicial, refetch, SSE) se sincronizan los borradores
+  // del panel de gestión y se deduplican los comentarios ya vistos.
+  useEffect(() => {
+    if (!data?.ticket) return;
+    if (dataRef.current !== data.ticket.id) {
+      seenComments.current = new Set();
+      dataRef.current = data.ticket.id;
     }
-  }, [id]);
-
-  const loadRef = useRef(load);
-  useEffect(() => {
-    loadRef.current = load;
-  }, [load]);
-
-  useEffect(() => {
-    load();
-    api.get('/api/tickets/options').then(setOptions).catch(() => {});
-  }, [id, load]);
+    for (const c of data.comments) seenComments.current.add(c.id);
+    setStatusDraft(data.ticket.status);
+    setPriorityDraft(data.ticket.priority);
+    setAssignDraft(data.ticket.assigned_to_id ? String(data.ticket.assigned_to_id) : '');
+    setTeamDraft(data.ticket.assigned_team_id ? String(data.ticket.assigned_team_id) : '');
+    setCategoryDraft(data.ticket.category_id ? String(data.ticket.category_id) : '');
+  }, [data]);
 
   // Conexión en vivo: recibe comentarios, cambios de estado y "escribiendo…".
   useEffect(() => {
@@ -119,7 +142,7 @@ export default function TicketDetail() {
       if (!c || seenComments.current.has(c.id)) return;
       seenComments.current.add(c.id);
       clearTyping(c.user_id);
-      setData((prev) => {
+      queryClient.setQueryData(['ticket', ticketId], (prev) => {
         if (!prev || String(prev.ticket.id) !== String(id)) return prev;
         return {
           ...prev,
@@ -146,7 +169,7 @@ export default function TicketDetail() {
 
     es.addEventListener('refresh', () => {
       clearTimeout(refreshTimer.current);
-      refreshTimer.current = setTimeout(() => loadRef.current(), 200);
+      refreshTimer.current = setTimeout(() => queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] }), 200);
     });
 
     return () => {
