@@ -319,6 +319,6 @@ describe('Teams', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/teams/1'));
 
     expect(within(dialog).queryByRole('button', { name: 'Guardar miembros' })).not.toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: 'Cerrar' })).toBeInTheDocument();
+    expect(within(dialog).getByText('Cerrar', { selector: 'button' })).toBeInTheDocument();
   });
 });
