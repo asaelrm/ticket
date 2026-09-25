@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -56,7 +56,7 @@ function ticket(overrides = {}) {
     category_id: 1,
     category_name: 'Hardware',
     reporter_id: 2,
-    reporter_name: 'Ana DÃ­az',
+    reporter_name: 'Ana Díaz',
     assigned_to_id: null,
     assigned_name: null,
     assigned_team_id: null,
@@ -78,14 +78,14 @@ function detailData(overrides = {}, ticketOverrides = {}) {
         id: 1,
         user_id: 3,
         user_name: 'Carlos Ruiz',
-        message: 'Revisando el problemaâ€¦',
+        message: 'Revisando el problema…',
         is_internal: false,
         created_at: '2026-09-21T09:00:00Z',
       },
     ],
     attachments: [],
     history: [
-      { id: 1, action: 'CREATED', user_name: 'Ana DÃ­az', description: 'creÃ³ el ticket', created_at: '2026-09-20T10:00:00Z' },
+      { id: 1, action: 'CREATED', user_name: 'Ana Díaz', description: 'creó el ticket', created_at: '2026-09-20T10:00:00Z' },
     ],
     can: {
       comment: true,
@@ -104,15 +104,15 @@ function detailData(overrides = {}, ticketOverrides = {}) {
 const OPTIONS = {
   csat_enabled: true,
   root_causes: ['Hardware', 'Software'],
-  resolution_categories: ['Reemplazo', 'ReparaciÃ³n'],
+  resolution_categories: ['Reemplazo', 'Reparación'],
   pending_reasons: ['Esperando cliente', 'Dependencia externa'],
 };
 
-const USERS = [{ id: 5, name: 'Juan', last_name: 'PÃ©rez' }];
+const USERS = [{ id: 5, name: 'Juan', last_name: 'Pérez' }];
 const TEAMS = [{ id: 3, name: 'Soporte' }];
 const CATEGORIES = [{ id: 2, name: 'Software' }];
 
-const USER_TECH = { id: 9, name: 'TÃ©cnico' };
+const USER_TECH = { id: 9, name: 'Técnico' };
 
 beforeEach(() => {
   es = undefined;
@@ -145,9 +145,9 @@ describe('TicketDetail', () => {
     expect(await screen.findByText('PC no enciende')).toBeInTheDocument();
     expect(screen.getByText('TCK-000001')).toBeInTheDocument();
     expect(screen.getByText('El equipo no enciende desde ayer por la tarde.')).toBeInTheDocument();
-    expect(screen.getAllByText('Ana DÃ­az').length).toBeGreaterThan(0);
-    expect(screen.getByText(/reportÃ³/)).toBeInTheDocument();
-    expect(screen.getByText('Revisando el problemaâ€¦')).toBeInTheDocument();
+    expect(screen.getAllByText('Ana Díaz').length).toBeGreaterThan(0);
+    expect(screen.getByText(/reportó/)).toBeInTheDocument();
+    expect(screen.getByText('Revisando el problema…')).toBeInTheDocument();
     expect(screen.getByText('Carlos Ruiz')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/api/tickets/1');
     expect(api.get).toHaveBeenCalledWith('/api/tickets/options');
@@ -165,7 +165,7 @@ describe('TicketDetail', () => {
     });
 
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
-    expect(screen.getByText('Cargando ticketâ€¦')).toBeInTheDocument();
+    expect(screen.getByText('Cargando ticket…')).toBeInTheDocument();
 
     resolveDetail(detailData());
     expect(await screen.findByText('PC no enciende')).toBeInTheDocument();
@@ -220,16 +220,16 @@ describe('TicketDetail', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_team_id: 3 }));
   });
 
-  it('cambia la categorÃ­a del ticket', async () => {
+  it('cambia la categoría del ticket', async () => {
     const user = userEvent.setup();
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    await user.selectOptions(fieldSelect('CategorÃ­a'), '2');
+    await user.selectOptions(fieldSelect('Categoría'), '2');
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { category_id: 2 }));
   });
 
-  it('resuelve el ticket desde el drawer y envÃ­a la soluciÃ³n', async () => {
+  it('resuelve el ticket desde el drawer y envía la solución', async () => {
     const user = userEvent.setup();
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
@@ -237,14 +237,14 @@ describe('TicketDetail', () => {
     await user.click(screen.getByRole('button', { name: 'Resolver ticket' }));
     const drawer = await screen.findByRole('dialog', { name: 'Resolver ticket' });
 
-    await user.type(within(drawer).getByLabelText(/SoluciÃ³n/), 'Se reemplazÃ³ la GPU');
+    await user.type(within(drawer).getByLabelText(/Solución/), 'Se reemplazó la GPU');
     await user.click(within(drawer).getByRole('button', { name: 'Resolver ticket' }));
 
     await waitFor(() => {
       const calls = api.post.mock.calls.filter(([u]) => u === '/api/tickets/1/resolve');
       expect(calls).toHaveLength(1);
       const fd = calls[0][2];
-      expect(fd.get('resolution')).toBe('Se reemplazÃ³ la GPU');
+      expect(fd.get('resolution')).toBe('Se reemplazó la GPU');
       expect(fd.get('notify')).toBe('1');
     });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Resolver ticket' })).not.toBeInTheDocument());
@@ -259,7 +259,7 @@ describe('TicketDetail', () => {
     await user.click(screen.getByRole('button', { name: 'Cerrar' }));
     const dialog = await screen.findByRole('dialog', { name: 'Cerrar ticket' });
 
-    await user.type(within(dialog).getByPlaceholderText('Comentario interno sobre el cierreâ€¦'), 'Todo verificado');
+    await user.type(within(dialog).getByPlaceholderText('Comentario interno sobre el cierre…'), 'Todo verificado');
     await user.click(within(dialog).getByRole('button', { name: 'Cerrar ticket' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/close', { note: 'Todo verificado' }));
@@ -276,7 +276,7 @@ describe('TicketDetail', () => {
     const submit = within(dialog).getByRole('button', { name: 'Cancelar ticket' });
     expect(submit).toBeDisabled();
 
-    await user.type(within(dialog).getByLabelText('Motivo de cancelaciÃ³n *'), 'El usuario ya no lo necesita');
+    await user.type(within(dialog).getByLabelText('Motivo de cancelación *'), 'El usuario ya no lo necesita');
     expect(submit).toBeEnabled();
     await user.click(submit);
 
@@ -303,10 +303,10 @@ describe('TicketDetail', () => {
     const submit = within(drawer).getByRole('button', { name: 'Reabrir' });
     expect(submit).toBeDisabled();
 
-    await user.type(within(drawer).getByPlaceholderText('Explique por quÃ© el ticket debe reabrirseâ€¦'), 'El usuario volviÃ³ a reportar el fallo');
+    await user.type(within(drawer).getByPlaceholderText('Explique por qué el ticket debe reabrirse…'), 'El usuario volvió a reportar el fallo');
     await user.click(submit);
 
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/reopen', { reason: 'El usuario volviÃ³ a reportar el fallo' }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/reopen', { reason: 'El usuario volvió a reportar el fallo' }));
   });
 
   it('marca el ticket como pendiente desde el selector de estado', async () => {
@@ -323,12 +323,12 @@ describe('TicketDetail', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'PENDING', pending_reason: 'Esperando cliente' }));
   });
 
-  it('envÃ­a un comentario pÃºblico', async () => {
+  it('envía un comentario público', async () => {
     const user = userEvent.setup();
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    await user.type(screen.getByPlaceholderText('Escriba una respuesta para el empleadoâ€¦'), 'Ya estamos trabajando en ello');
+    await user.type(screen.getByPlaceholderText('Escriba una respuesta para el empleado…'), 'Ya estamos trabajando en ello');
     await user.click(screen.getByRole('button', { name: 'Enviar respuesta' }));
 
     await waitFor(() => {
@@ -337,18 +337,18 @@ describe('TicketDetail', () => {
       const fd = calls[0][2];
       expect(fd.get('message')).toBe('Ya estamos trabajando en ello');
     });
-    await waitFor(() => expect(screen.getByPlaceholderText('Escriba una respuesta para el empleadoâ€¦')).toHaveValue(''));
+    await waitFor(() => expect(screen.getByPlaceholderText('Escriba una respuesta para el empleado…')).toHaveValue(''));
   });
 
-  it('envÃ­a una nota interna marcada como interna', async () => {
+  it('envía una nota interna marcada como interna', async () => {
     const user = userEvent.setup();
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    const editorCard = screen.getByPlaceholderText('Escriba una respuesta para el empleadoâ€¦').closest('.card');
+    const editorCard = screen.getByPlaceholderText('Escriba una respuesta para el empleado…').closest('.card');
     await user.click(within(editorCard).getByRole('button', { name: /Nota interna/ }));
 
-    const internalArea = await screen.findByPlaceholderText('Escriba una nota interna (no visible para el empleado)â€¦');
+    const internalArea = await screen.findByPlaceholderText('Escriba una nota interna (no visible para el empleado)…');
     await user.type(internalArea, 'Nota visible solo para el equipo');
     await user.click(screen.getByRole('button', { name: 'Guardar nota interna' }));
 
@@ -389,7 +389,7 @@ describe('TicketDetail', () => {
 
     expect(es).toBeDefined();
     expect(es.url).toBe('/api/tickets/1/stream');
-    expect(screen.getByText('Sin conexiÃ³n')).toBeInTheDocument();
+    expect(screen.getByText('Sin conexión')).toBeInTheDocument();
 
     es.emit('ready');
     await waitFor(() => expect(screen.getByText('En vivo')).toBeInTheDocument());
@@ -401,15 +401,15 @@ describe('TicketDetail', () => {
     expect(await screen.findByText('Comentario en vivo por SSE')).toBeInTheDocument();
   });
 
-  it('muestra al usuario que estÃ¡ escribiendo y refresca por SSE', async () => {
+  it('muestra al usuario que está escribiendo y refresca por SSE', async () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
     const detailCalls = () => api.get.mock.calls.filter(([u]) => u === '/api/tickets/1').length;
     const before = detailCalls();
 
-    es.emit('typing', { user_id: 7, user_name: 'LucÃ­a' });
-    await waitFor(() => expect(screen.getByText('LucÃ­a estÃ¡ escribiendoâ€¦')).toBeInTheDocument());
+    es.emit('typing', { user_id: 7, user_name: 'Lucía' });
+    await waitFor(() => expect(screen.getByText('Lucía está escribiendo…')).toBeInTheDocument());
 
     es.emit('refresh', {});
     await waitFor(() => expect(detailCalls()).toBeGreaterThan(before));
@@ -424,7 +424,7 @@ describe('TicketDetail', () => {
     expect(es.close).toHaveBeenCalled();
   });
 
-  it('oculta acciones y muestra solo lectura sin permisos de gestiÃ³n', async () => {
+  it('oculta acciones y muestra solo lectura sin permisos de gestión', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/tickets/1') return Promise.resolve(detailData({ can: { comment: false, note: false, manage: false, resolve: false, close: false, cancel: false, reopen: false, assign: false } }));
       if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
@@ -443,9 +443,9 @@ describe('TicketDetail', () => {
     expect(screen.getAllByText('Abierto').length).toBeGreaterThan(0);
   });
 
-  it('muestra y envÃ­a la encuesta CSAT al reporter', async () => {
+  it('muestra y envía la encuesta CSAT al reporter', async () => {
     const user = userEvent.setup();
-    authState.user = { id: 2, name: 'Ana DÃ­az' };
+    authState.user = { id: 2, name: 'Ana Díaz' };
     api.get.mockImplementation((url) => {
       if (url === '/api/tickets/1') return Promise.resolve(detailData({}, { status: 'RESOLVED' }));
       if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
@@ -458,19 +458,19 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    expect(screen.getByText('Â¿CÃ³mo fue la atenciÃ³n recibida?')).toBeInTheDocument();
+    expect(screen.getByText('¿Cómo fue la atención recibida?')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '4 estrellas' }));
-    await user.type(screen.getByPlaceholderText('Comentario (opcional)â€¦'), 'Muy satisfecho');
-    await user.click(screen.getByRole('button', { name: 'Enviar calificaciÃ³n' }));
+    await user.type(screen.getByPlaceholderText('Comentario (opcional)…'), 'Muy satisfecho');
+    await user.click(screen.getByRole('button', { name: 'Enviar calificación' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/csat', { rating: 4, comment: 'Muy satisfecho' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Â¡Gracias!' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: '¡Gracias!' })).toBeInTheDocument());
   });
 
-  it('muestra la calificaciÃ³n CSAT ya respondida', async () => {
+  it('muestra la calificación CSAT ya respondida', async () => {
     api.get.mockImplementation((url) => {
-      if (url === '/api/tickets/1') return Promise.resolve(detailData({}, { status: 'CLOSED', csat_answered_at: '2026-09-25T08:00:00Z', csat_rating: 5, csat_comment: 'Excelente atenciÃ³n' }));
+      if (url === '/api/tickets/1') return Promise.resolve(detailData({}, { status: 'CLOSED', csat_answered_at: '2026-09-25T08:00:00Z', csat_rating: 5, csat_comment: 'Excelente atención' }));
       if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
       if (url === '/api/users/assignable') return Promise.resolve({ data: USERS });
       if (url === '/api/teams/assignable') return Promise.resolve({ data: TEAMS });
@@ -481,7 +481,7 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    expect(screen.getByText('SatisfacciÃ³n del usuario:')).toBeInTheDocument();
-    expect(screen.getByText(/Excelente atenciÃ³n/)).toBeInTheDocument();
+    expect(screen.getByText('Satisfacción del usuario:')).toBeInTheDocument();
+    expect(screen.getByText(/Excelente atención/)).toBeInTheDocument();
   });
 });
