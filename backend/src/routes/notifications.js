@@ -2,9 +2,31 @@ import express from 'express';
 import db, { nowIso } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { parseIntSafe } from '../utils/validation.js';
+import { notificationEvents } from '../utils/notifications.js';
 
 const router = express.Router();
 router.use(requireAuth);
+
+router.get('/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
+
+  const onNewNotification = (data) => {
+    if (data.userId === req.user.id) {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    }
+  };
+
+  notificationEvents.on('new_notification', onNewNotification);
+
+  req.on('close', () => {
+    notificationEvents.off('new_notification', onNewNotification);
+  });
+});
 
 // Últimas notificaciones del usuario autenticado.
 router.get('/', (req, res) => {
