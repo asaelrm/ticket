@@ -15,11 +15,34 @@ vi.mock('../context/AuthContext', () => ({
   can: (user, permission) => !!user?.permissions?.includes(permission),
 }));
 
+// Crea un spy similar a vi.fn() pero con dos ajustes para reproducir el
+// comportamiento real de la API:
+//  - sus métodos devuelven una Promise resuelta (el código encadena .catch),
+//  - descarta los argumentos finales undefined (la mutation genérica siempre
+//    llama api.post(path, body, formData) con formData undefined en modo JSON,
+//    y toHaveBeenCalledWith compara el número exacto de argumentos).
+function makeApiMethod() {
+  const spy = vi.fn(() => Promise.resolve({}));
+  return new Proxy(spy, {
+    apply(target, ctx, args) {
+      let n = args.length;
+      while (n > 0 && args[n - 1] === undefined) n -= 1;
+      return Reflect.apply(target, ctx, args.slice(0, n));
+    },
+  });
+}
+
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual('../lib/api');
   return {
     ...actual,
-    api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() },
+    api: {
+      get: makeApiMethod(),
+      post: makeApiMethod(),
+      put: makeApiMethod(),
+      patch: makeApiMethod(),
+      del: makeApiMethod(),
+    },
   };
 });
 
@@ -379,7 +402,7 @@ describe('TicketDetail', () => {
     await screen.findByText('Adjuntos (2)');
 
     expect(screen.getByAltText('foto.png')).toHaveAttribute('src', '/api/files/10');
-    expect(screen.getByText('log.txt')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /log\.txt/ })).toBeInTheDocument();
     expect(screen.getByText('512 B')).toBeInTheDocument();
   });
 
