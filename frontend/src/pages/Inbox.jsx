@@ -352,7 +352,6 @@ export default function Inbox() {
           </div>
           <div>
             <label className="label" htmlFor="inbox-sort">Ordenar por</label>
-            <select className="input !w-auto" value={filters.status} onChange={(e) => update({ status: e.target.value })} title="Estado">
             <select id="inbox-sort" className="input" value={filters.sort} onChange={(e) => update({ sort: e.target.value })}>
               {SORT_OPTIONS.map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>
