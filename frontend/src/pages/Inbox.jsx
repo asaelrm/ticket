@@ -106,7 +106,7 @@ export default function Inbox() {
     return sp.toString();
   }, [tab, filters]);
 
-  const { data: list } = useQuery({
+  const { data: list, error: queryError } = useQuery({
     queryKey: ['inbox-tickets', tab, filters],
     queryFn: () => api.get(`/api/tickets?${query}`),
     refetchInterval: 30000,
