@@ -209,7 +209,7 @@ describe('Profile', () => {
     expect(within(form).getByLabelText('Contraseña actual')).toBeInTheDocument();
     expect(within(form).getByLabelText('Nueva contraseña')).toBeInTheDocument();
     expect(within(form).getByLabelText('Confirmar nueva')).toBeInTheDocument();
-    expect(within(form).getAllByRole('textbox').length).toBe(0);
+    expect(within(form).queryAllByRole('textbox')).toHaveLength(0);
     expect(within(form).getAllByRole('button').length).toBe(1);
   });
 });
