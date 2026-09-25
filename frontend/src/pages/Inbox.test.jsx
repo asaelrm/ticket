@@ -112,8 +112,8 @@ describe('Inbox', () => {
     renderWithProviders(<Inbox />, { route: '/app/inbox' });
 
     const mineTab = await screen.findByRole('button', { name: /Asignados a mí/ });
-    expect(within(mineTab).getByText('2')).toBeInTheDocument();
-    expect(within(screen.getByRole('button', { name: /Mi equipo/ })).getByText('4')).toBeInTheDocument();
+    expect(await within(mineTab).findByText('2')).toBeInTheDocument();
+    expect(await within(screen.getByRole('button', { name: /Mi equipo/ })).findByText('4')).toBeInTheDocument();
   });
 
   it('cambia de pestaña y consulta la vista "open"', async () => {
@@ -143,7 +143,7 @@ describe('Inbox', () => {
     const before = ticketCalls();
 
     await user.click(screen.getByRole('button', { name: '⋯' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Marcar en proceso' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Marcar en proceso/ }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'IN_PROGRESS' }));
     await waitFor(() => expect(ticketCalls()).toBeGreaterThan(before));
