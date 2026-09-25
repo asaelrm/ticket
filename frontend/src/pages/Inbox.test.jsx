@@ -155,7 +155,7 @@ describe('Inbox', () => {
     await screen.findByText('TCK-000001');
 
     await user.click(screen.getByRole('button', { name: '⋯' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Asignarme a mí' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Asignarme a mí/ }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_to_id: 7 }));
   });

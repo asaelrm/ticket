@@ -66,7 +66,7 @@ describe('Notifications', () => {
   it('muestra el contador de no leídas y no abre una conexión real', async () => {
     renderWithProviders(<Notifications />);
 
-    expect(await screen.findByTitle('Notificaciones')).toHaveTextContent('3');
+    await waitFor(() => expect(screen.getByTitle('Notificaciones')).toHaveTextContent('3'));
     expect(es).toBeDefined();
     expect(es.url).toBe('/api/notifications/stream');
   });
