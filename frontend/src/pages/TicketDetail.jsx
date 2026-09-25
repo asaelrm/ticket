@@ -232,26 +232,6 @@ export default function TicketDetail() {
   const locked = ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(t.status);
   const isReporter = Number(t.reporter_id) === Number(user?.id);
 
-  // Escrituras sobre el ticket (estado, prioridad, asignación, cierre, etc.).
-  // Una sola mutation genérica: la rama API se elige por descriptor y UI/errores
-  // se conservan igual que antes.
-  const apiAction = useMutation({
-    mutationFn: ({ method, path, body, formData }) => api[method](path, body, formData),
-    onMutate: () => {
-      setSaving(true);
-      setError('');
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
-    },
-    onError: (err, variables) => {
-      setError(err.message || variables.errorMessage || 'No se pudo actualizar el ticket');
-    },
-    onSettled: () => {
-      setSaving(false);
-    },
-  });
-
   async function patchTicket(payload) {
     try {
       await apiAction.mutateAsync({
