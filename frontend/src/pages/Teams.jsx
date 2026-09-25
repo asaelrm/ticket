@@ -31,6 +31,9 @@ export default function Teams() {
     queryKey: ['team-members', membersTeam?.id ?? null],
     queryFn: () => api.get(`/api/teams/${membersTeam.id}`),
     enabled: !!membersTeam,
+    onError: (err) => {
+      setError(err.message || 'No se pudieron cargar los miembros');
+    },
   });
 
   useEffect(() => {
