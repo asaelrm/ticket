@@ -131,8 +131,10 @@ export default function Dashboard() {
         sla,
       };
     },
-    // Sin polling: los cambios llegan por SSE (conexión global) y se refresca al
-    // volver a la pestaña/recuperar la conexión (refetchOnWindowFocus por defecto).
+    // Respaldo de polling: los métricas SLA/background cambian con el tiempo
+    // (SLA vencido) sin generar eventos de usuario; el SSE refresca al instante
+    // lo que sí proviene de acciones del usuario.
+    refetchInterval: 30000,
   });
 
   useTicketEventInvalidator(['dashboard']);
