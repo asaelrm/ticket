@@ -44,7 +44,7 @@ export default function Notifications() {
     const next = !open;
     setOpen(next);
     if (next) {
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.resetQueries({ queryKey: ['notifications'] });
     }
     queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
   };
