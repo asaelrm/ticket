@@ -1,54 +1,42 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Modal, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
 
 const EMPTY = { name: '', description: '', color: '#3366ff' };
 
 export default function Categories() {
-  const [list, setList] = useState(null);
-  const [error, setError] = useState('');
+  const queryClient = useQueryClient();
   const [modal, setModal] = useState(null);
-  const [loadingModal, setLoadingModal] = useState(false);
   const [onlyActive, setOnlyActive] = useState(false);
 
-  const load = useCallback(async () => {
-    setError('');
-    try {
-      const data = await api.get(`/api/categories?withCounts=1`);
-      setList(data.data);
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar las categorías');
-    }
-  }, []);
+  // Reemplazando useEffect con useQuery para fetching y caché
+  const { data: list, isLoading, error: queryError } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.get('/api/categories?withCounts=1').then(res => res.data),
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Muta para crear/editar
+  const saveMutation = useMutation({
+    mutationFn: (form) =>
+      modal.id
+        ? api.patch(`/api/categories/${modal.id}`, { ...form, active: true })
+        : api.post('/api/categories', form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
+      setModal(null);
+    },
+  });
+
+  // Muta para alternar estado
+  const toggleMutation = useMutation({
+    mutationFn: (c) => api.patch(`/api/categories/${c.id}`, { active: !c.active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories'] }),
+  });
 
   async function onSave(e) {
     e.preventDefault();
-    setLoadingModal(true);
-    setError('');
-    try {
-      if (modal.id) await api.patch(`/api/categories/${modal.id}`, { ...modal.form, active: true });
-      else await api.post('/api/categories', modal.form);
-      setModal(null);
-      await load();
-    } catch (err) {
-      if (err.fields) setError(Object.values(err.fields).join('. '));
-      else setError(err.message || 'No se pudo guardar');
-    } finally {
-      setLoadingModal(false);
-    }
-  }
-
-  async function toggle(c) {
-    try {
-      await api.patch(`/api/categories/${c.id}`, { active: !c.active });
-      await load();
-    } catch (err) {
-      setError(err.message || 'No se pudo cambiar el estado');
-    }
+    saveMutation.mutate(modal.form);
   }
 
   const visible = list ? (onlyActive ? list.filter((c) => c.active) : list) : [];
@@ -65,17 +53,21 @@ export default function Categories() {
           />
           Solo activas
         </label>
-        <button className="btn-primary" onClick={() => { setError(''); setModal({ id: null, form: { ...EMPTY } }); }}>
+        <button className="btn-primary" onClick={() => { saveMutation.reset(); setModal({ id: null, form: { ...EMPTY } }); }}>
           + Nueva categoría
         </button>
       </div>
 
-      <div className="mb-3">{error && <ErrorBox message={error} />}</div>
+      <div className="mb-3">
+        {queryError && <ErrorBox message={queryError.message || 'Error al cargar'} />}
+        {toggleMutation.error && <ErrorBox message={toggleMutation.error.message || 'Error al cambiar estado'} />}
+        {saveMutation.error && <ErrorBox message={saveMutation.error.fields ? Object.values(saveMutation.error.fields).join('. ') : saveMutation.error.message || 'Error al guardar'} />}
+      </div>
 
-      {!list ? (
+      {isLoading ? (
         <LoadingScreen />
       ) : visible.length === 0 ? (
-        <div className="card"><EmptyState icon="🗂" title="Sin categorías" /></div>
+        <div className="card"><EmptyState icon="📂" title="Sin categorías" /></div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((c) => (
@@ -93,11 +85,11 @@ export default function Categories() {
                   name={c.name}
                   labelActivate="Desactivar"
                   labelDeactivate="Activar"
-                  onToggle={() => toggle(c)}
+                  onToggle={() => toggleMutation.mutate(c)}
                 />
               </div>
               <p className="mt-2 line-clamp-2 text-sm text-slate-500">{c.description || 'Sin descripción'}</p>
-              <button className="btn-ghost mt-3 !px-2 !py-1 text-xs" onClick={() => { setError(''); setModal({ id: c.id, form: { name: c.name, description: c.description || '', color: c.color } }); }}>
+              <button className="btn-ghost mt-3 !px-2 !py-1 text-xs" onClick={() => { saveMutation.reset(); setModal({ id: c.id, form: { name: c.name, description: c.description || '', color: c.color } }); }}>
                 Editar
               </button>
             </div>
@@ -123,11 +115,10 @@ export default function Categories() {
                 <input className="input flex-1" value={modal.form.color} onChange={(e) => setModal({ ...modal, form: { ...modal.form, color: e.target.value } })} />
               </div>
             </div>
-            {error && <ErrorBox message={error} />}
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
               <button type="button" className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-              <button type="submit" className="btn-primary" disabled={loadingModal}>
-                {loadingModal && <Spinner className="h-4 w-4 text-white" />}
+              <button type="submit" className="btn-primary" disabled={saveMutation.isPending}>
+                {saveMutation.isPending && <Spinner className="h-4 w-4 text-white" />}
                 Guardar
               </button>
             </div>
