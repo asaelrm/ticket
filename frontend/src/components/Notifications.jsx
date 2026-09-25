@@ -45,7 +45,24 @@ export default function Notifications() {
   useEffect(() => {
     refreshCount();
     const t = setInterval(refreshCount, 30000);
-    return () => clearInterval(t);
+
+    const eventSource = new EventSource('/api/notifications/stream');
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'connected') return;
+      // Actualizar el número de no leídas
+      setUnread((u) => u + 1);
+      // Actualizar la lista si el panel está abierto
+      setItems((prev) => {
+        if (!prev) return prev;
+        return [data, ...prev];
+      });
+    };
+
+    return () => {
+      clearInterval(t);
+      eventSource.close();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
