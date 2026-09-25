@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import TicketFilters from '../components/TicketFilters';
 import { TicketTable } from '../components/TicketTable';
 import { LoadingScreen, ErrorBox } from '../components/ui';
