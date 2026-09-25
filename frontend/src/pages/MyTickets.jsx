@@ -29,11 +29,12 @@ export default function MyTickets() {
       params.append('own', '1');
       return api.get(`/api/tickets?${params}`);
     },
-    // Refresco silencioso en vivo cada 30 s (React Query pausa en background, equivalente al chequeo de visibilidad).
-    refetchInterval: 30000,
     // Conserva los datos anteriores al cambiar filtros (igual que el original, que no limpiaba la lista).
     placeholderData: keepPreviousData,
   });
+
+  // Tiempo real por SSE (conexión global); sin polling de lista.
+  useTicketEventInvalidator(['my-tickets']);
 
   return (
     <div>
