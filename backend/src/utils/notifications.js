@@ -1,4 +1,7 @@
 import db from '../db.js';
+import { EventEmitter } from 'node:events';
+
+export const notificationEvents = new EventEmitter();
 
 // Notificaciones in-app: se muestran en la campana del header. No son correos,
 // solo eventos internos del sistema (asignación, comentarios, cierre, etc.).
@@ -9,7 +12,10 @@ export function createNotification({ userId, ticketId = null, type, title, body 
       'INSERT INTO notifications (user_id, ticket_id, type, title, body, link) VALUES (?, ?, ?, ?, ?, ?)'
     )
     .run(userId, ticketId, String(type).toUpperCase(), String(title).slice(0, 200), body ? String(body).slice(0, 500) : null, link || null);
-  return info.lastInsertRowid;
+  
+  const notificationId = info.lastInsertRowid;
+  notificationEvents.emit('new_notification', { id: notificationId, userId, ticketId, type, title, body, link });
+  return notificationId;
 }
 
 export function createNotifications({ userIds = [], ...rest }) {
