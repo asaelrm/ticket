@@ -45,7 +45,15 @@ const SETTINGS = {
   rule_critical_hours: '12',
 };
 
-const MAIL = { enabled: true, useSmtp: true, host: 'smtp.acme.com', port: 587, from: 'no-reply@acme.com', fromName: 'Acme', hasUser: true };
+const MAIL = {
+  enabled: true,
+  useSmtp: true,
+  host: 'smtp.acme.com',
+  port: 587,
+  from: 'no-reply@acme.com',
+  fromName: 'Acme',
+  hasUser: true,
+};
 
 function setup(settings = SETTINGS, mail = MAIL, emails = []) {
   api.get.mockImplementation((url) => {
@@ -86,7 +94,7 @@ describe('Settings', () => {
     expect(fieldFor('Nombre del sistema', 'input')).toHaveValue('Ticket');
     expect(fieldFor('Nombre de la empresa', 'input')).toHaveValue('Acme');
     expect(fieldFor('Prefijo de tickets', 'input')).toHaveValue('TCK');
-    expect(screen.getByLabelText('Texto del pie de página')).toHaveValue('Soporte interno');
+    expect(fieldFor('Texto del pie de página', 'input')).toHaveValue('Soporte interno');
     expect(fieldFor('Prioridad crítica', 'input')).toHaveValue(4);
     expect(fieldFor('Prioridad alta', 'input')).toHaveValue(24);
     expect(fieldFor('Prioridad media', 'input')).toHaveValue(48);
@@ -167,8 +175,9 @@ describe('Settings', () => {
     const sla = fieldFor('Prioridad crítica', 'input');
     await user.clear(sla);
     await user.type(sla, '6');
-    await user.clear(screen.getByRole('spinbutton', { name: /Escalar sin asignar después de/ }));
-    await user.type(screen.getByRole('spinbutton', { name: /Escalar sin asignar después de/ }), '4');
+    const unassigned = screen.getByRole('spinbutton', { name: /Escalar sin asignar después de/ });
+    await user.clear(unassigned);
+    await user.type(unassigned, '4');
     await user.selectOptions(screen.getByRole('combobox', { name: /Prioridad al escalar/ }), 'CRITICAL');
     await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
 
@@ -225,7 +234,7 @@ describe('Settings', () => {
     expect(await screen.findByText('Modo desarrollo')).toBeInTheDocument();
   });
 
-  it('lista los correos recientes y avisa cuando no hay ninguno', async () => {
+  it('lista los correos recientes con su estado', async () => {
     setup(SETTINGS, MAIL, [
       { id: 1, to_email: 'ana@acme.com', subject: 'Ticket asignado', ticket_number: 'TCK-000001', status: 'smtp', created_at: '2026-09-20T10:00:00Z' },
       { id: 2, to_email: 'luis@acme.com', subject: 'Nuevo comentario', ticket_number: 'TCK-000002', status: 'dev', created_at: '2026-09-21T11:00:00Z' },
