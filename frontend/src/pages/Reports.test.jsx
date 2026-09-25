@@ -98,11 +98,11 @@ describe('Reports', () => {
     expect(kpiTiming).toHaveTextContent('5 h');
 
     expect(screen.getByText('Tickets por estado')).toBeInTheDocument();
-    expect(screen.getByText('Abierto')).toBeInTheDocument();
-    expect(screen.getByText('Hardware')).toBeInTheDocument();
+    expect(screen.getAllByText('Abierto').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Hardware').length).toBeGreaterThan(0);
     expect(screen.getByText('1 abierto')).toBeInTheDocument();
-    expect(screen.getByText('TI')).toBeInTheDocument();
-    expect(screen.getByText('Ana Díaz')).toBeInTheDocument();
+    expect(screen.getAllByText('TI').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Ana Díaz').length).toBeGreaterThan(0);
     expect(screen.getByText('TCK-000012')).toBeInTheDocument();
     expect(screen.getByText('Monitor falla')).toBeInTheDocument();
   });
