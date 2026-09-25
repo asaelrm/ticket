@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { api, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner } from '../components/ui';
@@ -13,7 +14,25 @@ export default function Profile() {
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
-  async function onSubmit(e) {
+  const passwordMutation = useMutation({
+    mutationFn: ({ currentPassword, newPassword }) =>
+      api.post('/api/auth/change-password', { current_password: currentPassword, new_password: newPassword }),
+    onMutate: () => {
+      setError('');
+      setSuccess('');
+      setSaving(true);
+    },
+    onSuccess: () => {
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      setSuccess('Contraseña actualizada correctamente.');
+    },
+    onError: (err) => setError(err.message || 'No se pudo cambiar la contraseña'),
+    onSettled: () => setSaving(false),
+  });
+
+  function onSubmit(e) {
     e.preventDefault();
     setError('');
     setSuccess('');
@@ -21,18 +40,7 @@ export default function Profile() {
       setError('Las contraseñas no coinciden');
       return;
     }
-    setSaving(true);
-    try {
-      await api.post('/api/auth/change-password', { current_password: current, new_password: next });
-      setCurrent('');
-      setNext('');
-      setConfirm('');
-      setSuccess('Contraseña actualizada correctamente.');
-    } catch (err) {
-      setError(err.message || 'No se pudo cambiar la contraseña');
-    } finally {
-      setSaving(false);
-    }
+    passwordMutation.mutate({ currentPassword: current, newPassword: next });
   }
 
   return (
