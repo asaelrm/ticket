@@ -1,56 +1,55 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Modal, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
 
 const EMPTY = { name: '', description: '' };
 
 export default function Departments() {
-  const [list, setList] = useState(null);
-  const [error, setError] = useState('');
+  const queryClient = useQueryClient();
   const [modal, setModal] = useState(null);
-  const [loadingModal, setLoadingModal] = useState(false);
+  const [error, setError] = useState('');
   const [onlyActive, setOnlyActive] = useState(false);
 
-  const load = useCallback(async () => {
-    setError('');
-    try {
-      const data = await api.get('/api/departments');
-      setList(data.data);
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar los departamentos');
-    }
-  }, []);
+  const { data: list, error: queryError } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => api.get('/api/departments').then((res) => res.data),
+  });
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function onSave(e) {
-    e.preventDefault();
-    setLoadingModal(true);
-    setError('');
-    try {
-      if (modal.id) await api.patch(`/api/departments/${modal.id}`, { ...modal.form, active: true });
-      else await api.post('/api/departments', modal.form);
+  const saveMutation = useMutation({
+    mutationFn: (form) =>
+      modal.id
+        ? api.patch(`/api/departments/${modal.id}`, { ...form, active: true })
+        : api.post('/api/departments', form),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['departments'] });
       setModal(null);
-      await load();
-    } catch (err) {
+    },
+    onError: (err) => {
       if (err.fields) setError(Object.values(err.fields).join('. '));
       else setError(err.message || 'No se pudo guardar');
-    } finally {
-      setLoadingModal(false);
-    }
-  }
+    },
+  });
 
-  async function toggle(d) {
-    try {
-      await api.patch(`/api/departments/${d.id}`, { active: !d.active });
-      await load();
-    } catch (err) {
+  const toggleMutation = useMutation({
+    mutationFn: (d) => api.patch(`/api/departments/${d.id}`, { active: !d.active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['departments'] }),
+    onError: (err) => {
       setError(err.message || 'No se pudo cambiar el estado');
-    }
+    },
+  });
+
+  function onSave(e) {
+    e.preventDefault();
+    setError('');
+    saveMutation.mutate(modal.form);
   }
 
+  function toggle(d) {
+    toggleMutation.mutate(d);
+  }
+
+  const showError = error || queryError?.message || '';
   const visible = list ? (onlyActive ? list.filter((d) => d.active) : list) : [];
 
   return (
@@ -70,7 +69,7 @@ export default function Departments() {
         </button>
       </div>
 
-      <div className="mb-3">{error && <ErrorBox message={error} />}</div>
+      <div className="mb-3">{showError && <ErrorBox message={showError} />}</div>
 
       {!list ? (
         <LoadingScreen />
@@ -113,8 +112,8 @@ export default function Departments() {
             {error && <ErrorBox message={error} />}
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
               <button type="button" className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
-              <button type="submit" className="btn-primary" disabled={loadingModal}>
-                {loadingModal && <Spinner className="h-4 w-4 text-white" />}
+              <button type="submit" className="btn-primary" disabled={saveMutation.isPending}>
+                {saveMutation.isPending && <Spinner className="h-4 w-4 text-white" />}
                 Guardar
               </button>
             </div>
