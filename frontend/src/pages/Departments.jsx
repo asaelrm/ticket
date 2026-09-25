@@ -46,6 +46,7 @@ export default function Departments() {
   }
 
   function toggle(d) {
+    setError('');
     toggleMutation.mutate(d);
   }
 
