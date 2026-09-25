@@ -252,13 +252,14 @@ describe('Audit', () => {
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=50'));
   });
 
-  it('el selector de registros por página no tiene opción para el valor 30 que devuelve el servidor', async () => {
+  it('el selector de registros por página muestra 10 porque no existe la opción 30', async () => {
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
     const select = screen.getByRole('combobox', { name: /Mostrar/ });
     expect(within(select).getAllByRole('option').map((o) => o.value)).toEqual(['10', '25', '50', '100']);
-    expect(select).toHaveValue('');
+    expect(select).toHaveValue('10');
+    expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=30');
   });
 
   it('mantiene la tabla anterior mientras carga la página siguiente', async () => {
