@@ -38,7 +38,7 @@ beforeEach(() => {
 describe('debug', () => {
   it('inspecciona el error de miembros', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Teams />, { route: '/app/teams' });
+    const { queryClient } = renderWithProviders(<Teams />, { route: '/app/teams' });
     await screen.findByText('Soporte');
     await user.click(screen.getByRole('button', { name: 'Miembros' }));
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/teams/1'));
@@ -49,5 +49,8 @@ describe('debug', () => {
     console.log('GET CALLS:', JSON.stringify(api.get.mock.calls.map((c) => c[0])));
     // eslint-disable-next-line no-console
     console.log('BODY SNIPPET:', document.body.textContent.slice(0, 400));
+    const q = queryClient.getQueryState(['team-members', 1]);
+    // eslint-disable-next-line no-console
+    console.log('QUERY STATE:', JSON.stringify({ status: q?.status, error: String(q?.error), failureCount: q?.failureCount }));
   });
 });
