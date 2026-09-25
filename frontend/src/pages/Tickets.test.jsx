@@ -190,4 +190,163 @@ describe('Tickets', () => {
     expect(screen.queryByRole('button', { name: '⋯' })).not.toBeInTheDocument();
     expect(screen.queryByText('Exportar')).not.toBeInTheDocument();
   });
+
+  it('abre y cierra el modal de búsqueda avanzada', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Búsqueda avanzada' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
+    expect(dialog).toBeInTheDocument();
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/categories'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/departments'));
+    expect(api.get).toHaveBeenCalledWith('/api/users/assignable');
+    expect(api.get).toHaveBeenCalledWith('/api/teams/assignable');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByRole('dialog', { name: 'Búsqueda avanzada' })).not.toBeInTheDocument();
+  });
+
+  it('aplica filtros avanzados a la consulta', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Búsqueda avanzada' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
+
+    await user.selectOptions(within(dialog).getAllByRole('combobox')[0], 'IN_PROGRESS');
+    await user.click(within(dialog).getByRole('button', { name: 'Aplicar filtros' }));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=IN_PROGRESS')));
+
+    const searchBtn = screen.getByRole('button', { name: 'Búsqueda avanzada' });
+    expect(within(searchBtn).getByText('1')).toBeInTheDocument();
+  });
+
+  it('preselecciona los filtros avanzados desde la URL', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets?status=PENDING&priority=HIGH' });
+    await screen.findByText('TCK-000001');
+
+    const searchBtn = screen.getByRole('button', { name: 'Búsqueda avanzada' });
+    expect(within(searchBtn).getByText('2')).toBeInTheDocument();
+
+    await user.click(searchBtn);
+    const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
+
+    const combos = within(dialog).getAllByRole('combobox');
+    expect(combos[0]).toHaveValue('PENDING');
+    expect(combos[1]).toHaveValue('HIGH');
+  });
+
+  it('limpia los filtros avanzados aplicados', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets?status=PENDING' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Búsqueda avanzada' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Limpiar todo' }));
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?'));
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls[calls.length - 1][0]).not.toContain('status=');
+    });
+  });
+
+  it('cancela un ticket con motivo y refresca el listado', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    const ticketCalls = () => api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).length;
+    const before = ticketCalls();
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Cancelar ticket/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Cancelar TCK-000001' });
+    const submit = within(dialog).getByRole('button', { name: 'Cancelar ticket' });
+    expect(submit).toBeDisabled();
+
+    await user.type(within(dialog).getByLabelText(/Motivo de cancelación/), 'El usuario ya no lo necesita');
+    await user.click(submit);
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/cancel', { reason: 'El usuario ya no lo necesita' }));
+    await waitFor(() => expect(ticketCalls()).toBeGreaterThan(before));
+    expect(screen.queryByRole('dialog', { name: 'Cancelar TCK-000001' })).not.toBeInTheDocument();
+  });
+
+  it('muestra el error global cuando la cancelación falla', async () => {
+    api.post.mockRejectedValueOnce(new Error('Motivo rechazado'));
+
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Cancelar ticket/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Cancelar TCK-000001' });
+    await user.type(within(dialog).getByLabelText(/Motivo de cancelación/), 'Intento fallido');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar ticket' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Motivo rechazado');
+  });
+
+  it('exporta en CSV con los filtros actuales', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Exportar' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'CSV' }));
+
+    expect(download).toHaveBeenCalledWith('/api/tickets/export?');
+  });
+
+  it('incluye los filtros y excluye la paginación en la exportación', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: /Abiertos/ }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=open')));
+
+    await user.click(screen.getByRole('button', { name: 'Exportar' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'CSV' }));
+
+    expect(download).toHaveBeenLastCalledWith(expect.stringContaining('view=open'));
+    expect(download.mock.lastCall[0]).not.toContain('sort=');
+    expect(download.mock.lastCall[0]).not.toContain('page=');
+  });
+
+  it('exporta en XLSX y PDF con el parámetro de formato', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Exportar' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Excel (XLSX)' }));
+    expect(download).toHaveBeenCalledWith(expect.stringContaining('format=xlsx'));
+
+    await user.click(screen.getByRole('button', { name: 'Exportar' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'PDF' }));
+    expect(download).toHaveBeenCalledWith(expect.stringContaining('format=pdf'));
+  });
+
+  it('muestra exportación sin acciones cuando solo hay permiso de exportar', async () => {
+    authState.user = { id: 7, name: 'Usuario', permissions: ['ticket.export'] };
+
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.getByText('Exportar')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '⋯' })).not.toBeInTheDocument();
+  });
 });
