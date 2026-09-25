@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
 
@@ -26,42 +27,41 @@ const PERM_GROUPS = [
 ];
 
 export default function Roles() {
-  const [data, setData] = useState(null);
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    Promise.all([api.get('/api/roles'), api.get('/api/roles/permissions')])
-      .then(([roles, perms]) => setData({ ...roles, permissions: perms.permissions || [] }))
-      .catch((err) => setError(err.message || 'No se pudieron cargar los roles'));
-  }, []);
+  const { data, error: queryError } = useQuery({
+    queryKey: ['roles'],
+    queryFn: () =>
+      Promise.all([api.get('/api/roles'), api.get('/api/roles/permissions')]).then(([roles, perms]) => ({
+        ...roles,
+        permissions: perms.permissions || [],
+      })),
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ role, next }) => api.patch(`/api/roles/${role.id}/permissions`, { permissions: next }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['roles'] }),
+    onError: (err) => {
+      setError(err.message || 'No se pudo actualizar el permiso');
+    },
+  });
 
   if (!data) return <LoadingScreen text="Cargando roles…" />;
 
-  async function togglePerm(role, code) {
-    setSaving(true);
+  function togglePerm(role, code) {
     setError('');
-    try {
-      const next = role.permissions.includes(code)
-        ? role.permissions.filter((c) => c !== code)
-        : [...role.permissions, code];
-      await api.patch(`/api/roles/${role.id}/permissions`, { permissions: next });
-      setData({
-        ...data,
-        roles: data.roles.map((r) => (r.id === role.id ? { ...r, permissions: next } : r)),
-      });
-    } catch (err) {
-      setError(err.message || 'No se pudo actualizar el permiso');
-    } finally {
-      setSaving(false);
-    }
+    const next = role.permissions.includes(code)
+      ? role.permissions.filter((c) => c !== code)
+      : [...role.permissions, code];
+    toggleMutation.mutate({ role, next });
   }
 
   return (
     <div className="space-y-6">
       <div className="mb-3">{error && <ErrorBox message={error} />}</div>
       <div className="flex items-center gap-2 text-sm text-slate-500">
-        {saving && <Spinner className="h-4 w-4 text-brand-600" />}
+        {toggleMutation.isPending && <Spinner className="h-4 w-4 text-brand-600" />}
         <span>Seleccione los permisos de cada rol. El rol Administrador siempre conserva todos.</span>
       </div>
 
@@ -85,16 +85,11 @@ export default function Roles() {
                         type="checkbox"
                         checked={isAdmin || group.codes.every((c) => role.permissions.includes(c))}
                         onChange={(e) => {
+                          setError('');
                           const target = e.target.checked;
                           const codes = new Set(role.permissions);
                           for (const c of group.codes) target ? codes.add(c) : codes.delete(c);
-                          setSaving(true);
-                          setError('');
-                          api
-                            .patch(`/api/roles/${role.id}/permissions`, { permissions: [...codes] })
-                            .then(() => setData({ ...data, roles: data.roles.map((r) => (r.id === role.id ? { ...r, permissions: [...codes] } : r)) }))
-                            .catch((err) => setError(err.message || 'No se pudo actualizar'))
-                            .finally(() => setSaving(false));
+                          toggleMutation.mutate({ role, next: [...codes] });
                         }}
                         className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                       />
@@ -107,7 +102,7 @@ export default function Roles() {
                           <li key={code}>
                             <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 transition hover:bg-slate-50">
                               <input
-                                disabled={isAdmin || saving}
+                                disabled={isAdmin || toggleMutation.isPending}
                                 type="checkbox"
                                 checked={isAdmin || role.permissions.includes(code)}
                                 onChange={() => togglePerm(role, code)}
