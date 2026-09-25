@@ -193,6 +193,27 @@ export default function TicketDetail() {
   // Las opciones de gestión (usuarios/equipos/categorías asignables) se cargan
   // mediante useQuery habilitadas por data.can (ver arriba).
 
+  // Escrituras sobre el ticket (estado, prioridad, asignación, cierre, etc.).
+  // Una sola mutation genérica: la rama API se elige por descriptor y UI/errores
+  // se conservan igual que antes. Debe declararse antes de los retornos
+  // tempranos (loading/error) para mantener el orden de hooks entre renders.
+  const apiAction = useMutation({
+    mutationFn: ({ method, path, body, formData }) => api[method](path, body, formData),
+    onMutate: () => {
+      setSaving(true);
+      setError('');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
+    },
+    onError: (err, variables) => {
+      setError(err.message || variables.errorMessage || 'No se pudo actualizar el ticket');
+    },
+    onSettled: () => {
+      setSaving(false);
+    },
+  });
+
   if ((error || queryError) && !data) {
     return (
       <div className="mx-auto max-w-3xl">
