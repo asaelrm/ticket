@@ -3,6 +3,8 @@ import db, { nowIso } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { parseIntSafe } from '../utils/validation.js';
 import { notificationEvents } from '../utils/notifications.js';
+import { onTicketEvent } from '../utils/ticketBus.js';
+import { getTicket, canViewTicket } from './tickets.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -21,10 +23,21 @@ router.get('/stream', (req, res) => {
     }
   };
 
+  // Eventos de tickets de baja fidelidad (solo el id y el tipo, nunca contenido
+  // sensible) para que las pantallas de listas refresquen sus cachés sin polling.
+  const onTicketChange = (evt) => {
+    if (evt.type === 'typing') return;
+    const ticket = getTicket(evt.ticketId);
+    if (!ticket || !canViewTicket(req.user, ticket)) return;
+    res.write(`data: ${JSON.stringify({ channel: 'tickets', type: evt.type, ticketId: evt.ticketId, at: evt.at })}\n\n`);
+  };
+
   notificationEvents.on('new_notification', onNewNotification);
+  const offTicketEvents = onTicketEvent(onTicketChange);
 
   req.on('close', () => {
     notificationEvents.off('new_notification', onNewNotification);
+    offTicketEvents();
   });
 });
 

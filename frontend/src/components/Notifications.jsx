@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, formatRelative } from '../lib/api';
+import { notifyTicketEvent } from '../lib/ticketEvents';
 import { Spinner } from './ui';
 
 const TYPE_ICON = {
