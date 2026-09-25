@@ -128,7 +128,8 @@
     opacity: 0.6;
   }
   .btn-primary {
-    @apply text-white shadow-[0_8px_24px_rgba(34,199,122,0.28)];
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(34, 199, 122, 0.28);
     background-image: linear-gradient(135deg, #22c77a, #149e72);
   }
   .btn-primary:hover {
@@ -139,7 +140,7 @@
     transform: translateY(1px);
   }
   .btn-secondary {
-    @apply text-white;
+    color: #fff;
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.1);
   }
@@ -157,7 +158,8 @@
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
   }
   .btn-danger {
-    @apply text-white shadow-[0_8px_24px_rgba(239,68,68,0.28)];
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(239, 68, 68, 0.28);
     background-image: linear-gradient(135deg, #f87171, #dc2626);
   }
   .btn-danger:hover {
@@ -167,13 +169,19 @@
     transform: translateY(1px);
   }
   .btn-ghost {
-    @apply text-white;
+    color: #fff;
   }
   .btn-ghost:hover {
     background: rgba(255, 255, 255, 0.07);
   }
   .input {
-    @apply w-full rounded-xl border px-3.5 py-2.5 text-sm text-slate-800 transition duration-150 focus:outline-none;
+    width: 100%;
+    border: 1px solid;
+    border-radius: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    font-size: 0.875rem;
+    color: #f8fafc;
+    transition: all 150ms;
     background: rgba(255, 255, 255, 0.05);
     border-color: rgba(110, 210, 190, 0.22);
     color: #e6eef5;
@@ -186,11 +194,15 @@
     box-shadow: 0 0 0 3px rgba(34, 199, 122, 0.16);
   }
   .label {
-    @apply mb-1 block text-sm font-medium;
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
     color: #ffffff;
   }
   .card {
-    @apply rounded-2xl border;
+    border: 1px solid;
+    border-radius: 1rem;
     background: linear-gradient(180deg, rgba(14, 58, 80, 0.88), rgba(11, 48, 70, 0.84));
     backdrop-filter: blur(22px);
     -webkit-backdrop-filter: blur(22px);
@@ -198,14 +210,29 @@
     box-shadow: 0 10px 35px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
   .badge {
-    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide whitespace-nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 9999px;
+    padding: 0.25rem 0.625rem;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.025em;
+    white-space: nowrap;
   }
   .th {
-    @apply px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.08em];
+    padding: 0.625rem 0.75rem;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: #ffffff;
   }
   .td {
-    @apply px-3 py-2.5 text-sm leading-snug;
+    padding: 0.625rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.375;
     color: #c6d6e2;
   }
 }
