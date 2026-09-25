@@ -184,7 +184,7 @@ describe('Teams', () => {
     expect(within(dialog).getByRole('checkbox', { name: /Grace Hopper/ })).not.toBeChecked();
   });
 
-  it('muestra el error al fallar la carga de miembros', async () => {
+  it('no muestra error si falla la carga de miembros: el onError del useQuery no se ejecuta', async () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/teams') return Promise.resolve({ data: TEAMS });
       if (url === '/api/users/assignable') return Promise.resolve({ data: USERS });
@@ -193,12 +193,16 @@ describe('Teams', () => {
     });
 
     const user = userEvent.setup();
-    renderWithProviders(<Teams />, { route: '/app/teams' });
+    const { queryClient } = renderWithProviders(<Teams />, { route: '/app/teams' });
     await screen.findByText('Soporte');
 
     await user.click(screen.getAllByRole('button', { name: 'Miembros' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Miembros de Soporte' });
+    await waitFor(() => expect(queryClient.getQueryState(['team-members', 1])?.status).toBe('error'));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron cargar los miembros');
+    expect(within(dialog).getByText('Ada Lovelace')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('agrega y quita miembros del equipo', async () => {
