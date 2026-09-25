@@ -47,5 +47,7 @@ describe('debug', () => {
     console.log('ALERTS:', screen.queryAllByRole('alert').map((a) => a.textContent));
     // eslint-disable-next-line no-console
     console.log('GET CALLS:', JSON.stringify(api.get.mock.calls.map((c) => c[0])));
+    // eslint-disable-next-line no-console
+    console.log('BODY SNIPPET:', document.body.textContent.slice(0, 400));
   });
 });
