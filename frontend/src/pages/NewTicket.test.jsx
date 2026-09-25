@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
@@ -30,25 +30,18 @@ const USER = { id: 5, name: 'Javier', department_id: 3, department_name: 'TI', p
 function renderWithNavigation(ui, { route }) {
   const client = createQueryClient();
   return {
-    ...renderWithOutput(ui, { route, client }),
+    ...render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[route]}>
+          <Routes>
+            <Route path="/new-ticket" element={ui} />
+            <Route path="/app/my-tickets/:id" element={<p>Creación OK</p>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    ),
     queryClient: client,
   };
-}
-
-function renderWithOutput(ui, { route, client }) {
-  const { render } = require('@testing-library/react');
-  // eslint-disable-next-line testing-library/no-node-access
-  const result = render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[route]}>
-        <Routes>
-          <Route path="/new-ticket" element={ui} />
-          <Route path="/app/my-tickets/:id" element={<p>Creación OK</p>} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>
-  );
-  return result;
 }
 
 beforeEach(() => {
