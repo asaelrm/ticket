@@ -73,8 +73,9 @@ describe('Permisos de las rutas de gestión', () => {
     ['/app/settings', 'settings.manage', 'PAGE settings'],
     ['/app/audit', 'settings.manage', 'PAGE audit'],
   ])('%s se abre con su permiso y se redirige sin él', async (route, permission, page) => {
-    renderApp(route);
+    const granted = renderApp(route);
     expect(await screen.findByText(page)).toBeInTheDocument();
+    granted.unmount();
 
     authState.user = { ...EMPLOYEE, permissions: EMPLOYEE.permissions.filter((p) => p !== permission) };
     renderApp(route);
