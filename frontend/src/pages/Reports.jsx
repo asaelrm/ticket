@@ -74,8 +74,6 @@ function rangeLabel(range) {
 export default function Reports() {
   const [form, setForm] = useState({ from: '', to: '', status: '', priority: '', department: '', category: '' });
   const [query, setQuery] = useState({ from: '', to: '', status: '', priority: '', department: '', category: '' });
-  const [departments, setDepartments] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [sections, setSections] = useState(SECTIONS.map(([key]) => key));
 
   const { data: departmentsData } = useQuery({
