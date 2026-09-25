@@ -1,45 +1,34 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
 
 export default function Settings() {
   const { setAppName } = useAuth();
-  const [form, setForm] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
-  const [mail, setMail] = useState(null);
-  const [emails, setEmails] = useState([]);
 
-  useEffect(() => {
-    api
-      .get('/api/settings')
-      .then((d) => setForm(normalize(d.data)))
-      .catch((err) => setError(err.message || 'No se pudieron cargar los ajustes'));
-    api
-      .get('/api/settings/mail')
-      .then((d) => setMail(d.data || {}))
-      .catch(() => {});
-    api
-      .get('/api/settings/emails')
-      .then((d) => setEmails(d.data || []))
-      .catch(() => {});
-  }, []);
+  const { data: form } = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => api.get('/api/settings').then((d) => normalize(d.data)),
+  });
 
-  if (!form) return <LoadingScreen text="Cargando configuración…" />;
+  const { data: mail = null } = useQuery({
+    queryKey: ['settings-mail'],
+    queryFn: () => api.get('/api/settings/mail').then((d) => d.data || {}),
+    retry: false,
+  });
 
-  function set(key, value) {
-    setForm({ ...form, [key]: value });
-    setSuccess('');
-  }
+  const { data: emails = [] } = useQuery({
+    queryKey: ['settings-emails'],
+    queryFn: () => api.get('/api/settings/emails').then((d) => d.data || []),
+    retry: false,
+  });
 
-  async function onSave(e) {
-    e.preventDefault();
-    setSaving(true);
-    setError('');
-    setSuccess('');
-    try {
+  const saveMutation = useMutation({
+    mutationFn: async () => {
       const payload = {
         ...form,
         resolution_categories: toList(form.resolution_categories),
@@ -51,15 +40,31 @@ export default function Settings() {
         notify_on_resolve: form.notify_on_resolve ? '1' : '0',
         enable_csat: form.enable_csat ? '1' : '0',
       };
-      const data = await api.patch('/api/settings', payload);
-      setForm(normalize(data.data));
-      if (data.data.app_name) setAppName(data.data.app_name);
+      return api.patch('/api/settings', payload).then((d) => normalize(d.data));
+    },
+    onMutate: () => {
+      setSaving(true);
+      setError('');
+      setSuccess('');
+    },
+    onSuccess: (normalized) => {
+      if (normalized.app_name) setAppName(normalized.app_name);
       setSuccess('Configuración guardada correctamente.');
-    } catch (err) {
-      setError(err.message || 'No se pudieron guardar los ajustes');
-    } finally {
-      setSaving(false);
-    }
+    },
+    onError: (err) => setError(err.message || 'No se pudieron guardar los ajustes'),
+    onSettled: () => setSaving(false),
+  });
+
+  if (!form) return <LoadingScreen text="Cargando configuración…" />;
+
+  function set(key, value) {
+    Object.assign(form, { [key]: value });
+    setSuccess('');
+  }
+
+  function onSave(e) {
+    e.preventDefault();
+    saveMutation.mutate();
   }
 
   return (
