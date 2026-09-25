@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { api, STATUS_LABEL, PRIORITY_LABEL, formatDate } from '../lib/api';
 import { LoadingScreen, Spinner, ErrorBox } from '../components/ui';
 
@@ -106,62 +106,10 @@ function slaRel(iso, overdue) {
 }
 
 export default function Dashboard() {
-  const [summary, setSummary] = useState(null);
-  const [byStatus, setByStatus] = useState([]);
-  const [byPriority, setByPriority] = useState([]);
-  const [byCategory, setByCategory] = useState([]);
-  const [byDepartment, setByDepartment] = useState([]);
-  const [trend, setTrend] = useState([]);
-  const [recent, setRecent] = useState([]);
-  const [sla, setSla] = useState(null);
-  const [lastUpdate, setLastUpdate] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [reloadKey, setReloadKey] = useState(0);
-  const loadedOnce = useRef(false);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError('');
-    Promise.all([
-      api.get('/api/dashboard/summary'),
-      api.get('/api/dashboard/by-status'),
-      api.get('/api/dashboard/by-priority'),
-      api.get('/api/dashboard/by-category'),
-      api.get('/api/dashboard/by-department'),
-      api.get('/api/dashboard/trend?range=day'),
-      api.get('/api/dashboard/recent'),
-      api.get('/api/dashboard/sla').catch(() => null),
-    ])
-      .then(([s, st, pr, ca, de, tr, re, sla]) => {
-        if (!active) return;
-        setSummary(s);
-        setByStatus(st.data || []);
-        setByPriority(pr.data || []);
-        setByCategory(ca.data || []);
-        setByDepartment(de.data || []);
-        setTrend(tr.data || []);
-        setRecent(re.data || []);
-        setSla(sla);
-        setLastUpdate(new Date());
-        loadedOnce.current = true;
-      })
-      .catch((err) => {
-        if (active) setError(err.message || 'No se pudo cargar el dashboard');
-      })
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [reloadKey]);
-
-  // Refresco silencioso en vivo cada 30 s (solo cuando la pestaña es visible).
-  useEffect(() => {
-    if (!loadedOnce.current) return undefined;
-    const t = setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      Promise.all([
+  const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
+    queryKey: ['dashboard'],
+    queryFn: async () => {
+      const [s, st, pr, ca, de, tr, re, sla] = await Promise.all([
         api.get('/api/dashboard/summary'),
         api.get('/api/dashboard/by-status'),
         api.get('/api/dashboard/by-priority'),
@@ -170,34 +118,36 @@ export default function Dashboard() {
         api.get('/api/dashboard/trend?range=day'),
         api.get('/api/dashboard/recent'),
         api.get('/api/dashboard/sla').catch(() => null),
-      ])
-        .then(([s, st, pr, ca, de, tr, re, sla]) => {
-          setSummary(s);
-          setByStatus(st.data || []);
-          setByPriority(pr.data || []);
-          setByCategory(ca.data || []);
-          setByDepartment(de.data || []);
-          setTrend(tr.data || []);
-          setRecent(re.data || []);
-          setSla(sla);
-          setLastUpdate(new Date());
-        })
-        .catch(() => {});
-    }, 30000);
-    return () => clearInterval(t);
-  }, []);
+      ]);
+      return {
+        summary: s,
+        byStatus: st.data || [],
+        byPriority: pr.data || [],
+        byCategory: ca.data || [],
+        byDepartment: de.data || [],
+        trend: tr.data || [],
+        recent: re.data || [],
+        sla,
+      };
+    },
+    // Refresco silencioso en vivo cada 30 s (React Query pausa en background, equivalente al chequeo de visibilidad).
+    refetchInterval: 30000,
+  });
 
-  if (loading) return <LoadingScreen text="Cargando dashboard…" />;
-  if (error && !summary) {
+  if (isLoading) return <LoadingScreen text="Cargando dashboard…" />;
+  if (error && !data) {
     return (
       <div className="mx-auto max-w-2xl">
-        <ErrorBox message={error} />
-        <button className="btn-secondary mt-4" onClick={() => setReloadKey((k) => k + 1)}>
+        <ErrorBox message={error.message || 'No se pudo cargar el dashboard'} />
+        <button className="btn-secondary mt-4" onClick={() => refetch()}>
           Reintentar
         </button>
       </div>
     );
   }
+
+  const { summary, byStatus, byPriority, byCategory, byDepartment, trend, recent, sla } = data;
+  const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   const counts = summary?.counts || {};
 
