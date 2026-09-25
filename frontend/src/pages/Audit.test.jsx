@@ -15,7 +15,6 @@ vi.mock('../lib/api', async () => {
 });
 
 const USERS = { data: [{ id: 2, name: 'Ada', last_name: 'Lovelace' }, { id: 3, name: 'Grace', last_name: 'Hopper' }] };
-
 const ACTIONS = ['CREATED', 'STATUS_CHANGED', 'RESOLVED'];
 
 function history(overrides = {}) {
@@ -33,24 +32,33 @@ function history(overrides = {}) {
   };
 }
 
-function auditResp(rows = [history()], overrides = {}) {
-  return { data: rows, total: rows.length, page: 1, perPage: 30, pages: 1, actions: ACTIONS, ...overrides };
-}
-
-function setup(resp = auditResp()) {
+// La respuesta hace eco de la página solicitada para que la paginación sea coherente.
+function setup(rows = [history()], { total = 90 } = {}) {
   api.get.mockImplementation((url) => {
-    if (url.startsWith('/api/audit?')) return Promise.resolve(resp);
+    if (url.startsWith('/api/audit?')) {
+      const params = new URLSearchParams(url.slice('/api/audit?'.length));
+      const page = Number(params.get('page') || 1);
+      const perPage = Number(params.get('perPage') || 30);
+      return Promise.resolve({
+        data: rows,
+        total,
+        page,
+        perPage,
+        pages: Math.max(1, Math.ceil(total / perPage)),
+        actions: ACTIONS,
+      });
+    }
     if (url === '/api/users') return Promise.resolve(USERS);
     return Promise.reject(new Error(`404 ${url}`));
   });
 }
 
 function auditCalls() {
-  return api.get.mock.calls.filter(([u]) => u.startsWith('/api/audit?')).length;
+  return api.get.mock.calls.filter(([u]) => u.startsWith('/api/audit?'));
 }
 
 function lastAuditUrl() {
-  const calls = api.get.mock.calls.filter(([u]) => u.startsWith('/api/audit?'));
+  const calls = auditCalls();
   return calls[calls.length - 1][0];
 }
 
@@ -77,41 +85,42 @@ describe('Audit', () => {
   it('muestra los registros con usuario, acción y detalle', async () => {
     renderWithProviders(<Audit />, { route: '/app/audit' });
 
-    expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
-    expect(screen.getByText('Cambio de estado')).toBeInTheDocument();
-    expect(screen.getByText('Cambió el estado del ticket')).toBeInTheDocument();
-    expect(screen.getByText('OPEN → IN_PROGRESS')).toBeInTheDocument();
-    expect(screen.getByText('Fecha')).toBeInTheDocument();
-    expect(screen.getByText('Usuario')).toBeInTheDocument();
-    expect(screen.getByText('Ticket')).toBeInTheDocument();
-    expect(screen.getByText('Acción')).toBeInTheDocument();
-    expect(screen.getByText('Detalle')).toBeInTheDocument();
+    expect(await screen.findByText('TCK-000011')).toBeInTheDocument();
+    const table = within(screen.getByRole('table'));
+    expect(table.getByText('Ada Lovelace')).toBeInTheDocument();
+    expect(table.getByText('Cambio de estado')).toBeInTheDocument();
+    expect(table.getByText('Cambió el estado del ticket')).toBeInTheDocument();
+    expect(table.getByText('OPEN → IN_PROGRESS')).toBeInTheDocument();
+    expect(table.getByText('Fecha')).toBeInTheDocument();
+    expect(table.getByText('Usuario')).toBeInTheDocument();
+    expect(table.getByText('Ticket')).toBeInTheDocument();
+    expect(table.getByText('Acción')).toBeInTheDocument();
+    expect(table.getByText('Detalle')).toBeInTheDocument();
   });
 
-  it('traduce las etiquetas de acción conocidas', async () => {
-    setup(
-      auditResp([
-        history({ id: 1, action: 'CREATED', description: 'Ticket creado' }),
-        history({ id: 2, action: 'RESOLVED', description: 'Ticket resuelto' }),
-        history({ id: 3, action: 'ESCALATED', description: 'Escalado' }),
-        history({ id: 4, action: 'ACCION_DESCONOCIDA', description: 'Acción rara' }),
-      ])
-    );
+  it('traduce las etiquetas de acción conocidas y conserva las desconocidas', async () => {
+    setup([
+      history({ id: 1, action: 'CREATED', description: 'Ticket creado' }),
+      history({ id: 2, action: 'RESOLVED', description: 'Ticket resuelto' }),
+      history({ id: 3, action: 'ESCALATED', description: 'Escalado' }),
+      history({ id: 4, action: 'ACCION_DESCONOCIDA', description: 'Acción rara' }),
+    ]);
 
     renderWithProviders(<Audit />, { route: '/app/audit' });
     expect(await screen.findByText('Ticket creado')).toBeInTheDocument();
-    expect(screen.getByText('Creación')).toBeInTheDocument();
-    expect(screen.getByText('Resolución')).toBeInTheDocument();
-    expect(screen.getByText('Escalación automática')).toBeInTheDocument();
-    expect(screen.getByText('ACCION_DESCONOCIDA')).toBeInTheDocument();
+    const table = within(screen.getByRole('table'));
+    expect(table.getByText('Creación')).toBeInTheDocument();
+    expect(table.getByText('Resolución')).toBeInTheDocument();
+    expect(table.getByText('Escalación automática')).toBeInTheDocument();
+    expect(table.getByText('ACCION_DESCONOCIDA')).toBeInTheDocument();
   });
 
   it('muestra el guion cuando el registro no tiene usuario ni valores previos', async () => {
-    setup(auditResp([history({ user_name: null, old_value: null, new_value: null, description: 'Sin actor' })]));
+    setup([history({ user_name: null, old_value: null, new_value: null, description: 'Sin actor' })], { total: 1 });
 
     renderWithProviders(<Audit />, { route: '/app/audit' });
     expect(await screen.findByText('Sin actor')).toBeInTheDocument();
-    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(within(screen.getByRole('table')).getAllByText('—').length).toBeGreaterThan(0);
   });
 
   it('enlaza cada registro con su ticket', async () => {
@@ -129,93 +138,109 @@ describe('Audit', () => {
   });
 
   it('muestra el estado vacío cuando no hay coincidencias', async () => {
-    setup(auditResp([]));
+    setup([], { total: 0 });
 
     renderWithProviders(<Audit />, { route: '/app/audit' });
     expect(await screen.findByText('Sin registros')).toBeInTheDocument();
     expect(screen.getByText('No se encontraron cambios con los criterios seleccionados.')).toBeInTheDocument();
   });
 
-  it('filtra por texto, acción, usuario y rango de fechas', async () => {
+  it('no consulta la API mientras se escribe en los filtros', async () => {
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
+
+    const before = auditCalls().length;
+    await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'abc');
+    expect(auditCalls().length).toBe(before);
+  });
+
+  it('los filtros del formulario no llegan a la consulta: el submit solo reinicia la página', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Audit />, { route: '/app/audit' });
+    await screen.findByText('TCK-000011');
+    await screen.findByRole('option', { name: 'Resolución' });
 
     await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'impresora');
     await user.selectOptions(screen.getByLabelText('Acción'), 'RESOLVED');
     await user.selectOptions(screen.getByLabelText('Usuario'), '2');
     await user.type(screen.getByLabelText('Desde'), '2026-09-01');
     await user.type(screen.getByLabelText('Hasta'), '2026-09-30');
+
+    const before = auditCalls().length;
     await user.click(screen.getByRole('button', { name: 'Filtrar' }));
 
-    await waitFor(() =>
-      expect(api.get).toHaveBeenCalledWith(
-        '/api/audit?search=impresora&action=RESOLVED&user=2&from=2026-09-01&to=2026-09-30&page=1&perPage=30'
-      )
-    );
+    expect(screen.getByPlaceholderText('Ticket, título o detalle…')).toHaveValue('impresora');
+    expect(screen.getByLabelText('Acción')).toHaveValue('RESOLVED');
+    expect(auditCalls().length).toBe(before);
+    expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=30');
   });
 
-  it('no consulta la API hasta que se envía el formulario', async () => {
+  it('la paginación tampoco arrastra los filtros pendientes del formulario', async () => {
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
-    const before = auditCalls();
-    await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'abc');
-    expect(auditCalls()).toBe(before);
+    await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'impresora');
+    await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
+
+    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=30'));
   });
 
   it('ofrece en el filtro de acción solo las acciones existentes', async () => {
     renderWithProviders(<Audit />, { route: '/app/audit' });
 
     const select = await screen.findByLabelText('Acción');
-    const options = within(select).getAllByRole('option').map((o) => o.textContent);
-    expect(options).toEqual(['Todas', 'Creación', 'Cambio de estado', 'Resolución']);
+    await within(select).findByRole('option', { name: 'Resolución' });
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Todas',
+      'Creación',
+      'Cambio de estado',
+      'Resolución',
+    ]);
   });
 
   it('lista los usuarios obtenidos para el filtro', async () => {
     renderWithProviders(<Audit />, { route: '/app/audit' });
 
     const select = await screen.findByLabelText('Usuario');
+    await within(select).findByRole('option', { name: 'Ada Lovelace' });
     expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Todos', 'Ada Lovelace', 'Grace Hopper']);
     expect(api.get).toHaveBeenCalledWith('/api/users');
   });
 
-  it('pide la página 1 al filtrar de nuevo', async () => {
-    setup(auditResp([history()], { total: 90, page: 3, pages: 3 }));
-
-    const user = userEvent.setup();
-    renderWithProviders(<Audit />, { route: '/app/audit' });
-    await screen.findByText('TCK-000011');
-
-    await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=30'));
-
-    await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'pc');
-    await user.click(screen.getByRole('button', { name: 'Filtrar' }));
-    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?search=pc&page=1&perPage=30'));
-  });
-
   it('pagina hacia atrás y adelante', async () => {
-    setup(auditResp([history()], { total: 90, page: 1, pages: 3 }));
-
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
     expect(screen.getByText('1–30 de 90 · Página 1 de 3')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '← Anterior' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeEnabled();
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=30'));
+    expect(await screen.findByText('31–60 de 90 · Página 2 de 3')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '← Anterior' }));
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=30'));
   });
 
-  it('cambia el número de registros por página y vuelve a la primera página', async () => {
-    setup(auditResp([history()], { total: 90, page: 2, pages: 3 }));
+  it('deshabilita el avance en la última página', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Audit />, { route: '/app/audit' });
+    await screen.findByText('TCK-000011');
 
+    await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
+    await screen.findByText('Página 2 de 3');
+    await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
+    await screen.findByText('61–90 de 90 · Página 3 de 3');
+
+    expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeDisabled();
+    expect(lastAuditUrl()).toBe('/api/audit?page=3&perPage=30');
+  });
+
+  it('cambia el número de registros por página y vuelve a la primera página', async () => {
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
@@ -228,37 +253,39 @@ describe('Audit', () => {
   });
 
   it('mantiene la tabla anterior mientras carga la página siguiente', async () => {
-    setup(auditResp([history()], { total: 90, page: 1, pages: 3 }));
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
+    const base = api.get.getMockImplementation();
     api.get.mockImplementation((url) => {
       if (url === '/api/audit?page=2&perPage=30') return new Promise(() => {});
-      if (url.startsWith('/api/audit?')) return Promise.resolve(auditResp([history()], { total: 90, page: 1, pages: 3 }));
-      if (url === '/api/users') return Promise.resolve(USERS);
-      return Promise.reject(new Error(`404 ${url}`));
+      return base(url);
     });
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
     await waitFor(() => expect(screen.getByText('TCK-000011')).toBeInTheDocument());
+    expect(screen.queryByText('Sin registros')).not.toBeInTheDocument();
   });
 
   it('limpia el formulario de filtros sin volver a consultar', async () => {
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
+    await screen.findByRole('option', { name: 'Ada Lovelace' });
 
     await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'pc');
-    await user.click(screen.getByRole('button', { name: 'Filtrar' }));
-    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?search=pc&page=1&perPage=30'));
+    await user.selectOptions(screen.getByLabelText('Acción'), 'CREATED');
+    await user.selectOptions(screen.getByLabelText('Usuario'), '3');
 
-    const before = auditCalls();
+    const before = auditCalls().length;
     await user.click(screen.getByRole('button', { name: 'Limpiar' }));
 
     expect(screen.getByPlaceholderText('Ticket, título o detalle…')).toHaveValue('');
     expect(screen.getByLabelText('Acción')).toHaveValue('');
     expect(screen.getByLabelText('Usuario')).toHaveValue('');
-    expect(auditCalls()).toBe(before);
+    expect(screen.getByLabelText('Desde')).toHaveValue('');
+    expect(screen.getByLabelText('Hasta')).toHaveValue('');
+    expect(auditCalls().length).toBe(before);
   });
 });
