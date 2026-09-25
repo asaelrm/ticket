@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Tickets from './Tickets';
-import { api, download } from '../lib/api';
+import { api } from '../lib/api';
 import { renderWithProviders } from '../test/utils';
 
 const { authState, download } = vi.hoisted(() => ({
