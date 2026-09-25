@@ -158,7 +158,7 @@ describe('Tickets', () => {
     const before = ticketCalls();
 
     await user.click(screen.getByRole('button', { name: '⋯' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Marcar en proceso' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Marcar en proceso/ }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'IN_PROGRESS' }));
     await waitFor(() => expect(ticketCalls()).toBeGreaterThan(before));
@@ -170,7 +170,7 @@ describe('Tickets', () => {
     await screen.findByText('TCK-000001');
 
     await user.click(screen.getByRole('button', { name: '⋯' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Asignarme a mí' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Asignarme a mí/ }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_to_id: 7 }));
   });
