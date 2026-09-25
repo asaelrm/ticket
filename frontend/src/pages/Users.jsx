@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, formatDate, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal, Pagination, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
@@ -27,9 +28,7 @@ function TextField({ label, value, onChange, type = 'text', help }) {
 
 export default function Users() {
   const { user } = useAuth();
-  const [list, setList] = useState(null);
-  const [roles, setRoles] = useState([]);
-  const [departments, setDepartments] = useState([]);
+  const queryClient = useQueryClient();
   const [filters, setFilters] = useState({ page: 1, perPage: 15 });
   const [error, setError] = useState('');
   const [loadingModal, setLoadingModal] = useState(false);
@@ -38,33 +37,74 @@ export default function Users() {
   const [tokenModal, setTokenModal] = useState(null);
   const [historyUser, setHistoryUser] = useState(null);
 
-  const load = useCallback(async (f) => {
-    setError('');
-    try {
+  const { data: list, error: queryError } = useQuery({
+    queryKey: ['users', filters],
+    queryFn: async () => {
       const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(f)) {
+      for (const [k, v] of Object.entries(filters)) {
         if (v !== '' && v != null) params.append(k, v);
       }
-      params.append('perPage', f.perPage || 15);
-      const data = await api.get(`/api/users?${params}`);
-      setList(data);
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar los usuarios');
-    }
-  }, []);
+      params.append('perPage', filters.perPage || 15);
+      return api.get(`/api/users?${params}`);
+    },
+  });
 
-  useEffect(() => {
-    load(filters);
-  }, [load, filters]);
+  const { data: roles = [] } = useQuery({
+    queryKey: ['user-roles'],
+    queryFn: () => api.get('/api/users/roles').then((d) => d.roles || []),
+    retry: false,
+  });
 
-  useEffect(() => {
-    Promise.all([api.get('/api/users/roles'), api.get('/api/departments?active=1')])
-      .then(([r, d]) => {
-        setRoles(r.roles || []);
-        setDepartments(d.data || []);
-      })
-      .catch(() => {});
-  }, []);
+  const { data: departments = [] } = useQuery({
+    queryKey: ['active-departments'],
+    queryFn: () => api.get('/api/departments?active=1').then((d) => d.data || []),
+    retry: false,
+  });
+
+  const invalidateUsers = () => queryClient.invalidateQueries({ queryKey: ['users'] });
+
+  const saveMutation = useMutation({
+    mutationFn: (m) => {
+      const body = { ...m.form };
+      return m.mode === 'create' ? api.post('/api/users', body) : api.patch(`/api/users/${m.id}`, body);
+    },
+    onMutate: () => {
+      setLoadingModal(true);
+      setError('');
+    },
+    onSuccess: () => {
+      setModal(null);
+      invalidateUsers();
+    },
+    onError: (err) => {
+      if (err.fields) setError(Object.values(err.fields).join('. '));
+      else setError(err.message || 'No se pudo guardar el usuario');
+    },
+    onSettled: () => {
+      setLoadingModal(false);
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: (u) => api.patch(`/api/users/${u.id}/status`, { active: !u.active }),
+    onSuccess: () => invalidateUsers(),
+    onError: (err) => setError(err.message || 'No se pudo cambiar el estado'),
+  });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: (u) => api.post(`/api/users/${u.id}/reset-password`, {}),
+    onMutate: () => {
+      setLoadingModal(true);
+      setError('');
+    },
+    onSuccess: (data, u) => {
+      setTokenModal({ user: `${u.name} ${u.last_name}`, ...data });
+    },
+    onError: (err) => setError(err.message || 'No se pudo generar el token'),
+    onSettled: () => {
+      setLoadingModal(false);
+    },
+  });
 
   function openCreate() {
     setError('');
@@ -88,55 +128,29 @@ export default function Users() {
     });
   }
 
-  async function onSave(e) {
+  function onSave(e) {
     e.preventDefault();
-    setLoadingModal(true);
-    setError('');
     const m = modal;
-    const body = { ...m.form };
-    if (m.mode === 'create' && !body.password) {
+    if (m.mode === 'create' && !m.form.password) {
       setError('La contraseña es obligatoria');
-      setLoadingModal(false);
       return;
     }
-    try {
-      if (m.mode === 'create') await api.post('/api/users', body);
-      else await api.patch(`/api/users/${m.id}`, body);
-      setModal(null);
-      await load(filters);
-    } catch (err) {
-      if (err.fields) setError(Object.values(err.fields).join('. '));
-      else setError(err.message || 'No se pudo guardar el usuario');
-    } finally {
-      setLoadingModal(false);
-    }
+    saveMutation.mutate(m);
   }
 
-  async function toggleActive(u) {
+  function toggleActive(u) {
     if (u.id === user.id && u.active) {
       setError('No puede desactivar su propia cuenta');
       return;
     }
-    try {
-      await api.patch(`/api/users/${u.id}/status`, { active: !u.active });
-      await load(filters);
-    } catch (err) {
-      setError(err.message || 'No se pudo cambiar el estado');
-    }
+    toggleMutation.mutate(u);
   }
 
-  async function resetPassword(u) {
-    setLoadingModal(true);
-    setError('');
-    try {
-      const data = await api.post(`/api/users/${u.id}/reset-password`, {});
-      setTokenModal({ user: `${u.name} ${u.last_name}`, ...data });
-    } catch (err) {
-      setError(err.message || 'No se pudo generar el token');
-    } finally {
-      setLoadingModal(false);
-    }
+  function resetPassword(u) {
+    resetPasswordMutation.mutate(u);
   }
+
+  const showError = error || queryError?.message || '';
 
   return (
     <div>
@@ -179,7 +193,9 @@ export default function Users() {
         )}
       </div>
 
-      {error && <div className="mb-3"><ErrorBox message={error} /></div>}
+      {(showError || queryError) && (
+        <div className="mb-3"><ErrorBox message={showError || queryError.message || 'No se pudieron cargar los usuarios'} /></div>
+      )}
 
       {!list ? (
         <LoadingScreen />
