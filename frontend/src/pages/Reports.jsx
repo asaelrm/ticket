@@ -72,15 +72,22 @@ function rangeLabel(range) {
 }
 
 export default function Reports() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [reloadKey, setReloadKey] = useState(0);
   const [form, setForm] = useState({ from: '', to: '', status: '', priority: '', department: '', category: '' });
   const [query, setQuery] = useState({ from: '', to: '', status: '', priority: '', department: '', category: '' });
   const [departments, setDepartments] = useState([]);
   const [categories, setCategories] = useState([]);
   const [sections, setSections] = useState(SECTIONS.map(([key]) => key));
+
+  const { data: departmentsData } = useQuery({
+    queryKey: ['active-departments'],
+    queryFn: () => api.get('/api/departments?active=1').then((d) => d.data || []),
+    retry: false,
+  });
+  const { data: categoriesData } = useQuery({
+    queryKey: ['categories-active'],
+    queryFn: () => api.get('/api/categories?active=1').then((d) => d.data || []),
+    retry: false,
+  });
 
   const qs = useMemo(() => {
     const p = new URLSearchParams();
@@ -92,42 +99,31 @@ export default function Reports() {
 
   const exportQs = `${qs}${qs ? '&' : '?'}sections=${encodeURIComponent(sections.join(','))}`;
 
-  useEffect(() => {
-    Promise.all([api.get('/api/departments?active=1'), api.get('/api/categories?active=1')])
-      .then(([departmentData, categoryData]) => {
-        setDepartments(departmentData.data || []);
-        setCategories(categoryData.data || []);
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError('');
+  const {
+    data,
+    error,
+    refetch,
+    isLoading,
+    isFetching,
+  } = useQuery({
+    queryKey: ['reports-full', qs],
     // Una sola petición: el backend calcula cada sección una única vez.
-    api
-      .get(`/api/reports/full${qs}`)
-      .then((r) => {
-        if (!active) return;
-        setData({
-          summary: r.summary,
-          byStatus: r.byStatus,
-          byPriority: r.byPriority,
-            byCategory: r.byCategory,
-            byDepartment: r.byDepartment,
-            performance: { by_day: r.byDay, by_user: r.byUser },
-            details: r.details,
-        });
-      })
-      .catch((err) => {
-        if (active) setError(err.message || 'No se pudieron cargar los reportes');
-      })
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [qs, reloadKey]);
+    queryFn: () =>
+      api.get(`/api/reports/full${qs}`).then((r) => ({
+        summary: r.summary,
+        byStatus: r.byStatus,
+        byPriority: r.byPriority,
+        byCategory: r.byCategory,
+        byDepartment: r.byDepartment,
+        performance: { by_day: r.byDay, by_user: r.byUser },
+        details: r.details,
+      })),
+    // Conserva los reportes previos al cambiar de filtros mientras carga la nueva consulta.
+    placeholderData: keepPreviousData,
+  });
+
+  const { data: depList = [] } = { data: departmentsData || [] };
+  const { data: catList = [] } = { data: categoriesData || [] };
 
   function applyPreset(preset) {
     const r = preset.range();
@@ -179,17 +175,21 @@ export default function Reports() {
     }
   }
 
-  if (loading && !data) return <LoadingScreen text="Cargando reportes…" />;
+  if (isLoading && !data) return <LoadingScreen text="Cargando reportes…" />;
   if (!data) {
     return (
       <div className="mx-auto max-w-2xl">
-        <ErrorBox message={error || 'No se pudieron cargar los reportes'} />
-        <button className="btn-secondary mt-4" onClick={() => setReloadKey((k) => k + 1)}>
+        <ErrorBox message={error?.message || 'No se pudieron cargar los reportes'} />
+        <button className="btn-secondary mt-4" onClick={() => refetch()}>
           Reintentar
         </button>
       </div>
     );
   }
+
+  const departments = depList;
+  const categories = catList;
+  const loading = isFetching;
 
   const maxStatus = Math.max(...data.byStatus.map((d) => d.n), 1);
   const maxDept = Math.max(...data.byDepartment.map((d) => d.n), 1);
