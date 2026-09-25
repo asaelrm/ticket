@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api, formatDateTime } from '../lib/api';
 import { ErrorBox, LoadingScreen, EmptyState, Pagination } from '../components/ui';
 
@@ -46,33 +47,36 @@ function actionBadge(action) {
   return tones[action] || 'bg-slate-100 text-slate-600 ring-slate-500/20';
 }
 
-export default function Audit() {
-  const [list, setList] = useState(null);
-  const [error, setError] = useState('');
-  const [users, setUsers] = useState([]);
-  const [filters, setFilters] = useState({ search: '', action: '', user: '', from: '', to: '', page: 1, perPage: 30 });
+const INITIAL_FILTERS = { search: '', action: '', user: '', from: '', to: '', page: 1, perPage: 30 };
 
-  const load = async (patch = {}) => {
-    const next = { ...filters, ...patch };
-    setError('');
-    try {
+export default function Audit() {
+  // filters controla el form; applied es lo realmente consultado (solo cambia al enviar/paginar).
+  const [filters, setFilters] = useState(INITIAL_FILTERS);
+  const [applied, setApplied] = useState(INITIAL_FILTERS);
+
+  const { data: list, error: queryError } = useQuery({
+    queryKey: ['audit', applied],
+    queryFn: async () => {
       const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(next)) {
+      for (const [k, v] of Object.entries(applied)) {
         if (v !== '' && v != null) params.append(k, v);
       }
-      const data = await api.get(`/api/audit?${params}`);
-      setList(data);
-      setFilters((p) => ({ ...p, ...patch }));
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar los registros');
-    }
-  };
+      return api.get(`/api/audit?${params}`);
+    },
+    // Conserva la tabla anterior al paginar (el original no limpiaba la lista).
+    placeholderData: keepPreviousData,
+  });
 
-  useEffect(() => {
-    load({});
-    api.get('/api/users').then((d) => setUsers(d.data || [])).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { data: users = [] } = useQuery({
+    queryKey: ['audit-users'],
+    queryFn: () => api.get('/api/users').then((d) => d.data || []),
+    retry: false,
+  });
+
+  const applyFilter = (patch) => {
+    setApplied((p) => ({ ...p, ...patch }));
+    setFilters((p) => ({ ...p, ...patch }));
+  };
 
   return (
     <div className="space-y-4">
@@ -81,7 +85,7 @@ export default function Audit() {
           className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"
           onSubmit={(e) => {
             e.preventDefault();
-            load({ page: 1 });
+            applyFilter({ page: 1 });
           }}
         >
           <label className="label lg:col-span-2">
@@ -135,18 +139,14 @@ export default function Audit() {
             <button type="submit" className="btn-primary">
               Filtrar
             </button>
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => setFilters({ search: '', action: '', user: '', from: '', to: '', page: 1, perPage: 30 })}
-            >
+            <button type="button" className="btn-secondary" onClick={() => setFilters(INITIAL_FILTERS)}>
               Limpiar
             </button>
           </div>
         </form>
       </div>
 
-      {error && <ErrorBox message={error} />}
+      {queryError && <ErrorBox message={queryError.message || 'No se pudieron cargar los registros'} />}
 
       {!list ? (
         <LoadingScreen text="Cargando auditoría…" />
@@ -196,8 +196,8 @@ export default function Audit() {
             pages={list.pages}
             total={list.total}
             perPage={list.perPage}
-            onChange={(page) => load({ page })}
-            onPerPage={(perPage) => load({ perPage, page: 1 })}
+            onChange={(page) => applyFilter({ page })}
+            onPerPage={(perPage) => applyFilter({ perPage, page: 1 })}
           />
         </div>
       )}
