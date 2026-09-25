@@ -122,8 +122,8 @@ export default function Reports() {
     placeholderData: keepPreviousData,
   });
 
-  const { data: depList = [] } = { data: departmentsData || [] };
-  const { data: catList = [] } = { data: categoriesData || [] };
+  const departments = departmentsData || [];
+  const categories = categoriesData || [];
 
   function applyPreset(preset) {
     const r = preset.range();
@@ -187,8 +187,8 @@ export default function Reports() {
     );
   }
 
-  const departments = depList;
-  const categories = catList;
+  const departments = departmentsData || [];
+  const categories = categoriesData || [];
   const loading = isFetching;
 
   const maxStatus = Math.max(...data.byStatus.map((d) => d.n), 1);
