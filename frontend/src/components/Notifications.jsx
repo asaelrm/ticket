@@ -54,7 +54,16 @@ export default function Notifications() {
     const eventSource = new EventSource('/api/notifications/stream');
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      if (data.type === 'connected') return;
+      if (data.type === 'connected') {
+        // Conexión (re)establecida: las pantallas reapuntan su caché en caso de
+        // haber perdido eventos mientras la conexión estuvo caída.
+        notifyTicketEvent({ channel: 'tickets', type: 'reconnected' });
+        return;
+      }
+      if (data && data.channel === 'tickets') {
+        notifyTicketEvent(data);
+        return;
+      }
       // Actualizar el número de no leídas
       queryClient.setQueryData(['notifications-unread'], (prev = 0) => prev + 1);
       // Actualizar la lista si el panel está abierto

@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { api, STATUSES, PRIORITIES, STATUS_LABEL, PRIORITY_LABEL } from '../lib/api';
 
 const PERIODS = [
@@ -9,26 +10,23 @@ const PERIODS = [
 ];
 
 export default function TicketFilters({ showUser, onChange, onReset, filters }) {
-  const [categories, setCategories] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [users, setUsers] = useState([]);
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    const p = [];
-    p.push(
-      api.get('/api/categories?active=1').then((d) => active && setCategories(d.data || [])),
-      api.get('/api/departments?active=1').then((d) => active && setDepartments(d.data || []))
-    );
-    if (showUser) {
-      p.push(api.get('/api/users?perPage=100').then((d) => active && setUsers(d.data || [])));        
-    }
-    Promise.all(p).catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [showUser]);
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories-active'],
+    queryFn: () => api.get('/api/categories?active=1').then((d) => d.data || []),
+  });
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['active-departments'],
+    queryFn: () => api.get('/api/departments?active=1').then((d) => d.data || []),
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['users-all'],
+    queryFn: () => api.get('/api/users?perPage=100').then((d) => d.data || []),
+    enabled: showUser,
+  });
 
   const set = (key, value) => onChange({ ...filters, [key]: value, page: 1 });
 
