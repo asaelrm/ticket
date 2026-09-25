@@ -196,7 +196,7 @@ describe('Tickets', () => {
     renderWithProviders(<Tickets />, { route: '/app/tickets' });
     await screen.findByText('TCK-000001');
 
-    await user.click(screen.getByRole('button', { name: 'Búsqueda avanzada' }));
+    await user.click(screen.getByRole('button', { name: /Búsqueda avanzada/ }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
     expect(dialog).toBeInTheDocument();
@@ -214,7 +214,7 @@ describe('Tickets', () => {
     renderWithProviders(<Tickets />, { route: '/app/tickets' });
     await screen.findByText('TCK-000001');
 
-    await user.click(screen.getByRole('button', { name: 'Búsqueda avanzada' }));
+    await user.click(screen.getByRole('button', { name: /Búsqueda avanzada/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
 
     await user.selectOptions(within(dialog).getAllByRole('combobox')[0], 'IN_PROGRESS');
@@ -222,7 +222,7 @@ describe('Tickets', () => {
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=IN_PROGRESS')));
 
-    const searchBtn = screen.getByRole('button', { name: 'Búsqueda avanzada' });
+    const searchBtn = screen.getByRole('button', { name: /Búsqueda avanzada/ });
     expect(within(searchBtn).getByText('1')).toBeInTheDocument();
   });
 
@@ -231,7 +231,7 @@ describe('Tickets', () => {
     renderWithProviders(<Tickets />, { route: '/app/tickets?status=PENDING&priority=HIGH' });
     await screen.findByText('TCK-000001');
 
-    const searchBtn = screen.getByRole('button', { name: 'Búsqueda avanzada' });
+    const searchBtn = screen.getByRole('button', { name: /Búsqueda avanzada/ });
     expect(within(searchBtn).getByText('2')).toBeInTheDocument();
 
     await user.click(searchBtn);
@@ -247,7 +247,7 @@ describe('Tickets', () => {
     renderWithProviders(<Tickets />, { route: '/app/tickets?status=PENDING' });
     await screen.findByText('TCK-000001');
 
-    await user.click(screen.getByRole('button', { name: 'Búsqueda avanzada' }));
+    await user.click(screen.getByRole('button', { name: /Búsqueda avanzada/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
 
     await user.click(within(dialog).getByRole('button', { name: 'Limpiar todo' }));

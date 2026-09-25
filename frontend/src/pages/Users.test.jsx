@@ -118,7 +118,7 @@ describe('Users', () => {
     expect(screen.getAllByText('TI').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Empleado').length).toBeGreaterThan(0);
     expect(screen.getByText('Analista')).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledWith('/api/users?page=1&perPage=15');
+    expect(api.get).toHaveBeenCalledWith('/api/users?page=1&perPage=15&perPage=15');
     expect(api.get).toHaveBeenCalledWith('/api/users/roles');
   });
 
