@@ -422,7 +422,7 @@ export default function Inbox() {
         </button>
       </div>
 
-      {error && <ErrorBox message={error} />}
+      {(error || queryError) && <ErrorBox message={error || queryError.message || 'Error al cargar los tickets'} />}
       {!list ? (
         <LoadingScreen />
       ) : (
