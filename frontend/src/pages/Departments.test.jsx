@@ -210,7 +210,7 @@ describe('Departments', () => {
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('El nombre ya existe');
   });
 
-  it('limpia el error previo al volver a abrir el modal', async () => {
+  it('mantiene el error visible al cerrar el modal y lo limpia al reabrirlo', async () => {
     api.post.mockRejectedValueOnce(new Error('No se pudo guardar'));
 
     const user = userEvent.setup();
@@ -223,11 +223,16 @@ describe('Departments', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
     expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
 
+    // El error vive en el estado de la página: sigue visible con el modal cerrado.
     await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
-    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nuevo departamento' })).not.toBeInTheDocument());
+    expect(screen.getByRole('alert')).toHaveTextContent('No se pudo guardar');
 
+    // Reabrir el modal limpia el error anterior.
     await user.click(screen.getByRole('button', { name: '+ Nuevo departamento' }));
-    expect(await within(screen.getByRole('dialog', { name: 'Nuevo departamento' })).queryByRole('alert')).not.toBeInTheDocument();
+    const reopened = await screen.findByRole('dialog', { name: 'Nuevo departamento' });
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    expect(fieldFor('Nombre *', 'input', within(reopened))).toHaveValue('');
   });
 
   it('cancela la edición sin llamar a la API', async () => {
