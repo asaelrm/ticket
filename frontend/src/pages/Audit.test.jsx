@@ -232,7 +232,7 @@ describe('Audit', () => {
     await screen.findByText('TCK-000011');
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await screen.findByText('Página 2 de 3');
+    await screen.findByText('31–60 de 90 · Página 2 de 3');
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
     await screen.findByText('61–90 de 90 · Página 3 de 3');
 
@@ -248,8 +248,17 @@ describe('Audit', () => {
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=30'));
 
-    await user.selectOptions(screen.getByDisplayValue('30'), '50');
+    await user.selectOptions(screen.getByRole('combobox', { name: /Mostrar/ }), '50');
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=50'));
+  });
+
+  it('el selector de registros por página no tiene opción para el valor 30 que devuelve el servidor', async () => {
+    renderWithProviders(<Audit />, { route: '/app/audit' });
+    await screen.findByText('TCK-000011');
+
+    const select = screen.getByRole('combobox', { name: /Mostrar/ });
+    expect(within(select).getAllByRole('option').map((o) => o.value)).toEqual(['10', '25', '50', '100']);
+    expect(select).toHaveValue('');
   });
 
   it('mantiene la tabla anterior mientras carga la página siguiente', async () => {
