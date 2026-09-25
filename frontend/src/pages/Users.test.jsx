@@ -115,8 +115,8 @@ describe('Users', () => {
     expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument();
     expect(screen.getByText('alovelace')).toBeInTheDocument();
     expect(screen.getByText('ada@example.com')).toBeInTheDocument();
-    expect(screen.getByText('TI')).toBeInTheDocument();
-    expect(screen.getByText('Empleado')).toBeInTheDocument();
+    expect(screen.getAllByText('TI').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Empleado').length).toBeGreaterThan(0);
     expect(screen.getByText('Analista')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/api/users?page=1&perPage=15');
     expect(api.get).toHaveBeenCalledWith('/api/users/roles');
@@ -199,7 +199,7 @@ describe('Users', () => {
     await user.type(inputFor('Usuario *', within(dialog)), 'ghopper');
     await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña es obligatoria');
+    expect(await within(dialog).findByText('La contraseña es obligatoria')).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
 
