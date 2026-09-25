@@ -791,7 +791,7 @@ export default function TicketDetail() {
         onClose={() => setResolveOpen(false)}
         ticket={t}
         options={options}
-        onDone={load}
+        onDone={handleResolved}
       />
 
       <Modal open={closeOpen} onClose={() => setCloseOpen(false)} title="Cerrar ticket">
