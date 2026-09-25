@@ -64,10 +64,11 @@ describe('UserTicketHistory', () => {
     expect(screen.getByRole('button', { name: 'Reportados' })).toBeInTheDocument();
   });
 
-  it('no consulta nada si no recibe userId', async () => {
+  it('no consulta nada si no recibe userId y queda en estado de carga', async () => {
     renderWithProviders(<UserTicketHistory />, { route: '/app/users' });
 
-    await screen.findByText('Sin tickets');
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sin tickets')).not.toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
 
@@ -139,7 +140,14 @@ describe('UserTicketHistory', () => {
 
   it('cambia al historial de tickets asignados', async () => {
     const user = userEvent.setup();
-    setup((u) => Promise.resolve(historyResp([ticket({ id: 12, title: 'Ticket asignado' })])));
+    setup((u) =>
+      Promise.resolve(
+        historyResp(
+          u.includes('scope=assigned') ? [ticket({ id: 12, title: 'Ticket asignado' })] : [ticket({ title: 'PC no enciende' })],
+          { total: 1, pages: 1 }
+        )
+      )
+    );
 
     renderWithProviders(<UserTicketHistory userId={2} />, { route: '/app/users' });
     await screen.findByText('PC no enciende');
