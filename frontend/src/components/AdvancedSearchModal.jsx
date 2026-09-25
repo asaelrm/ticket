@@ -34,34 +34,42 @@ const EMPTY = {
 
 export default function AdvancedSearchModal({ open, onClose, filters, onApply, onClear }) {
   const [form, setForm] = useState(EMPTY);
-  const [options, setOptions] = useState({ categories: [], departments: [], users: [], teams: [] });
-  const [loading, setLoading] = useState(false);
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['categories'],
+    queryFn: () => api.get('/api/categories').then((d) => d.data || []),
+    enabled: open,
+  });
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn: () => api.get('/api/departments').then((d) => d.data || []),
+    enabled: open,
+  });
+
+  const { data: users = [] } = useQuery({
+    queryKey: ['assignable-users'],
+    queryFn: () =>
+      api
+        .get('/api/users/assignable')
+        .then((d) => d.data || [])
+        .catch(() => api.get('/api/users?perPage=100').then((d) => d.data || []).catch(() => [])),
+    enabled: open,
+  });
+
+  const { data: teams = [] } = useQuery({
+    queryKey: ['assignable-teams'],
+    queryFn: () => api.get('/api/teams/assignable').then((d) => d.data || []),
+    enabled: open,
+  });
+
+  const options = { categories, departments, users, teams };
+  const loading = false;
 
   useEffect(() => {
     if (!open) return;
     setForm({ ...EMPTY, ...Object.fromEntries(ADVANCED_KEYS.map((k) => [k, filters[k] ?? ''])) });
   }, [open, filters]);
-
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setLoading(true);
-    Promise.all([
-      api.get('/api/categories').then((d) => d.data || []).catch(() => []),
-      api.get('/api/departments').then((d) => d.data || []).catch(() => []),
-      api.get('/api/users/assignable')
-        .then((d) => d.data || [])
-        .catch(() => api.get('/api/users?perPage=100').then((d) => d.data || []).catch(() => [])),
-      api.get('/api/teams/assignable').then((d) => d.data || []).catch(() => []),
-    ])
-      .then(([categories, departments, users, teams]) => {
-        if (active) setOptions({ categories, departments, users, teams });
-      })
-      .finally(() => active && setLoading(false));
-    return () => {
-      active = false;
-    };
-  }, [open]);
 
   const set = (key, value) => setForm({ ...form, [key]: value });
 
