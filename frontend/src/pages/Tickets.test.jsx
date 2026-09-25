@@ -27,6 +27,7 @@ vi.mock('../lib/api', async () => {
   return {
     ...actual,
     api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), del: vi.fn() },
+    download,
   };
 });
 
@@ -72,6 +73,10 @@ beforeEach(() => {
   api.get.mockImplementation((url) => {
     if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
     if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+    if (url === '/api/categories') return Promise.resolve({ data: [] });
+    if (url === '/api/departments') return Promise.resolve({ data: [] });
+    if (url === '/api/users/assignable') return Promise.resolve({ data: [] });
+    if (url === '/api/teams/assignable') return Promise.resolve({ data: [] });
     return Promise.reject(new Error(`404 ${url}`));
   });
 });
