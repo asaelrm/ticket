@@ -63,11 +63,11 @@ function settingsCalls() {
 
 function fieldFor(labelText, tag, scope = screen) {
   const label = scope.getByText(labelText, { selector: 'label' });
-  return label.closest('div').querySelector(tag);
+  return label.querySelector(tag) || label.closest('div').querySelector(tag);
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   setup();
 });
 
@@ -83,9 +83,9 @@ describe('Settings', () => {
     renderWithProviders(<Settings />, { route: '/app/settings' });
 
     expect(await screen.findByText('Configuración del sistema')).toBeInTheDocument();
-    expect(screen.getByLabelText('Nombre del sistema')).toHaveValue('Ticket');
-    expect(screen.getByLabelText('Nombre de la empresa')).toHaveValue('Acme');
-    expect(screen.getByLabelText('Prefijo de tickets')).toHaveValue('TCK');
+    expect(fieldFor('Nombre del sistema', 'input')).toHaveValue('Ticket');
+    expect(fieldFor('Nombre de la empresa', 'input')).toHaveValue('Acme');
+    expect(fieldFor('Prefijo de tickets', 'input')).toHaveValue('TCK');
     expect(screen.getByLabelText('Texto del pie de página')).toHaveValue('Soporte interno');
     expect(fieldFor('Prioridad crítica', 'input')).toHaveValue(4);
     expect(fieldFor('Prioridad alta', 'input')).toHaveValue(24);
@@ -119,7 +119,7 @@ describe('Settings', () => {
     renderWithProviders(<Settings />, { route: '/app/settings' });
     await screen.findByText('Configuración del sistema');
 
-    const appName = screen.getByLabelText('Nombre del sistema');
+    const appName = fieldFor('Nombre del sistema', 'input');
     await user.clear(appName);
     await user.type(appName, 'Ticket PRO');
     await user.click(screen.getByRole('checkbox', { name: /Activar encuesta de satisfacción/ }));
@@ -187,7 +187,7 @@ describe('Settings', () => {
     renderWithProviders(<Settings />, { route: '/app/settings' });
     await screen.findByText('Configuración del sistema');
 
-    const appName = screen.getByLabelText('Nombre del sistema');
+    const appName = fieldFor('Nombre del sistema', 'input');
     await user.clear(appName);
     await user.type(appName, 'Ticket PRO');
     await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
@@ -206,7 +206,7 @@ describe('Settings', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
     expect(await screen.findByText('Configuración guardada correctamente.')).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText('Nombre de la empresa'), ' ');
+    await user.type(fieldFor('Nombre de la empresa', 'input'), ' ');
     await waitFor(() => expect(screen.queryByText('Configuración guardada correctamente.')).not.toBeInTheDocument());
   });
 
