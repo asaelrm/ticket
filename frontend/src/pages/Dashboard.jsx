@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { api, STATUS_LABEL, PRIORITY_LABEL, formatDate } from '../lib/api';
 import { LoadingScreen, Spinner, ErrorBox } from '../components/ui';
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, download, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
+import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
@@ -75,15 +76,19 @@ export default function Tickets() {
   const { data: list, error: queryError } = useQuery({
     queryKey: ['tickets', query],
     queryFn: () => api.get(`/api/tickets?${query}`),
-    // Refresco silencioso en vivo cada 30 s (React Query pausa en background, equivalente al chequeo de visibilidad).
-    refetchInterval: 30000,
+    // Sin polling: los cambios llegan por SSE (conexión global) y se refresca al
+    // volver a la pestaña/recuperar la conexión (refetchOnWindowFocus por defecto).
   });
 
   const { data: counters } = useQuery({
     queryKey: ['tickets-counters'],
     queryFn: () => api.get('/api/tickets/counters').catch(() => null),
+    // Respaldo de polling: los contadores son baratos y cubren cambios de fondo
+    // (SLA vencido) que no generan eventos de usuario.
     refetchInterval: 30000,
   });
+
+  useTicketEventInvalidator(['tickets', 'tickets-counters']);
 
   // Equivale al efecto [reload]: al cambiar filtros se limpia el error previo y se refrescan los contadores.
   useEffect(() => {
