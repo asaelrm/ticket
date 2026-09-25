@@ -206,7 +206,10 @@ describe('Profile', () => {
     await screen.findByText('Cambiar contraseña');
 
     const form = screen.getByRole('button', { name: 'Actualizar contraseña' }).closest('form');
-    expect(within(form).getAllByLabelText(/Contraseña/).length).toBe(3);
+    expect(within(form).getByLabelText('Contraseña actual')).toBeInTheDocument();
+    expect(within(form).getByLabelText('Nueva contraseña')).toBeInTheDocument();
+    expect(within(form).getByLabelText('Confirmar nueva')).toBeInTheDocument();
     expect(within(form).getAllByRole('textbox').length).toBe(0);
+    expect(within(form).getAllByRole('button').length).toBe(1);
   });
 });
