@@ -35,19 +35,19 @@ const EMPTY = {
 export default function AdvancedSearchModal({ open, onClose, filters, onApply, onClear }) {
   const [form, setForm] = useState(EMPTY);
 
-  const { data: categories = [] } = useQuery({
+  const categoriesQuery = useQuery({
     queryKey: ['categories'],
     queryFn: () => api.get('/api/categories').then((d) => d.data || []),
     enabled: open,
   });
 
-  const { data: departments = [] } = useQuery({
+  const departmentsQuery = useQuery({
     queryKey: ['departments'],
     queryFn: () => api.get('/api/departments').then((d) => d.data || []),
     enabled: open,
   });
 
-  const { data: users = [] } = useQuery({
+  const usersQuery = useQuery({
     queryKey: ['assignable-users'],
     queryFn: () =>
       api
@@ -57,14 +57,14 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
     enabled: open,
   });
 
-  const { data: teams = [] } = useQuery({
+  const teamsQuery = useQuery({
     queryKey: ['assignable-teams'],
     queryFn: () => api.get('/api/teams/assignable').then((d) => d.data || []),
     enabled: open,
   });
 
-  const options = { categories, departments, users, teams };
-  const loading = false;
+  const options = { categories: categoriesQuery.data || [], departments: departmentsQuery.data || [], users: usersQuery.data || [], teams: teamsQuery.data || [] };
+  const loading = categoriesQuery.isPending || departmentsQuery.isPending || usersQuery.isPending || teamsQuery.isPending;
 
   useEffect(() => {
     if (!open) return;

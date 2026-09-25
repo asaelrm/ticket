@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Drawer, ErrorBox, Spinner } from './ui';
 import { api } from '../lib/api';
 
@@ -25,33 +26,41 @@ export default function ResolveDrawer({ open, onClose, ticket, options, onDone }
     setError('');
   }, [open, ticket?.id]);
 
-  async function onSubmit(e) {
+  const resolveMutation = useMutation({
+    mutationFn: (fd) => api.post(`/api/tickets/${ticket?.id}/resolve`, null, fd),
+    onMutate: () => {
+      setSaving(true);
+      setError('');
+    },
+    onSuccess: () => {
+      onDone?.();
+      onClose();
+    },
+    onError: (err) => {
+      setError(err.message || 'No se pudo resolver el ticket');
+    },
+    onSettled: () => {
+      setSaving(false);
+    },
+  });
+
+  function onSubmit(e) {
     e.preventDefault();
     if (!resolution.trim()) {
       setError('La solución es obligatoria.');
       return;
     }
-    setSaving(true);
-    setError('');
-    try {
-      const fd = new FormData();
-      fd.append('resolution', resolution.trim());
-      if (category) fd.append('resolution_category', category);
-      if (cause) fd.append('root_cause', cause);
-      if (time !== '' && Number(time) > 0) {
-        const minutes = unit === 'hours' ? Math.round(Number(time) * 60) : Math.round(Number(time));
-        fd.append('time_spent_minutes', String(minutes));
-      }
-      if (notify) fd.append('notify', '1');
-      for (const f of files) fd.append('files', f);
-      await api.post(`/api/tickets/${ticket.id}/resolve`, null, fd);
-      onDone?.();
-      onClose();
-    } catch (err) {
-      setError(err.message || 'No se pudo resolver el ticket');
-    } finally {
-      setSaving(false);
+    const fd = new FormData();
+    fd.append('resolution', resolution.trim());
+    if (category) fd.append('resolution_category', category);
+    if (cause) fd.append('root_cause', cause);
+    if (time !== '' && Number(time) > 0) {
+      const minutes = unit === 'hours' ? Math.round(Number(time) * 60) : Math.round(Number(time));
+      fd.append('time_spent_minutes', String(minutes));
     }
+    if (notify) fd.append('notify', '1');
+    for (const f of files) fd.append('files', f);
+    resolveMutation.mutate(fd);
   }
 
   return (
