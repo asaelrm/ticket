@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, formatRelative } from '../lib/api';
 import { Spinner } from './ui';
 
@@ -22,49 +23,51 @@ function iconFor(type) {
 }
 
 export default function Notifications() {
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [items, setItems] = useState(null);
-  const [unread, setUnread] = useState(0);
   const panelRef = useRef(null);
   const navigate = useNavigate();
 
-  const refreshCount = () => {
-    api.get('/api/notifications/unread-count').then((d) => setUnread(d.unread || 0)).catch(() => {});
-  };
+  const { data: items } = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => api.get('/api/notifications').then((d) => d.data || []),
+    enabled: open,
+  });
+
+  const { data: unread = 0 } = useQuery({
+    queryKey: ['notifications-unread'],
+    queryFn: () => api.get('/api/notifications/unread-count').then((d) => d.unread || 0),
+    refetchInterval: 30000,
+  });
 
   const openPanel = () => {
     const next = !open;
     setOpen(next);
     if (next) {
-      setItems(null);
-      api.get('/api/notifications').then((d) => setItems(d.data || [])).catch(() => setItems([]));
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
     }
-    refreshCount();
+    queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
   };
 
   useEffect(() => {
-    refreshCount();
-    const t = setInterval(refreshCount, 30000);
-
     const eventSource = new EventSource('/api/notifications/stream');
     eventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'connected') return;
       // Actualizar el número de no leídas
-      setUnread((u) => u + 1);
+      queryClient.setQueryData(['notifications-unread'], (prev = 0) => prev + 1);
       // Actualizar la lista si el panel está abierto
-      setItems((prev) => {
+      queryClient.setQueryData(['notifications'], (prev) => {
         if (!prev) return prev;
         return [data, ...prev];
       });
     };
 
     return () => {
-      clearInterval(t);
       eventSource.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -82,21 +85,32 @@ export default function Notifications() {
     };
   }, [open]);
 
-  async function markAllRead() {
-    setUnread(0);
-    setItems((prev) => (prev || []).map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() })));
-    try {
-      await api.post('/api/notifications/read', { all: true });
-    } catch {
-      refreshCount();
-    }
+  const markAllMutation = useMutation({
+    mutationFn: () => api.post('/api/notifications/read', { all: true }),
+    onMutate: () => {
+      queryClient.setQueryData(['notifications-unread'], 0);
+      queryClient.setQueryData(['notifications'], (prev) =>
+        (prev || []).map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() }))
+      );
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
+    },
+  });
+
+  const readItemMutation = useMutation({
+    mutationFn: (id) => api.post('/api/notifications/read', { ids: [id] }),
+  });
+
+  function markAllRead() {
+    markAllMutation.mutate();
   }
 
-  async function openItem(n) {
+  function openItem(n) {
     setOpen(false);
     if (!n.read_at) {
-      setUnread((u) => Math.max(0, u - 1));
-      api.post('/api/notifications/read', { ids: [n.id] }).catch(() => {});
+      queryClient.setQueryData(['notifications-unread'], (prev = 0) => Math.max(0, prev - 1));
+      readItemMutation.mutate(n.id);
     }
     navigate(n.link || '/app');
   }
