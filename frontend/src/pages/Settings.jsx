@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -6,14 +6,20 @@ import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
 
 export default function Settings() {
   const { setAppName } = useAuth();
+  const [form, setForm] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const { data: form } = useQuery({
+  const { data: settingsData } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.get('/api/settings').then((d) => normalize(d.data)),
   });
+
+  // Inicializa el form editable cuando llegan los ajustes (equivalente al setForm del efecto original).
+  useEffect(() => {
+    if (settingsData) setForm(settingsData);
+  }, [settingsData]);
 
   const { data: mail = null } = useQuery({
     queryKey: ['settings-mail'],
@@ -58,7 +64,7 @@ export default function Settings() {
   if (!form) return <LoadingScreen text="Cargando configuración…" />;
 
   function set(key, value) {
-    Object.assign(form, { [key]: value });
+    setForm({ ...form, [key]: value });
     setSuccess('');
   }
 
