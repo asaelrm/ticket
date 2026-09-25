@@ -125,6 +125,9 @@ export default function Reports() {
   const departments = departmentsData || [];
   const categories = categoriesData || [];
 
+  const departments = departmentsData || [];
+  const categories = categoriesData || [];
+
   function applyPreset(preset) {
     const r = preset.range();
     setForm((current) => ({ ...current, ...r }));
