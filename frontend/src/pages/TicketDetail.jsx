@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   api,
   fileUrl,
@@ -26,13 +27,10 @@ export default function TicketDetail() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [users, setUsers] = useState([]);
-  const [teams, setTeams] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [options, setOptions] = useState(null);
+
+  const ticketId = Number(id);
 
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState([]);
