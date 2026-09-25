@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import TicketFilters from '../components/TicketFilters';
 import { TicketTable } from '../components/TicketTable';
@@ -8,38 +9,30 @@ const DEFAULT_FILTERS = { page: 1, perPage: 15 };
 
 export default function MyTickets() {
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  const [list, setList] = useState(null);
-  const [error, setError] = useState('');
+  const [debounced, setDebounced] = useState(DEFAULT_FILTERS);
 
-  const load = useCallback(async (f) => {
-    setError('');
-    try {
+  // Debounce: evita una petición por cada tecla al escribir en la búsqueda.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(filters), 250);
+    return () => clearTimeout(timer);
+  }, [filters]);
+
+  const { data: list, error: queryError } = useQuery({
+    queryKey: ['my-tickets', debounced],
+    queryFn: async () => {
       const params = new URLSearchParams();
-      for (const [k, v] of Object.entries(f)) {
+      for (const [k, v] of Object.entries(debounced)) {
         if (v !== '' && v != null) params.append(k, v);
       }
-      params.append('perPage', f.perPage || 15);
+      params.append('perPage', debounced.perPage || 15);
       params.append('own', '1');
-      const data = await api.get(`/api/tickets?${params}`);
-      setList(data);
-    } catch (err) {
-      setError(err.message || 'No se pudieron cargar los tickets');
-    }
-  }, []);
-
-  useEffect(() => {
-    // Debounce: evita una petición por cada tecla al escribir en la búsqueda.
-    const timer = setTimeout(() => load(filters), 250);
-    return () => clearTimeout(timer);
-  }, [load, filters]);
-
-  // Refresco silencioso en vivo cada 30 s (solo cuando la pestaña es visible).
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (document.visibilityState === 'visible') load(filters);
-    }, 30000);
-    return () => clearInterval(timer);
-  }, [load, filters]);
+      return api.get(`/api/tickets?${params}`);
+    },
+    // Refresco silencioso en vivo cada 30 s (React Query pausa en background, equivalente al chequeo de visibilidad).
+    refetchInterval: 30000,
+    // Conserva los datos anteriores al cambiar filtros (igual que el original, que no limpiaba la lista).
+    placeholderData: keepPreviousData,
+  });
 
   return (
     <div>
@@ -49,7 +42,7 @@ export default function MyTickets() {
         onReset={() => setFilters(DEFAULT_FILTERS)}
         showUser={false}
       />
-      {error && <ErrorBox message={error} />}
+      {queryError && <ErrorBox message={queryError.message || 'No se pudieron cargar los tickets'} />}
       {!list ? <LoadingScreen /> : <TicketTable list={list} basePath="/app/my-tickets" onPage={(page) => setFilters((p) => ({ ...p, page }))} />}
     </div>
   );
