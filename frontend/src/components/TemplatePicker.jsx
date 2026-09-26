@@ -126,7 +126,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
       <button
         ref={buttonRef}
         type="button"
-        className="rounded-md px-2 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/10"
+        className="rounded-md border border-white/20 bg-white/5 px-2 py-1 text-xs font-medium text-slate-100 transition hover:border-white/30 hover:bg-white/15"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={open}
