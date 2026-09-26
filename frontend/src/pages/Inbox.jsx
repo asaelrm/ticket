@@ -175,6 +175,7 @@ export default function Inbox() {
     onMutate: () => {
       setBusy(true);
       setError('');
+      bulk.clearFeedback();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
@@ -193,6 +194,7 @@ export default function Inbox() {
     onMutate: () => {
       setBusy(true);
       setError('');
+      bulk.clearFeedback();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
@@ -206,34 +208,10 @@ export default function Inbox() {
     },
   });
 
-  const bulkMutation = useMutation({
-    mutationFn: ({ ids, fn }) => Promise.allSettled(ids.map((id) => fn(id))),
-    onMutate: () => {
-      setBusy(true);
-      setError('');
-    },
-    onSuccess: (results, { ids }) => {
-      const rejected = results.filter((r) => r.status === 'rejected');
-      setSelected(new Set());
-      queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
-      queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
-      if (rejected.length) {
-        // El backend ya explica el motivo (p. ej. "Debe registrar una resolución
-        // antes de cerrar el ticket"); se muestra el primero para que el usuario
-        // sepa qué corregir sin abrir cada ticket.
-        const first = rejected[0].reason?.message || 'Error desconocido';
-        setError(`${rejected.length} de ${ids.length} ticket(s) no se pudieron actualizar. ${first}`);
-      }
-    },
-    onSettled: () => {
-      setBusy(false);
-    },
-  });
-
   function changeStatus(t, status, body = {}) {
     if (status === 'RESOLVED') {
-      setResolveIds([t.id]);
-      setResolveOpen(true);
+      // /resolve exige la solución: se pide antes de llamar al backend.
+      bulk.requestResolve([t.id]);
       return;
     }
     statusMutation.mutate({ t, status, body });
@@ -241,56 +219,6 @@ export default function Inbox() {
 
   function assignMe(t) {
     assignMeMutation.mutate(t);
-  }
-
-  function toggleOne(id) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleAll(ids, checked) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) {
-        if (checked) next.add(id);
-        else next.delete(id);
-      }
-      return next;
-    });
-  }
-
-  // Una única función para fila y lote: garantiza que ambas superficies usen
-  // exactamente el mismo contrato con el backend.
-  const callStatus = (id, status, payload) => {
-    const r = ticketStatusRequest(id, status, payload);
-    return api[r.method](r.path, r.body);
-  };
-
-  const bulkAssignMe = () =>
-    bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: user.id }) });
-  const bulkStatus = (status) =>
-    bulkMutation.mutate({ ids: [...selected], fn: (id) => callStatus(id, status) });
-  const bulkCancel = (reason) =>
-    bulkMutation.mutate({ ids: [...selected], fn: (id) => api.post(`/api/tickets/${id}/cancel`, { reason }) });
-
-  function openResolve(ids) {
-    setResolveIds(ids);
-    setResolveOpen(true);
-  }
-
-  function runResolve(resolution) {
-    const ids = resolveIds;
-    setResolveOpen(false);
-    if (ids.length === 1) {
-      // Hereda la invalidación del statusMutation de fila.
-      statusMutation.mutate({ t: { id: ids[0] }, status: 'RESOLVED', body: { resolution } });
-      return;
-    }
-    bulkMutation.mutate({ ids, fn: (id) => callStatus(id, 'RESOLVED', { resolution }) });
   }
 
   function openAssign() {
