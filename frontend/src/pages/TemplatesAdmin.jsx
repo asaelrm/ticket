@@ -291,7 +291,7 @@ export default function TemplatesAdmin() {
                     onClick={() =>
                       setModal({
                         ...modal,
-                        form: { ...modal.form, body: `${modal.form.body}${{ [`${v.key}`]: '' }[v.key] ? '' : `{{${v.key}}}`}` },
+                        form: { ...modal.form, body: `${modal.form.body}{{${v.key}}}` },
                       })
                     }
                   >
