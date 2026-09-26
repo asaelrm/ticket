@@ -7,12 +7,16 @@
 // `src`, `style` ni `on*` a partir del texto del usuario, de modo que la única
 // forma de inyectar HTML es pagar el coste del escapado. Añadir enlaces aquí
 // exigiría una lista blanca de protocolos; es Ampliar más de lo necesario.
+// Se escapa también el apóstrofo aunque hoy todo lo que sale entre comillas son
+// literales del propio renderizador: es una bomba de relojería para el día que
+// alguien añada un `title='${texto}'` o un `data-x='${valor}'`.
 function escapeHtml(text) {
   return String(text ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function inline(text) {

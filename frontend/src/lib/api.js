@@ -1,6 +1,15 @@
 function getCookie(name) {
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    // Una cookie con un "%" mal formado haría lanzar URIError dentro de TODA
+    // mutación, y el error escaparía como excepción sin manejar en lugar de
+    // como ApiError con mensaje. Se trata como cookie ausente: el servidor
+    // responderá con su propio error de CSRF, que sí es actionable.
+    return null;
+  }
 }
 
 export class ApiError extends Error {
