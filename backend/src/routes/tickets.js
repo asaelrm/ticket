@@ -2,6 +2,7 @@ import express from 'express';
 import db, { nowIso } from '../db.js';
 import config from '../config.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
+import { visibleTemplateFor } from './cannedResponses.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { uploadMiddleware, uploadSizeError } from '../middleware/upload.js';
 import { validateFile, persistUpload } from '../utils/fileType.js';
