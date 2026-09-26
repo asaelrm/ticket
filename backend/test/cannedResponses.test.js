@@ -239,6 +239,61 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
     assert.equal(on.body.template.is_active, 1);
   });
 
+  it('una desactivada no sale en el selector de nadie, ni al buscar ni al paginar', async () => {
+    const marker = `off${Date.now()}${seq++}`;
+    const teamId = await makeTeam(uniq('Desactivación'), [techId]);
+    const deEquipo = await admin.post('/api/canned-responses', {
+      title: `Equipo ${marker}`,
+      body: `Cuerpo ${marker}`,
+      scope: 'TEAM',
+      team_id: teamId,
+    });
+    const global = await admin.post('/api/canned-responses', {
+      title: `Global ${marker}`,
+      body: `Cuerpo ${marker}`,
+      scope: 'GLOBAL',
+    });
+    const ids = [deEquipo.body.template.id, global.body.template.id];
+
+    for (const id of ids) {
+      assert.equal((await admin.patch(`/api/canned-responses/${id}`, { is_active: false })).status, 200);
+    }
+
+    // tech es miembro del equipo y tiene acceso a la global: aun así no las ve.
+    for (const client of [tech, tech2.client]) {
+      const list = await client.get('/api/canned-responses?limit=100');
+      assert.equal(list.status, 200);
+      for (const id of ids) {
+        assert.ok(!list.body.data.map((t) => t.id).includes(id), `el listado no debe incluir la ${id}`);
+      }
+      const search = await client.get(`/api/canned-responses?q=${marker}`);
+      assert.equal(search.status, 200);
+      assert.ok(!JSON.stringify(search.body).includes(marker), 'la búsqueda no debe encontrar la desactivada');
+    }
+
+    // Barrido página a página: la desactivada no reaparece en ninguna.
+    const first = await tech.get('/api/canned-responses?limit=1&page=1');
+    const pages = Math.ceil(first.body.total);
+    assert.ok(pages > 1, 'el barrido debe recorrer más de una página');
+    for (let p = 1; p <= pages; p += 1) {
+      const res = await tech.get(`/api/canned-responses?limit=1&page=${p}`);
+      assert.equal(res.status, 200);
+      assert.ok(
+        !res.body.data.map((t) => t.id).some((id) => ids.includes(id)),
+        `la página ${p} no debe incluir una desactivada`
+      );
+    }
+
+    // Sigue siendo gestionable, con su estado real, desde el listado administrativo.
+    const manage = await admin.get(`/api/canned-responses/manage?q=${marker}`);
+    assert.equal(manage.status, 200);
+    for (const id of ids) {
+      const row = manage.body.data.find((t) => t.id === id);
+      assert.ok(row, `la administración debe seguir viendo la ${id}`);
+      assert.equal(row.is_active, 0);
+    }
+  });
+
   it('el listado de gestión nunca expone plantillas personales, ni siquiera sin filtro', async () => {
     const personal = await tech.post('/api/canned-responses', {
       title: uniq('Privada del técnico'),
@@ -526,7 +581,6 @@ describe('validación de datos', () => {
   });
 
   it('no existe borrado físico ni incremento manual del contador', async () => {
-    const created = await tech.post('/api/canned-responses', {
       title: uniq('No borra'),
       body: 'x',
       scope: 'PERSONAL',
