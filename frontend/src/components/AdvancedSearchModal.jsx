@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, STATUSES, PRIORITIES, STATUS_LABEL, PRIORITY_LABEL } from '../lib/api';
+import { useAuth, can } from '../context/AuthContext';
 import { Modal, Spinner } from './ui';
 
 // Campos que gestiona la búsqueda avanzada (no incluye la vista ni la búsqueda simple).
@@ -32,7 +33,15 @@ const EMPTY = {
   closed_to: '',
 };
 
+// Filtros que dependen del directorio de técnicos/equipos. El backend protege
+// /api/users/assignable y /api/teams/assignable, y filtrar la lista global por
+// solicitante, técnico o equipo solo tiene sentido para quien puede ver todos los
+// tickets, así que el permiso que decide es ticket.view.all.
+const DIRECTORY_KEYS = ['user', 'assigned', 'team'];
+
 export default function AdvancedSearchModal({ open, onClose, filters, onApply, onClear }) {
+  const { user } = useAuth();
+  const canViewAll = can(user, 'ticket.view.all');
   const [form, setForm] = useState(EMPTY);
 
   const categoriesQuery = useQuery({
@@ -47,24 +56,27 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
     enabled: open,
   });
 
+  // Sin directorios no se hacen las peticiones: una consulta que solo puede
+  // acabar en 403 no aporta nada y ensucia la consola del navegador.
   const usersQuery = useQuery({
     queryKey: ['assignable-users'],
-    queryFn: () =>
-      api
-        .get('/api/users/assignable')
-        .then((d) => d.data || [])
-        .catch(() => api.get('/api/users?perPage=100').then((d) => d.data || []).catch(() => [])),
-    enabled: open,
+    queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []),
+    enabled: open && canViewAll,
   });
 
   const teamsQuery = useQuery({
     queryKey: ['assignable-teams'],
     queryFn: () => api.get('/api/teams/assignable').then((d) => d.data || []),
-    enabled: open,
+    enabled: open && canViewAll,
   });
 
   const options = { categories: categoriesQuery.data || [], departments: departmentsQuery.data || [], users: usersQuery.data || [], teams: teamsQuery.data || [] };
-  const loading = categoriesQuery.isPending || departmentsQuery.isPending || usersQuery.isPending || teamsQuery.isPending;
+  // Una consulta deshabilitada queda `isPending` para siempre, así que solo se
+  // espera a las que están habilitadas de verdad.
+  const loading =
+    categoriesQuery.isPending ||
+    departmentsQuery.isPending ||
+    (canViewAll && (usersQuery.isPending || teamsQuery.isPending));
 
   useEffect(() => {
     if (!open) return;
