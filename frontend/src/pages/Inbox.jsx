@@ -266,9 +266,25 @@ export default function Inbox() {
   const bulkAssignMe = () =>
     bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: user.id }) });
   const bulkStatus = (status) =>
-    bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { status }) });
+    bulkMutation.mutate({ ids: [...selected], fn: (id) => setTicketStatus(id, status) });
   const bulkCancel = (reason) =>
     bulkMutation.mutate({ ids: [...selected], fn: (id) => api.post(`/api/tickets/${id}/cancel`, { reason }) });
+
+  function openResolve(ids) {
+    setResolveIds(ids);
+    setResolveOpen(true);
+  }
+
+  function runResolve(resolution) {
+    const ids = resolveIds;
+    setResolveOpen(false);
+    if (ids.length === 1) {
+      // Hereda la invalidación del statusMutation de fila.
+      statusMutation.mutate({ t: { id: ids[0] }, status: 'RESOLVED', body: { resolution } });
+      return;
+    }
+    bulkMutation.mutate({ ids, fn: (id) => setTicketStatus(id, 'RESOLVED', { resolution }) });
+  }
 
   function openAssign() {
     setAssignValue('');
@@ -500,12 +516,12 @@ export default function Inbox() {
                   En proceso
                 </button>
               )}
-              {canManage && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkStatus('RESOLVED')}>
+              {canResolve && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={() => openResolve([...selected])}>
                   Resuelto
                 </button>
               )}
-              {canManage && (
+              {canClose && (
                 <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkStatus('CLOSED')}>
                   Cerrar
                 </button>
@@ -559,6 +575,14 @@ export default function Inbox() {
           </button>
         </div>
       </Modal>
+
+      <ResolveTicketsModal
+        open={resolveOpen}
+        onClose={() => setResolveOpen(false)}
+        count={resolveIds.length}
+        busy={busy}
+        onConfirm={runResolve}
+      />
 
       <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title={`Cancelar ${selected.size} ticket(s)`}>
         <p className="text-sm text-slate-600">Se cancelarán los tickets seleccionados. Esta acción no se puede deshacer.</p>
