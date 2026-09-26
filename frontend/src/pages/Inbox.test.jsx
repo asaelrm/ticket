@@ -393,3 +393,52 @@ describe('Inbox · acciones de estado con los endpoints dedicados', () => {
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/close', {}));
   });
 });
+
+// El backend exige ticket.assign para /api/users/assignable. La pantalla no
+// debe pedir ese directorio a quien no puede asignar.
+describe('Inbox · directorio de técnicos asignables', () => {
+  it('lo carga para un usuario con ticket.assign y permite asignar en lote', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) {
+        return Promise.resolve(
+          listResp([row(), row({ id: 2, ticket_number: 'TCK-000002', title: 'Impresora atascada' })])
+        );
+      }
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      if (url.startsWith('/api/users/assignable')) {
+        return Promise.resolve({ data: [{ id: 9, name: 'Beto', last_name: 'Gómez', department_name: 'TI' }] });
+      }
+      return Promise.reject(new Error('404'));
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+
+    expect(api.get).not.toHaveBeenCalledWith('/api/users/assignable');
+    await user.click(await screen.findByRole('button', { name: 'Asignar a…' }));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/users/assignable'));
+    await user.selectOptions(await screen.findByLabelText('Técnico asignado'), '9');
+    await user.click(screen.getByRole('button', { name: 'Asignar' }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_to_id: 9 }));
+    expect(api.patch).toHaveBeenCalledWith('/api/tickets/2', { assigned_to_id: 9 });
+  });
+
+  it('no pide el directorio si el usuario no tiene ticket.assign', async () => {
+    const user = userEvent.setup();
+    authState.user = { id: 7, name: 'Sin asignar', permissions: ['ticket.update.any', 'ticket.resolve'] };
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+
+    expect(screen.queryByRole('button', { name: 'Asignar a…' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Asignarme$/ })).not.toBeInTheDocument();
+    expect(api.get).not.toHaveBeenCalledWith('/api/users/assignable');
+  });
+});
