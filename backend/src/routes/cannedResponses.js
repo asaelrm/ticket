@@ -10,6 +10,18 @@ router.use(requireAuth);
 const SCOPES = ['GLOBAL', 'PERSONAL', 'TEAM'];
 const SORTS = { usage: 'c.use_count DESC, c.title ASC', title: 'c.title ASC', recent: 'c.updated_at DESC' };
 
+/**
+ * Orden solicitado, o el de mayor uso si no es uno de los previstos.
+ *
+ * Se comprueba con Object.hasOwn porque `SORTS[valor]` también resolvería las
+ * claves heredadas de Object.prototype (`constructor`, `toString`, `__proto__`),
+ * que son verdadeñas y acaban concatenadas en el ORDER BY: un `?sort=constructor`
+ * provocaba un error de sintaxis SQL y un 500 en lugar de devolver la lista.
+ */
+function sortClause(value) {
+  return Object.hasOwn(SORTS, value) ? SORTS[value] : SORTS.usage;
+}
+
 const LIST_SELECT = `
   SELECT c.id, c.title, c.body, c.scope, c.owner_id, c.team_id, c.is_active,
          c.use_count, c.created_at, c.updated_at,
