@@ -444,3 +444,148 @@ describe('Inbox · directorio de técnicos asignables', () => {
     expect(api.get).not.toHaveBeenCalledWith('/api/users/assignable');
   });
 });
+// A2/P2: la prioridad en lote reutiliza el PATCH existente (el servidor
+// recalcula el SLA) y un fallo parcial se reporta ticket a ticket.
+describe('Inbox · prioridad en lote y detalle de fallos', () => {
+  function threeRows() {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) {
+        return Promise.resolve(
+          listResp([
+            row(),
+            row({ id: 2, ticket_number: 'TCK-000002', title: 'Impresora atascada' }),
+            row({ id: 3, ticket_number: 'TCK-000003', title: 'WiFi intermitente' }),
+          ])
+        );
+      }
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      if (url.startsWith('/api/users/assignable')) return Promise.resolve({ data: [] });
+      if (url.startsWith('/api/teams/assignable')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error('404'));
+    });
+  }
+
+  it('cambia la prioridad solo de los seleccionados', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    threeRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar TCK-000001'));
+    await user.click(screen.getByLabelText('Seleccionar TCK-000003'));
+    await user.click(await screen.findByRole('button', { name: 'Prioridad…' }));
+
+    const dialog = await screen.findByRole('dialog');
+    await user.selectOptions(within(dialog).getByRole('combobox'), 'LOW');
+    await user.click(within(dialog).getByRole('button', { name: 'Aplicar prioridad' }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { priority: 'LOW' }));
+    expect(api.patch).toHaveBeenCalledWith('/api/tickets/3', { priority: 'LOW' });
+    expect(api.patch).not.toHaveBeenCalledWith('/api/tickets/2', { priority: 'LOW' });
+  });
+
+  it('refresca el listado tras cambiar la prioridad en lote', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    threeRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    const listCalls = () => api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).length;
+    const before = listCalls();
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: 'Prioridad…' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.selectOptions(within(dialog).getByRole('combobox'), 'CRITICAL');
+    await user.click(within(dialog).getByRole('button', { name: 'Aplicar prioridad' }));
+
+    await waitFor(() => expect(listCalls()).toBeGreaterThan(before));
+  });
+
+  it('omite la prioridad en lote sin ticket.update.any', async () => {
+    const user = userEvent.setup();
+    authState.user = { id: 7, name: 'Sin update', permissions: ['ticket.assign', 'ticket.resolve'] };
+    threeRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+
+    expect(await screen.findByRole('button', { name: /^Resuelto$/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Prioridad…' })).not.toBeInTheDocument();
+  });
+
+  it('identifica cada ticket que falló con su motivo', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    threeRows();
+    api.post.mockImplementation((url) => {
+      if (url === '/api/tickets/1/close') return Promise.reject(new Error('Debe registrar una resolución antes de cerrar el ticket.'));
+      if (url === '/api/tickets/2/close') return Promise.reject(new Error('No tiene permiso para cambiar el estado'));
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
+
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('2 de 3 ticket(s) no se pudieron actualizar.')).toBeInTheDocument();
+    expect(within(alert).getByText(/TCK-000001 — Debe registrar una resolución antes de cerrar el ticket/)).toBeInTheDocument();
+    expect(within(alert).getByText(/TCK-000002 — No tiene permiso para cambiar el estado/)).toBeInTheDocument();
+    // El ticket que sí se cerró no se reporta como fallo.
+    expect(within(alert).queryByText(/TCK-000003/)).not.toBeInTheDocument();
+  });
+
+  it('mantiene seleccionados solo los tickets que fallaron', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    threeRows();
+    api.post.mockImplementation((url) => {
+      if (url === '/api/tickets/1/close') return Promise.reject(new Error('El ticket ya está cerrado'));
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
+
+    // Solo el que falló sigue seleccionado, para poder reintentarlo sin volver a
+    // marcar los que ya quedaron bien.
+    expect(await screen.findByText('1 seleccionado(s)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Seleccionar TCK-000001')).toBeChecked();
+    expect(screen.getByLabelText('Seleccionar TCK-000002')).not.toBeChecked();
+    expect(screen.getByLabelText('Seleccionar TCK-000003')).not.toBeChecked();
+  });
+
+  it('no filtra los tickets ya actualizados del lote', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    threeRows();
+    api.post.mockImplementation((url) => {
+      if (url === '/api/tickets/1/close') return Promise.reject(new Error('El ticket ya está cerrado'));
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    const listCalls = () => api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).length;
+    const before = listCalls();
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
+
+    await waitFor(() => expect(listCalls()).toBeGreaterThan(before));
+  });
+});
