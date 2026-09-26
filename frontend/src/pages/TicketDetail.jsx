@@ -353,11 +353,44 @@ export default function TicketDetail() {
     const fd = new FormData();
     if (message.trim()) fd.append('message', message.trim());
     if (internalMode) fd.append('is_internal', '1');
+    // Contabiliza el uso de la plantilla en el servidor, después de guardar el
+    // comentario. Si no se usó ninguna, no se envía el campo.
+    for (const tid of usedTemplateIds) fd.append('canned_response_id', String(tid));
     for (const f of files) fd.append('files', f);
     apiAction.mutate(
       { method: 'post', path: `/api/tickets/${t.id}/comments`, formData: fd, errorMessage: 'No se pudo enviar el mensaje' },
-      { onSuccess: () => { setMessage(''); setFiles([]); } }
+      { onSuccess: () => { setMessage(''); setFiles([]); setUsedTemplateIds([]); } }
     );
+  }
+
+  /**
+   * Inserta el texto de una respuesta rápida en el textarea SIN enviarlo.
+   * Usa setMessage() directamente (y no onMessageChange) para no disparar el
+   * indicador de "escribiendo…" de quien solo está choosing una plantilla.
+   */
+  function onInsertTemplate({ text, template, mode }) {
+    const el = textareaRef.current;
+    if (mode === 'replace') {
+      setMessage(text);
+      setUsedTemplateIds((prev) => [...new Set([...prev, template.id])]);
+      return;
+    }
+    if (!el) {
+      setMessage((prev) => `${prev}${prev ? '\n' : ''}${text}`);
+      setUsedTemplateIds((prev) => [...new Set([...prev, template.id])]);
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const next = message.slice(0, start) + text + message.slice(end);
+    if (next.length > MAX_COMMENT_LENGTH) return;
+    setMessage(next);
+    setUsedTemplateIds((prev) => [...new Set([...prev, template.id])]);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.selectionStart = start + text.length;
+      el.selectionEnd = start + text.length;
+    });
   }
 
   function onMessageChange(value) {
