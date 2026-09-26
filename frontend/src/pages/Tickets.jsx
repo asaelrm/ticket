@@ -141,6 +141,7 @@ export default function Tickets() {
     onMutate: () => {
       setBusy(true);
       setError('');
+      bulk.clearFeedback();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
@@ -162,6 +163,7 @@ export default function Tickets() {
     onMutate: () => {
       setBusy(true);
       setError('');
+      bulk.clearFeedback();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
@@ -182,7 +184,7 @@ export default function Tickets() {
   function changeStatus(t, status, body = {}) {
     // /resolve exige la solución: se pide antes de llamar al backend.
     if (status === 'RESOLVED') {
-      setResolveTicket(t);
+      bulk.requestResolve([t.id]);
       return;
     }
     statusMutation.mutate({ t, status, body });
