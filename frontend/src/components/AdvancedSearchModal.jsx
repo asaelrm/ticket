@@ -209,10 +209,23 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
         </div>
 
         <div className="sm:col-span-2">
-          <label className="label">Fecha de cierre</label>
+          <label className="label" htmlFor="adv-closed-from">Fecha de cierre (desde)</label>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input type="date" className="input" value={form.closed_from} onChange={(e) => set('closed_from', e.target.value)} />
-            <input type="date" className="input" value={form.closed_to} onChange={(e) => set('closed_to', e.target.value)} />
+            <input
+              id="adv-closed-from"
+              type="date"
+              className="input"
+              value={form.closed_from}
+              onChange={(e) => set('closed_from', e.target.value)}
+            />
+            <input
+              id="adv-closed-to"
+              type="date"
+              className="input"
+              aria-label="Fecha de cierre (hasta)"
+              value={form.closed_to}
+              onChange={(e) => set('closed_to', e.target.value)}
+            />
           </div>
         </div>
       </div>

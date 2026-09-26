@@ -144,6 +144,11 @@ describe('AdvancedSearchModal · directorios según la función', () => {
     await user.click(screen.getByRole('button', { name: /Aplicar filtros/ }));
 
     await waitFor(() => expect(onApply).toHaveBeenCalled());
-    expect(onApply.mock.calls[0][0]).toEqual({ status: 'OPEN', user: '', assigned: '', team: '' });
+    const applied = onApply.mock.calls[0][0];
+    expect(applied.status).toBe('OPEN');
+    // Los tres filtros de directorio heredados se descartan…
+    expect(applied.user).toBe('');
+    expect(applied.assigned).toBe('');
+    expect(applied.team).toBe('');
   });
 });
