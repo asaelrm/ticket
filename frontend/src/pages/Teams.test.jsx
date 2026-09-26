@@ -355,3 +355,44 @@ describe('Teams', () => {
     expect(within(dialog).getByText('Cerrar', { selector: 'button' })).toBeInTheDocument();
   });
 });
+
+// P4: /api/users/assignable exige team.manage en el backend, así que la pantalla
+// de Equipos no debe pedirlo a quien no pueda administrarlos.
+describe('Teams · directorio de usuarios', () => {
+  it('carga el directorio con team.manage', async () => {
+    authState.user = MANAGER;
+
+    renderWithProviders(<Teams />, { route: '/app/teams' });
+    await screen.findByText('Soporte');
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Miembros' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Miembros de Soporte' });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/users/assignable'));
+    await waitFor(() => expect(within(dialog).getByText('Grace Hopper')).toBeInTheDocument());
+  });
+
+  it('no pide el directorio sin team.manage', async () => {
+    authState.user = { id: 9, name: 'Empleado', permissions: ['ticket.view.all'] };
+
+    const user = userEvent.setup();
+    renderWithProviders(<Teams />, { route: '/app/teams' });
+    await screen.findByText('Soporte');
+
+    await user.click(screen.getAllByRole('button', { name: 'Miembros' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Miembros de Soporte' });
+    // Los miembros del equipo sí se consultan; el directorio global no.
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/teams/1'));
+    expect(api.get).not.toHaveBeenCalledWith('/api/users/assignable');
+    expect(api.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/users?'));
+  });
+
+  it('no pide el directorio al montar la pantalla sin team.manage', async () => {
+    authState.user = { id: 9, name: 'Empleado', permissions: ['ticket.view.all'] };
+
+    renderWithProviders(<Teams />, { route: '/app/teams' });
+    await screen.findByText('Soporte');
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/teams'));
+
+    expect(api.get).not.toHaveBeenCalledWith('/api/users/assignable');
+  });
+});
