@@ -22,6 +22,7 @@ import { ErrorBox, Spinner, LoadingScreen, Modal, Drawer, Avatar } from '../comp
 import TicketTimeline from '../components/TicketTimeline';
 import ResolveDrawer from '../components/ResolveDrawer';
 import TemplatePicker from '../components/TemplatePicker';
+import TicketArticles from '../components/TicketArticles';
 import { buildVariableContext, MAX_COMMENT_LENGTH } from '../lib/templateVars';
 
 export default function TicketDetail() {
@@ -856,6 +857,10 @@ export default function TicketDetail() {
               <Info label="Adjuntos" value={`${data.attachments.length}`} />
             </dl>
           </div>
+
+          {/* Artículos de conocimiento: solo se monta y se consulta si el
+              usuario tiene kb.view; el componente no se renderiza sin él. */}
+          <TicketArticles ticket={t} />
         </aside>
       </div>
 
