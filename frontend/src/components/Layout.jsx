@@ -136,6 +136,11 @@ export default function Layout() {
   if (can(user, 'ticket.view.all')) {
     primary.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox });
   }
+  // La base de conocimiento va en «Principal» porque es consulta, no gestión:
+  // cualquiera con kb.view la consulta a diario.
+  if (can(user, 'kb.view')) {
+    primary.push({ to: '/app/knowledge', label: 'Conocimientos', icon: ICONS.knowledge });
+  }
 
   const management = [];
   if (can(user, 'ticket.view.all')) management.push({ to: '/app/tickets', label: 'Todos los tickets', icon: ICONS.tickets });
@@ -144,6 +149,9 @@ export default function Layout() {
   if (can(user, 'department.manage')) management.push({ to: '/app/departments', label: 'Departamentos', icon: ICONS.departments });
   if (can(user, 'team.manage')) management.push({ to: '/app/teams', label: 'Equipos', icon: ICONS.teams });
   if (can(user, 'role.manage')) management.push({ to: '/app/roles', label: 'Roles', icon: ICONS.roles });
+  if (can(user, 'kb.manage')) {
+    management.push({ to: '/app/knowledge/admin', label: 'Artículos y categorías', icon: ICONS.kbAdmin, end: true });
+  }
 
   const system = [];
   if (can(user, 'report.view')) system.push({ to: '/app/reports', label: 'Reportes', icon: ICONS.reports });
@@ -159,7 +167,15 @@ export default function Layout() {
     { title: 'Sistema', items: system },
   ].filter((s) => s.items.length);
 
-  const currentTitle = TITLES[location.pathname] || 'Tickets';
+  // /app/knowledge y sus subrutas comparten cabecera: TITLES solo trae la ruta
+  // exacta, así que el detalle y el editor se resuelven por prefijo.
+  const currentTitle =
+    TITLES[location.pathname] ||
+    (location.pathname.startsWith('/app/knowledge/')
+      ? location.pathname.endsWith('/edit')
+        ? 'Editar artículo'
+        : 'Artículo'
+      : 'Tickets');
   const initials = user
     ? `${user.name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase()
     : '?';
@@ -205,7 +221,7 @@ export default function Layout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  end={item.to === '/app/dashboard' || item.to === '/app/my-tickets' || item.to === '/app/inbox'}
+                  end={item.end || item.to === '/app/dashboard' || item.to === '/app/my-tickets' || item.to === '/app/inbox'}
                   className={({ isActive }) =>
                     `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
                       isActive ? 'app-nav-active' : `app-nav-item${item.alwaysWhite ? ' app-nav-item-white' : ''}`
