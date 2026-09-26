@@ -191,3 +191,206 @@ describe('Inbox', () => {
     expect(screen.queryByText(/2 seleccionado\(s\)/)).not.toBeInTheDocument();
   });
 });
+
+// El backend rechaza PATCH con RESOLVED/CLOSED (tickets.js:861) y exige los
+// endpoints dedicados. Estos tests fijan ese contrato para las acciones masivas
+// y para el menú de fila, que comparten la misma mutación.
+describe('Inbox · acciones de estado con los endpoints dedicados', () => {
+  function twoRows() {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) {
+        return Promise.resolve(
+          listResp([row(), row({ id: 2, ticket_number: 'TCK-000002', title: 'Impresora atascada' })])
+        );
+      }
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      return Promise.reject(new Error('404'));
+    });
+  }
+
+  it('resuelve en lote con POST /resolve y el campo solución obligatorio', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    twoRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: /^Resuelto$/ }));
+
+    // La caja pide la solución antes de tocar el backend.
+    const dialog = await screen.findByText('Resolver 2 ticket(s)');
+    expect(dialog).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText(/Solución \/ trabajo realizado/), 'Se cambió la fuente de poder');
+    await user.click(screen.getByRole('button', { name: 'Resolver 2 ticket(s)' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/tickets/1/resolve', { resolution: 'Se cambió la fuente de poder' })
+    );
+    expect(api.post).toHaveBeenCalledWith('/api/tickets/2/resolve', { resolution: 'Se cambió la fuente de poder' });
+    // Nunca debe caer en el PATCH genérico que el backend rechaza.
+    expect(api.patch).not.toHaveBeenCalledWith('/api/tickets/1', { status: 'RESOLVED' });
+    expect(api.patch).not.toHaveBeenCalledWith('/api/tickets/2', { status: 'RESOLVED' });
+  });
+
+  it('no envía nada si la solución está vacía', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    twoRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: /^Resuelto$/ }));
+
+    expect(await screen.findByRole('button', { name: 'Resolver 2 ticket(s)' })).toBeDisabled();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('cierra en lote con POST /close y no con PATCH', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    twoRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/close', {}));
+    expect(api.post).toHaveBeenCalledWith('/api/tickets/2/close', {});
+    expect(api.patch).not.toHaveBeenCalledWith('/api/tickets/1', { status: 'CLOSED' });
+  });
+
+  it('sólo modifica los tickets seleccionados', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) {
+        return Promise.resolve(
+          listResp([
+            row(),
+            row({ id: 2, ticket_number: 'TCK-000002', title: 'Impresora atascada' }),
+            row({ id: 3, ticket_number: 'TCK-000003', title: 'WiFi intermitente' }),
+          ])
+        );
+      }
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      return Promise.reject(new Error('404'));
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar TCK-000001'));
+    await user.click(screen.getByLabelText('Seleccionar TCK-000002'));
+    expect(screen.getByText('2 seleccionado(s)')).toBeInTheDocument();
+
+    await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(api.post).toHaveBeenCalledWith('/api/tickets/1/close', {});
+    expect(api.post).toHaveBeenCalledWith('/api/tickets/2/close', {});
+    expect(api.post).not.toHaveBeenCalledWith('/api/tickets/3/close', {});
+  });
+
+  it('refresca el listado y los contadores tras el lote', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    twoRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    const listCalls = () => api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).length;
+    const counterCalls = () => api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets/counters')).length;
+    const beforeList = listCalls();
+    const beforeCounters = counterCalls();
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
+
+    await waitFor(() => expect(listCalls()).toBeGreaterThan(beforeList));
+    await waitFor(() => expect(counterCalls()).toBeGreaterThan(beforeCounters));
+    await waitFor(() => expect(screen.queryByText(/seleccionado\(s\)/)).not.toBeInTheDocument());
+  });
+
+  it('informa el motivo real cuando parte del lote falla', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    twoRows();
+    api.post.mockImplementation((url) => {
+      if (url === '/api/tickets/1/close') {
+        return Promise.reject(new Error('Debe registrar una resolución antes de cerrar el ticket.'));
+      }
+      return Promise.resolve({});
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
+
+    const alert = await screen.findByText(/1 de 2 ticket\(s\) no se pudieron actualizar/);
+    expect(alert).toBeInTheDocument();
+    expect(screen.getByText(/Debe registrar una resolución antes de cerrar el ticket/)).toBeInTheDocument();
+    // El ticket que sí pudo cerrarse no se revierte por el fallo del otro.
+    expect(api.post).toHaveBeenCalledWith('/api/tickets/2/close', {});
+  });
+
+  it('omite Resuelto y Cerrar sin ticket.resolve / ticket.close', async () => {
+    const user = userEvent.setup();
+    authState.user = ADMIN; // solo ticket.assign + ticket.update.any
+    twoRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+
+    expect(await screen.findByRole('button', { name: /^En proceso$/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Resuelto$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Cerrar$/ })).not.toBeInTheDocument();
+  });
+
+  it('el menú de fila resuelve por /resolve en lugar de PATCH', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    twoRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getAllByRole('button', { name: '⋯' })[0]);
+    await user.click(await screen.findByRole('menuitem', { name: /Marcar resuelto/ }));
+
+    await user.type(await screen.findByLabelText(/Solución \/ trabajo realizado/), 'Se reinició el equipo');
+    await user.click(screen.getByRole('button', { name: 'Resolver 1 ticket(s)' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/tickets/1/resolve', { resolution: 'Se reinició el equipo' })
+    );
+    expect(api.patch).not.toHaveBeenCalledWith('/api/tickets/1', { status: 'RESOLVED' });
+  });
+
+  it('el menú de fila cierra por /close y mantiene PATCH para "en proceso"', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    twoRows();
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getAllByRole('button', { name: '⋯' })[0]);
+    await user.click(await screen.findByRole('menuitem', { name: /Marcar en proceso/ }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'IN_PROGRESS' }));
+
+    await user.click(screen.getAllByRole('button', { name: '⋯' })[0]);
+    await user.click(await screen.findByRole('menuitem', { name: /Cerrar ticket/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/close', {}));
+  });
+});
