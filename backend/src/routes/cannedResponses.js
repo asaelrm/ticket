@@ -56,10 +56,18 @@ function canManageScope(user, scope) {
   return true; // PERSONAL: el dueño (verificarCanEdit)
 }
 
-/** ¿Puede este usuario modificar esta plantilla concreta? */
+/**
+ * ¿Puede este usuario modificar esta plantilla concreta?
+ * - PERSONAL: solo su propietario (un settings.manage también puede, para poder
+ *   promoverla o corregirla; se documenta como excepción administrativa).
+ * - GLOBAL: settings.manage.
+ * - TEAM: team.manage.
+ */
 function canEdit(user, row) {
   if (!row) return false;
-  if (row.scope === 'PERSONAL') return row.owner_id === user.id;
+  if (row.scope === 'PERSONAL') {
+    return row.owner_id === user.id || canManageScope(user, 'GLOBAL');
+  }
   return canManageScope(user, row.scope);
 }
 
