@@ -306,3 +306,133 @@ describe('Reports', () => {
     expect(await screen.findByText(/registro\(s\), máximo 500 en exportación/)).toBeInTheDocument();
   });
 });
+
+describe('Reports: rendimiento por técnico y por equipo', () => {
+  it('lista el trabajo de cada técnico con su tiempo y su SLA', async () => {
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Rendimiento por técnico')).toBeInTheDocument();
+    expect(screen.getByText('Juan Pérez')).toBeInTheDocument();
+    expect(screen.getByText('5 h 0 min')).toBeInTheDocument();
+    expect(screen.getByText('75 min')).toBeInTheDocument();
+    expect(screen.getByText('6.5 h')).toBeInTheDocument();
+    expect(screen.getByText('75.0%')).toBeInTheDocument();
+  });
+
+  it('advierte que los tickets del equipo se atribuyen al equipo actual', async () => {
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Rendimiento por equipo')).toBeInTheDocument();
+    expect(screen.getByText('Soporte Norte')).toBeInTheDocument();
+    expect(screen.getByText(/no guarda el equipo que los resolvió/)).toBeInTheDocument();
+  });
+
+  it('dice "Sin datos" en vez de mostrar un cero cuando no hay SLA comparable', async () => {
+    setup({
+      byTechnician: [
+        {
+          id: 3, technician: 'Juan Pérez', assigned: 0, open: 0, resolved: 0, closed: 0,
+          total_time_minutes: 0, avg_time_minutes: null, avg_resolution_hours: null,
+          sla_comparable: 0, sla_within: 0, sla_breached: 0, sla_pct: null,
+        },
+      ],
+    });
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Rendimiento por técnico')).toBeInTheDocument();
+    expect(screen.getByText('Sin SLA comparable')).toBeInTheDocument();
+    expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('no muestra filas de técnicos cuando no hay datos', async () => {
+    setup({ byTechnician: [], byTeam: { basis: 'current_assignment', note: 'Sin histórico de equipo.', data: [] } });
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Rendimiento por técnico')).toBeInTheDocument();
+    expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('Reports: satisfacción del cliente', () => {
+  it('muestra media, respuestas, base y tasa', async () => {
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Valoración media')).toBeInTheDocument();
+    expect(screen.getByText('4.25 / 5')).toBeInTheDocument();
+    expect(screen.getByText('Respuestas recibidas').parentElement).toHaveTextContent('4');
+    expect(screen.getByText('Tasa de respuesta').parentElement).toHaveTextContent('80%');
+  });
+
+  it('distingue "sin respuestas" de una valoración cero', async () => {
+    setup({
+      csat: {
+        responses: 0, eligible: 5, response_rate: 0, average: null, has_data: false,
+        distribution: [{ rating: 1, n: 0 }, { rating: 2, n: 0 }, { rating: 3, n: 0 }, { rating: 4, n: 0 }, { rating: 5, n: 0 }],
+        by_technician: [], by_department: [], by_category: [], by_month: [],
+      },
+    });
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Valoración media')).toBeInTheDocument();
+    expect(screen.getByText('Sin respuestas')).toBeInTheDocument();
+    expect(screen.getByText('Tasa de respuesta').parentElement).toHaveTextContent('0%');
+    expect(screen.getByText('Evolución mensual').parentElement).toHaveTextContent('Sin datos');
+  });
+
+  it('distingue una tasa sin base comparable de un 0% real', async () => {
+    setup({
+      csat: {
+        responses: 0, eligible: 0, response_rate: null, average: null, has_data: false,
+        distribution: [{ rating: 1, n: 0 }, { rating: 2, n: 0 }, { rating: 3, n: 0 }, { rating: 4, n: 0 }, { rating: 5, n: 0 }],
+        by_technician: [], by_department: [], by_category: [], by_month: [],
+      },
+    });
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Valoración media')).toBeInTheDocument();
+    expect(screen.getByText('Sin base comparable')).toBeInTheDocument();
+  });
+
+  it('muestra la distribución por estrellas y la evolución mensual', async () => {
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Distribución de respuestas')).toBeInTheDocument();
+    expect(screen.getByText('★★★★★ 5')).toBeInTheDocument();
+    expect(screen.getByText('★★ 2')).toBeInTheDocument();
+
+    expect(screen.getByText('Evolución mensual')).toBeInTheDocument();
+    expect(screen.getByText('2026-09')).toBeInTheDocument();
+    expect(screen.getByText('4 respuesta(s)')).toBeInTheDocument();
+  });
+
+  it('desglosa el CSAT por técnico, departamento y categoría', async () => {
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('CSAT por técnico')).toBeInTheDocument();
+    expect(screen.getByText('CSAT por departamento')).toBeInTheDocument();
+    expect(screen.getByText('CSAT por categoría')).toBeInTheDocument();
+    expect(screen.getByText('4.5 / 5')).toBeInTheDocument();
+    expect(screen.getByText('5 / 5')).toBeInTheDocument();
+  });
+
+  it('no rompe la vista si el backend no devuelve la sección de CSAT', async () => {
+    const payload = report();
+    delete payload.csat;
+    api.get.mockImplementation((url) => {
+      if (url === '/api/departments?active=1') return Promise.resolve(DEPARTMENTS);
+      if (url === '/api/categories?active=1') return Promise.resolve(CATEGORIES);
+      if (url.startsWith('/api/reports/full')) return Promise.resolve(payload);
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Total tickets')).toBeInTheDocument();
+    expect(screen.queryByText('Valoración media')).toBeNull();
+    expect(screen.getByText('Rendimiento por técnico')).toBeInTheDocument();
+  });
+});
