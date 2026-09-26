@@ -162,10 +162,11 @@ describe('expandTemplate', () => {
 
   it('ni siquiera reconoce tokens fuera del patrón [a-z_][a-z0-9_]*', () => {
     // Las mayúsculas, los dígitos iniciales y los puntos no forman variable:
-    // quedan intactos y no se reportan como desconocidas.
-    const out = expandTemplate('{{toString}} {{1var}} {{a.b}} {{constructor.constructor}}', CONTEXT);
-    expect(out.text).toBe('{{toString}} {{1var}} {{a.b}} {{constructor.constructor}}');
-    expect(out.unknown).toEqual(['constructor']);
+    // quedan intactos y ni se reportan como desconocidas.
+    const input = '{{toString}} {{1var}} {{a.b}} {{constructor.constructor}}';
+    const out = expandTemplate(input, CONTEXT);
+    expect(out.text).toBe(input);
+    expect(out.unknown).toEqual([]);
   });
 
   it('permite exactamente 4000 caracteres y avisa al superarlos', () => {
