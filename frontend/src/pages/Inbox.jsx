@@ -395,7 +395,12 @@ export default function Inbox() {
         </button>
       </div>
 
-      {(error || queryError) && <ErrorBox message={error || queryError.message || 'Error al cargar los tickets'} />}
+      {(error || queryError || bulk.error) && (
+        <ErrorBox
+          message={error || queryError?.message || bulk.error}
+          details={bulk.errorDetails}
+        />
+      )}
       {!list ? (
         <LoadingScreen />
       ) : (
@@ -413,9 +418,9 @@ export default function Inbox() {
           onAssignMe={assignMe}
           onStatusChange={changeStatus}
           selectable
-          selected={selected}
-          onToggle={toggleOne}
-          onToggleAll={toggleAll}
+          selected={bulk.selected}
+          onToggle={bulk.toggleOne}
+          onToggleAll={bulk.toggleAll}
         />
       )}
 
