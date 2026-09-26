@@ -421,9 +421,11 @@ describe('Inbox · directorio de técnicos asignables', () => {
     expect(api.get).not.toHaveBeenCalledWith('/api/users/assignable');
     await user.click(await screen.findByRole('button', { name: 'Asignar a…' }));
 
+    const dialog = await screen.findByRole('dialog');
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/users/assignable'));
-    await user.selectOptions(await screen.findByLabelText('Técnico asignado'), '9');
-    await user.click(screen.getByRole('button', { name: 'Asignar' }));
+    await waitFor(() => expect(within(dialog).getByRole('option', { name: /Beto Gómez/ })).toBeInTheDocument());
+    await user.selectOptions(within(dialog).getByRole('combobox'), '9');
+    await user.click(within(dialog).getByRole('button', { name: 'Asignar' }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_to_id: 9 }));
     expect(api.patch).toHaveBeenCalledWith('/api/tickets/2', { assigned_to_id: 9 });
