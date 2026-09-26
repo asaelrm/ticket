@@ -19,55 +19,57 @@ export default function BulkTicketBar({ bulk, canAssign, canManage, canResolve, 
     enabled: bulk.assignOpen && canAssign,
   });
 
-  if (selected.size === 0) return null;
-
   return (
     <>
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-3 lg:px-8">
-          <span className="text-sm font-semibold text-slate-800">{selected.size} seleccionado(s)</span>
-          <button type="button" className="btn-ghost text-sm" onClick={bulk.clearSelection}>
-            Quitar selección
-          </button>
-          <div className="ml-auto flex flex-wrap gap-2">
-            {canAssign && (
-              <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.bulkAssignMe}>
-                Asignarme
-              </button>
-            )}
-            {canAssign && (
-              <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.openAssign}>
-                Asignar a…
-              </button>
-            )}
-            {canManage && (
-              <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.bulkStatus('IN_PROGRESS')}>
-                En proceso
-              </button>
-            )}
-            {canResolve && (
-              <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.requestResolve([...selected])}>
-                Resuelto
-              </button>
-            )}
-            {canClose && (
-              <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.bulkStatus('CLOSED')}>
-                Cerrar
-              </button>
-            )}
-            {canManage && (
-              <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.openPriority}>
-                Prioridad…
-              </button>
-            )}
-            {canManage && (
-              <button type="button" className="btn-danger" disabled={busy} onClick={bulk.openCancel}>
-                Cancelar
-              </button>
-            )}
+      {/* La barra depende de la selección, pero los diálogos no: el de resolución
+          también se abre desde el menú de fila, donde no hay nada seleccionado. */}
+      {selected.size > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-3 lg:px-8">
+            <span className="text-sm font-semibold text-slate-800">{selected.size} seleccionado(s)</span>
+            <button type="button" className="btn-ghost text-sm" onClick={bulk.clearSelection}>
+              Quitar selección
+            </button>
+            <div className="ml-auto flex flex-wrap gap-2">
+              {canAssign && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.bulkAssignMe}>
+                  Asignarme
+                </button>
+              )}
+              {canAssign && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.openAssign}>
+                  Asignar a…
+                </button>
+              )}
+              {canManage && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.bulkStatus('IN_PROGRESS')}>
+                  En proceso
+                </button>
+              )}
+              {canResolve && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.requestResolve([...selected])}>
+                  Resuelto
+                </button>
+              )}
+              {canClose && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.bulkStatus('CLOSED')}>
+                  Cerrar
+                </button>
+              )}
+              {canManage && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.openPriority}>
+                  Prioridad…
+                </button>
+              )}
+              {canManage && (
+                <button type="button" className="btn-danger" disabled={busy} onClick={bulk.openCancel}>
+                  Cancelar
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <Modal open={bulk.assignOpen} onClose={() => bulk.setAssignOpen(false)} title={`Asignar ${selected.size} ticket(s)`}>
         <label className="label">Técnico asignado</label>
