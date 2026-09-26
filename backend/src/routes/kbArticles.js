@@ -300,9 +300,16 @@ router.get('/from-ticket/:ticketId', requirePermission('kb.create'), (req, res) 
       description: ticket.description,
       solution: ticket.resolution,
       keywords: '',
-      category_id: ticket.category_id,
+      // `tickets.category_id` apunta a `categories` (tipo de incidencia), no a
+      // `kb_categories` (tema de documentación): son dominios distintos y sus
+      // identificadores no significan lo mismo. Prefijar aquí sugeriría una
+      // equivalencia que no existe y publicaría el artículo en la categoría
+      // equivocada, así que el autor elige la suya en el formulario.
+      category_id: null,
       ticket_id: ticket.id,
       ticket_number: ticket.ticket_number,
+      // Datos de contexto, nunca asignables a un artículo.
+      ticket_category_id: ticket.category_id,
       resolution_category: ticket.resolution_category,
       root_cause: ticket.root_cause,
     },

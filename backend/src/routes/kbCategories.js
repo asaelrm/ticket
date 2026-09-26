@@ -18,10 +18,15 @@ const LIST_SQL = `
 /**
  * Listado de categorías. Sin permiso de kb.view el catálogo tampoco tiene
  * sentido: quien no puede leer artículos publicados no puede filtrar por ellos.
+ *
+ * Las categorías desactivadas solo las ve quien puede gestionarlas: para el
+ * resto del mundo el catálogo se limita a `active = 1`.
  */
 router.get('/', requirePermission('kb.view'), (req, res) => {
-  const onlyActive = req.query.active === '1' || req.query.active === 'true';
-  const where = onlyActive ? 'WHERE c.active = 1' : '';
+  const canManage = req.user.permissions.includes('kb.manage');
+  const asked = String(req.query.active ?? '');
+  const wantsInactive = asked === '0' || asked === 'false';
+  const where = canManage && wantsInactive ? '' : 'WHERE c.active = 1';
   const rows = db.prepare(`${LIST_SQL} ${where} ORDER BY c.name`).all();
   res.json({ data: rows });
 });
