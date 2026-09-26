@@ -636,6 +636,15 @@ export default function TicketDetail() {
                     <ToolbarButton label="Código" onClick={() => applyFormat('`', '`', 'código')}>
                       {'</>'}
                     </ToolbarButton>
+                    {(can.comment || can.note) && (
+                      <TemplatePicker
+                        context={buildVariableContext({ ticket: t, user })}
+                        onInsert={onInsertTemplate}
+                        onManagePersonal={() => navigate('/app/profile')}
+                        onManageGlobal={() => navigate('/app/templates')}
+                        canManageGlobal={!!user?.permissions?.includes('settings.manage') || !!user?.permissions?.includes('team.manage')}
+                      />
+                    )}
                   </div>
                   <textarea
                     ref={textareaRef}
