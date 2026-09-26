@@ -314,7 +314,7 @@ describe('Reports: rendimiento por técnico y por equipo', () => {
     expect(await screen.findByRole('heading', { name: 'Rendimiento por técnico' })).toBeInTheDocument();
     expect(screen.getAllByText('Juan Pérez').length).toBe(2, 'aparece en su tabla y en el desglose de CSAT');
     expect(screen.getByText('5 h 0 min')).toBeInTheDocument();
-    expect(screen.getByText('75 min')).toBeInTheDocument();
+    expect(screen.getByText('1 h 15 min')).toBeInTheDocument();
     expect(screen.getByText('6.5 h')).toBeInTheDocument();
     expect(screen.getByText('75.0%')).toBeInTheDocument();
   });
