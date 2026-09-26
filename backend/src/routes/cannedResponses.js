@@ -99,7 +99,12 @@ router.get('/mine', (req, res) => {
 
 /** Listado administrativo: globales y de equipo, con su estado real. */
 router.get('/manage', requireAnyPermission(['settings.manage', 'team.manage']), (req, res) => {
-  const clauses = [];
+  // Este listado es SIEMPRE de globales y de equipo. Las plantillas PERSONALES
+  // son privadas de su dueño y se gestionan desde /mine, así que quedan
+  // excluidas siempre, no solo cuando se pasa ?scope=: sin esta cláusula un
+  // usuario con team.manage (sin settings.manage) recibía el cuerpo de las
+  // personales de todos los usuarios.
+  const clauses = ["c.scope IN ('GLOBAL','TEAM')"];
   const params = [];
 
   const scope = req.query.scope ? String(req.query.scope).toUpperCase() : '';
