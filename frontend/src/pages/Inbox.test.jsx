@@ -250,7 +250,6 @@ describe('Inbox · acciones de estado con los endpoints dedicados', () => {
     expect(await screen.findByRole('button', { name: 'Resolver 2 ticket(s)' })).toBeDisabled();
     expect(api.post).not.toHaveBeenCalled();
   });
-
   it('cierra en lote con POST /close y no con PATCH', async () => {
     const user = userEvent.setup();
     authState.user = FULL;
