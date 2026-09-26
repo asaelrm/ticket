@@ -282,6 +282,6 @@ describe('Las nuevas secciones se exponen y se protegen por permiso', () => {
     assert.ok(body.includes('RENDIMIENTO POR EQUIPO'));
     assert.ok(body.includes('SATISFACCIÓN (CSAT)'));
     assert.ok(body.includes('Técnico') && body.includes('Equipo Soporte Norte'));
-    assert.ok(!body.includes('DETALLE DE TICKETS'), 'solo导出 las secciones pedidas');
+    assert.ok(!body.includes('DETALLE DE TICKETS'), 'solo exporta las secciones pedidas');
   });
 });
