@@ -154,10 +154,18 @@ describe('expandTemplate', () => {
   });
 
   it('no da acceso al prototipo: constructor y __proto__ quedan literales', () => {
-    const malicious = '{{constructor}} {{__proto__}} {{toString}}';
+    const malicious = '{{constructor}} {{__proto__}}';
     const out = expandTemplate(malicious, CONTEXT);
     expect(out.text).toBe(malicious);
-    expect(out.unknown).toEqual(['constructor', '__proto__', 'toString']);
+    expect(out.unknown).toEqual(['constructor', '__proto__']);
+  });
+
+  it('ni siquiera reconoce tokens fuera del patrón [a-z_][a-z0-9_]*', () => {
+    // Las mayúsculas, los dígitos iniciales y los puntos no forman variable:
+    // quedan intactos y no se reportan como desconocidas.
+    const out = expandTemplate('{{toString}} {{1var}} {{a.b}} {{constructor.constructor}}', CONTEXT);
+    expect(out.text).toBe('{{toString}} {{1var}} {{a.b}} {{constructor.constructor}}');
+    expect(out.unknown).toEqual(['constructor']);
   });
 
   it('permite exactamente 4000 caracteres y avisa al superarlos', () => {
@@ -167,9 +175,10 @@ describe('expandTemplate', () => {
   });
 
   it('el texto expandido puede exceder 2000 aunque la plantilla no lo haga', () => {
-    const body = `{{ticket_title}} ${'b'.repeat(1000)}`; // cuerpo <= 2000
-    const out = expandTemplate(body, { ticket_title: 'T'.repeat(200) });
-    expect(body.length).toBeLessThanOrEqual(MAX_TEMPLATE_BODY);
+    // Cuerpo de 2000 caracteres exactos que, al expandir, crece por encima.
+    const body = `{{ticket_title}}${'b'.repeat(MAX_TEMPLATE_BODY - 16)}`;
+    expect(body.length).toBe(MAX_TEMPLATE_BODY);
+    const out = expandTemplate(body, { ticket_title: 'T'.repeat(MAX_VARIABLE_VALUE) });
     expect(out.text.length).toBeGreaterThan(MAX_TEMPLATE_BODY);
   });
 });
