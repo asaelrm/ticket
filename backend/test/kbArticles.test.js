@@ -1,6 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
+import db from '../src/db.js';
 import {
   MAX_ARTICLE_TITLE,
   MAX_ARTICLE_SUMMARY,
@@ -688,13 +689,32 @@ describe('relación con tickets', () => {
     assert.equal(res.body.data.length, 0);
   });
 
-  it('al borrar el ticket se limpia el enlace', async () => {
+  it('al borrarse el ticket se limpia el enlace por ON DELETE CASCADE', async () => {
     const article = await createDraft(tech, { title: uniq('Ticket efímero') });
     await publish(tech, article.id);
     const ticket = await makeTicket(tech);
     await tech.post(`/api/kb-articles/${article.id}/tickets/${ticket.id}`);
-    await admin.del(`/api/tickets/${ticket.id}`);
+    assert.equal((await tech.get(`/api/kb-articles/${article.id}/tickets`)).body.total, 1);
+
+    // La API no expone borrado de tickets: se borra la fila para verificar la
+    // IntegrityAction del esquema (PRAGMA foreign_keys = ON en db.js).
+    db.prepare('DELETE FROM tickets WHERE id = ?').run(ticket.id);
     assert.equal((await tech.get(`/api/kb-articles/${article.id}/tickets`)).body.total, 0);
+  });
+
+  it('al borrarse el autor el artículo se conserva sin autor (ON DELETE SET NULL)', async () => {
+    const usuario = await createUser({ username: `kbsale${Date.now() % 100000}`, roleId: techRoleId });
+    const article = await createDraft(usuario.client, { title: uniq('Heredado') });
+    await publish(usuario.client, article.id);
+
+    const res = await admin.del(`/api/users/${usuario.id}`);
+    assert.equal(res.status, 200);
+
+    const after = await tech.get(`/api/kb-articles/${article.id}`);
+    assert.equal(after.status, 200);
+    assert.equal(after.body.article.author_id, null);
+    assert.equal(after.body.article.status, 'PUBLISHED');
+    assert.equal((await emp.get('/api/kb-articles?perPage=100')).body.data.map((a) => a.id).includes(article.id), true);
   });
 });
 
@@ -785,9 +805,9 @@ describe('previsualización desde un ticket resuelto', () => {
 
   it('con notify la solución no se duplica en la previsualización', async () => {
     const ticket = await makeTicket(tech);
-    const solution = 'Se cambió la contraseña y se verificó el acceso.';
-    await resolveTicket(tech, ticket.id, { solution, notify: true });
+    const resolution = 'Se cambió la contraseña y se verificó el acceso.';
+    await resolveTicket(tech, ticket.id, { resolution, notify: true });
     const res = await tech.get(`/api/kb-articles/from-ticket/${ticket.id}`);
-    assert.equal(res.body.preview.solution, solution);
+    assert.equal(res.body.preview.solution, resolution);
   });
 });
