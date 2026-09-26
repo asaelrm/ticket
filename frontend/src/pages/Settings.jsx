@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
 
 export default function Settings() {
+  const queryClient = useQueryClient();
   const { setAppName } = useAuth();
   const [form, setForm] = useState(null);
   const [error, setError] = useState('');
