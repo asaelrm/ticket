@@ -19,6 +19,7 @@ let tech2;
 let tech2Id;
 let emp;
 let empRoleId;
+let techRoleId;
 
 let seq = 0;
 const uniq = (prefix) => `${prefix} ${Date.now()}-${seq++}`;
@@ -71,6 +72,7 @@ before(async () => {
   techId = (await tech.get('/api/auth/me')).body.user.id;
   const roles = (await admin.get('/api/roles')).body.roles;
   const techRole = roles.find((r) => r.code === 'TECHNICIAN').id;
+  techRoleId = techRole;
   empRoleId = roles.find((r) => r.code === 'EMPLOYEE').id;
 
   tech2 = await createUser({ username: `tec${Date.now() % 100000}`, roleId: techRole });
