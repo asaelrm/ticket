@@ -137,9 +137,15 @@ export default function Layout() {
     primary.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox });
   }
   // La base de conocimiento va en «Principal» porque es consulta, no gestión:
-  // cualquiera con kb.view la consulta a diario.
+  // cualquiera con kb.view la consulta a diario. Se marca activa en el listado,
+  // la ficha y el editor, pero no en /admin, que tiene su propia entrada.
   if (can(user, 'kb.view')) {
-    primary.push({ to: '/app/knowledge', label: 'Conocimientos', icon: ICONS.knowledge });
+    primary.push({
+      to: '/app/knowledge',
+      label: 'Conocimientos',
+      icon: ICONS.knowledge,
+      active: (path) => path === '/app/knowledge' || /^\/app\/knowledge\/\d+(\/edit)?$/.test(path),
+    });
   }
 
   const management = [];
@@ -222,11 +228,12 @@ export default function Layout() {
                   key={item.to}
                   to={item.to}
                   end={item.end || item.to === '/app/dashboard' || item.to === '/app/my-tickets' || item.to === '/app/inbox'}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
-                      isActive ? 'app-nav-active' : `app-nav-item${item.alwaysWhite ? ' app-nav-item-white' : ''}`
-                    }`
-                  }
+                  className={({ isActive }) => {
+                    const active = item.active ? item.active(location.pathname) : isActive;
+                    return `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+                      active ? 'app-nav-active' : `app-nav-item${item.alwaysWhite ? ' app-nav-item-white' : ''}`
+                    }`;
+                  }}
                 >
                   {item.icon}
                   <span className="truncate">{item.label}</span>
