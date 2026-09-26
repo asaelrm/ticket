@@ -1504,11 +1504,13 @@ router.post('/:id/reopen', requirePermission('ticket.reopen'), (req, res) => {
 
   const now = nowIso();
   // Se conservan solution/root_cause/time_spent/resolved_by de la resolución anterior.
+  // La encuesta CSAT sí se reinicia: valoraba la resolución que ya no está en pie.
   db.prepare(
     `UPDATE tickets
        SET status = 'OPEN', reopened_at = ?, reopened_by = ?, reopen_reason = ?,
            resolved_at = NULL, closed_at = NULL, pending_reason = NULL,
-           sla_due_at = ?, updated_at = ?
+           sla_due_at = ?, updated_at = ?,
+           csat_rating = NULL, csat_comment = NULL, csat_answered_at = NULL
      WHERE id = ?`
   ).run(now, req.user.id, reason, computeSlaDue(ticket.priority), now, id);
 
