@@ -17,6 +17,8 @@ import categoriesRoutes from './routes/categories.js';
 import departmentsRoutes from './routes/departments.js';
 import teamsRoutes from './routes/teams.js';
 import cannedResponsesRoutes from './routes/cannedResponses.js';
+import kbArticlesRoutes from './routes/kbArticles.js';
+import kbCategoriesRoutes from './routes/kbCategories.js';
 import filesRoutes from './routes/files.js';
 import dashboardRoutes from './routes/dashboard.js';
 import reportsRoutes from './routes/reports.js';
@@ -107,6 +109,8 @@ export function createApp() {
   app.use('/api/departments', departmentsRoutes);
   app.use('/api/teams', teamsRoutes);
   app.use('/api/canned-responses', cannedResponsesRoutes);
+  app.use('/api/kb-articles', kbArticlesRoutes);
+  app.use('/api/kb-categories', kbCategoriesRoutes);
   app.use('/api/files', filesRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/reports', reportsRoutes);
