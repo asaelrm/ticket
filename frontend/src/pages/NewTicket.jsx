@@ -198,12 +198,7 @@ export default function NewTicket() {
                 {files.map((f, i) => (
                   <li key={`${f.name}-${i}`} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
                     {isImage(f.type) ? (
-                      <img
-                        src={URL.createObjectURL(f)}
-                        alt=""
-                        className="h-10 w-10 rounded-md object-cover"
-                        onLoad={(e) => URL.revokeObjectURL(e.target.src)}
-                      />
+                      <FileThumb file={f} />
                     ) : (
                       <span className="grid h-10 w-10 place-items-center rounded-md bg-slate-100 text-slate-500">
                         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -239,6 +234,5 @@ export default function NewTicket() {
           </div>
         </form>
       </div>
-    </div>
-  );
+    </div>  );
 }
