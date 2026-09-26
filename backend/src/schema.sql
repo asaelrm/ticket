@@ -139,6 +139,35 @@ CREATE TABLE IF NOT EXISTS team_members (
 );
 CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
 
+-- 4c. Respuestas rápidas (plantillas de respuesta reutilizables)
+-- Tres ámbitos: GLOBAL (compartida por la organización), PERSONAL (del dueño) y
+-- TEAM (visible para los miembros actuales del equipo). El CHECK de consistencia
+-- impide combinaciones inválidas (p. ej. GLOBAL con owner_id, TEAM sin team_id).
+-- No hay borrado físico: la baja es lógica con is_active para conservar use_count.
+CREATE TABLE IF NOT EXISTS canned_responses (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  title      TEXT NOT NULL,
+  body       TEXT NOT NULL,
+  scope      TEXT NOT NULL CHECK (scope IN ('GLOBAL','PERSONAL','TEAM')),
+  owner_id   INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  team_id    INTEGER REFERENCES teams(id) ON DELETE CASCADE,
+  is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+  use_count  INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT,
+  CHECK (length(trim(title)) > 0 AND length(title) <= 100),
+  CHECK (length(trim(body)) > 0 AND length(body) <= 2000),
+  CHECK (
+    (scope = 'GLOBAL'   AND owner_id IS NULL     AND team_id IS NULL) OR
+    (scope = 'PERSONAL' AND owner_id IS NOT NULL AND team_id IS NULL) OR
+    (scope = 'TEAM'     AND owner_id IS NULL     AND team_id IS NOT NULL)
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_canned_scope_active ON canned_responses(scope, is_active);
+CREATE INDEX IF NOT EXISTS idx_canned_owner ON canned_responses(owner_id);
+CREATE INDEX IF NOT EXISTS idx_canned_team ON canned_responses(team_id);
+CREATE INDEX IF NOT EXISTS idx_canned_usage ON canned_responses(use_count DESC);
+
 -- 5. Adjuntos, comentarios e historial
 CREATE TABLE IF NOT EXISTS ticket_comments (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
