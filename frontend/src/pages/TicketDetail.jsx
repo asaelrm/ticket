@@ -57,6 +57,9 @@ export default function TicketDetail() {
   const [csatRating, setCsatRating] = useState(0);
   const [csatComment, setCsatComment] = useState('');
   const [csatSent, setCsatSent] = useState(false);
+  // Origen de la respuesta: ids de las plantillas insertadas en este borrador.
+  // Se envían junto al comentario solo para contabilizar el uso.
+  const [usedTemplateIds, setUsedTemplateIds] = useState([]);
 
   const editorRef = useRef(null);
   const textareaRef = useRef(null);
