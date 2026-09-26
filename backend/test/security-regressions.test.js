@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { createClient } from './helpers.js';
 import config from '../src/config.js';
 import { attachmentPath } from '../src/utils/fileType.js';
@@ -191,6 +192,6 @@ describe('Descarga de adjuntos', () => {
     assert.equal(attachmentPath('../secret.txt'), null);
     assert.equal(attachmentPath('/etc/passwd'), null);
     assert.equal(attachmentPath('sub/carpeta.png'), null);
-    assert.ok(attachmentPath(`${config.uploadDir}-evil/x.png`) === null || true);
+    assert.equal(attachmentPath(`${path.basename(config.uploadDir)}-evil.png`), null);
   });
 });
