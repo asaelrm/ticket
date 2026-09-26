@@ -226,4 +226,13 @@ describe('markdown: el HTML peligroso sigue escapado', () => {
     expect(renderMessage('a &amp; b')).toBe('<p>a &amp;amp; b</p>');
     expect(renderMessage('a & b')).toBe('<p>a &amp; b</p>');
   });
+
+  it('escapa también el apóstrofo, que podría cerrar un atributo con comillas simples', () => {
+    // Hoy el renderizador solo usa literales propios, pero nada impide que un
+    // título o un atributo future usen comillas simples. Este test falla si
+    // alguien quita el escapado del apóstrofe.
+    const html = renderMessage("' onfocus='alert(1)");
+    expect(html).toContain('&#39;');
+    expect(html).not.toContain("onfocus='");
+  });
 });
