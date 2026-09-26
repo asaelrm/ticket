@@ -16,6 +16,7 @@ import ticketsRoutes from './routes/tickets.js';
 import categoriesRoutes from './routes/categories.js';
 import departmentsRoutes from './routes/departments.js';
 import teamsRoutes from './routes/teams.js';
+import cannedResponsesRoutes from './routes/cannedResponses.js';
 import filesRoutes from './routes/files.js';
 import dashboardRoutes from './routes/dashboard.js';
 import reportsRoutes from './routes/reports.js';
