@@ -417,7 +417,7 @@ function CategoriesTab() {
                   <div>
                     <p className="font-semibold text-slate-800">{c.name}</p>
                     <p className="text-xs text-slate-400">
-                      {c.articles_count} artículo{c.articles_count === 1 ? '' : 's'} publicados
+                      {`${c.articles_count} artículo${c.articles_count === 1 ? '' : 's'} publicados`}
                       {c.active ? '' : ' · inactiva'}
                     </p>
                   </div>

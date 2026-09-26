@@ -66,6 +66,17 @@ function rowFor(title) {
   return screen.getByText(title).closest('tr');
 }
 
+function cardFor(name) {
+  return screen.getByText(name).closest('.card');
+}
+
+// El orden de los parámetros no es parte del contrato: se comparan como mapa.
+function lastManageQuery() {
+  const calls = api.get.mock.calls.filter(([url]) => url.startsWith('/api/kb-articles/manage'));
+  const url = calls[calls.length - 1][0];
+  return Object.fromEntries(new URLSearchParams(url.split('?')[1]));
+}
+
 function manageCalls() {
   return api.get.mock.calls.filter(([url]) => url.startsWith('/api/kb-articles/manage'));
 }
@@ -99,9 +110,7 @@ describe('KnowledgeAdmin · moderación de artículos', () => {
     const before = manageCalls().length;
     await user.selectOptions(screen.getByLabelText('Filtrar por estado'), 'DRAFT');
 
-    await waitFor(() =>
-      expect(api.get).toHaveBeenCalledWith('/api/kb-articles/manage?status=DRAFT&perPage=10')
-    );
+    await waitFor(() => expect(lastManageQuery()).toEqual({ perPage: '10', status: 'DRAFT' }));
     expect(manageCalls().length).toBeGreaterThan(before);
   });
 
