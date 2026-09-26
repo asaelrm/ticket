@@ -707,8 +707,9 @@ describe('relación con tickets', () => {
     const article = await createDraft(usuario.client, { title: uniq('Heredado') });
     await publish(usuario.client, article.id);
 
-    const res = await admin.del(`/api/users/${usuario.id}`);
-    assert.equal(res.status, 200);
+    // La API solo desactiva usuarios, no los borra: se borra la fila para
+    // verificar la IntegrityAction del esquema.
+    db.prepare('DELETE FROM users WHERE id = ?').run(usuario.id);
 
     const after = await tech.get(`/api/kb-articles/${article.id}`);
     assert.equal(after.status, 200);
