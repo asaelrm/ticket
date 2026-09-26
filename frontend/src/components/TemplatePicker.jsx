@@ -137,8 +137,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
         ref={buttonRef}
         type="button"
         className="rounded-md px-2 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/10"
-        onClick={() => (open ? onClose() : undefined)}
-        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={open}
         title="Respuestas rápidas"
