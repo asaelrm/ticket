@@ -146,6 +146,13 @@ function seedBaseData() {
     'INSERT INTO departments (name) VALUES (?) ON CONFLICT(name) DO NOTHING'
   );
   for (const name of INITIAL_DEPARTMENTS) insertDept.run(name);
+
+  // Mismo criterio que `categories`: el nombre no se sobrescribe al reiniciar
+  // para no revertir lo que un administrador haya renombrado desde la UI.
+  const insertKbCat = db.prepare(
+    'INSERT INTO kb_categories (name, description, color) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
+  );
+  for (const [name, desc, color] of INITIAL_KB_CATEGORIES) insertKbCat.run(name, desc, color);
 }
 
 function ensureUsers() {
@@ -242,7 +249,13 @@ export function seed() {
     seedBaseData();
     // ensureUsers decide internamente qué cuentas crear según el entorno.
     ensureUsers();
-    return { ok: true, roles: Object.keys(ROLES).length, categories: INITIAL_CATEGORIES.length, departments: INITIAL_DEPARTMENTS.length };
+    return {
+      ok: true,
+      roles: Object.keys(ROLES).length,
+      categories: INITIAL_CATEGORIES.length,
+      departments: INITIAL_DEPARTMENTS.length,
+      kb_categories: INITIAL_KB_CATEGORIES.length,
+    };
   });
 }
 
