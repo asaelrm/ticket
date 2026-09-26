@@ -64,6 +64,13 @@ function listResp(rows = [row()], page = 1, pages = 1, total = rows.length) {
 }
 
 const ADMIN = { id: 7, name: 'Admin', department_id: 3, permissions: ['ticket.assign', 'ticket.update.any'] };
+// Técnico del seed: tiene ticket.assign/update.any/resolve/close.
+const FULL = {
+  id: 7,
+  name: 'Admin',
+  department_id: 3,
+  permissions: ['ticket.assign', 'ticket.update.any', 'ticket.resolve', 'ticket.close'],
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
