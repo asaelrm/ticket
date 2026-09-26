@@ -32,6 +32,11 @@ export const ARTICLE_SORTS = [
   ['title', 'Título (A-Z)'],
 ];
 
+// Tamaño de página por defecto del cliente. NO coincide con el 15 de
+// pagination() en kbArticles.js: por eso toQuery() lo envía SIEMPRE de forma
+// explícita y la URL solo lo guarda cuando el usuario lo cambia. Así el
+// selector de la interfaz (10/25/50/100) nunca muestra un valor que el
+// servidor no está aplicando.
 export const DEFAULT_KB_PERPAGE = 10;
 
 function has(user, code) {
@@ -105,9 +110,7 @@ export function toQuery(filters = {}) {
   if (filters.category) sp.set('category', String(filters.category));
   if (filters.sort && filters.sort !== 'recent') sp.set('sort', filters.sort);
   if (filters.page && Number(filters.page) > 1) sp.set('page', String(Number(filters.page)));
-  if (filters.perPage && Number(filters.perPage) !== DEFAULT_KB_PERPAGE) {
-    sp.set('perPage', String(Number(filters.perPage)));
-  }
+  sp.set('perPage', String(Number(filters.perPage) || DEFAULT_KB_PERPAGE));
   return sp.toString();
 }
 
