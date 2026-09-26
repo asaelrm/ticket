@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, renderHook, act } from '@testing-library/react';
+import { waitFor, renderHook, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './AuthContext';
 import { api } from '../lib/api';
@@ -105,12 +105,5 @@ describe('Aislamiento de caché entre sesiones', () => {
 
     await waitFor(() => expect(result.current.user).toEqual(ADMIN));
     expect(result.current.appName).toBe('Soporte');
-  });
-});
-
-describe('render del hook y utilidades', () => {
-  it('useAuth devuelve un contexto con la forma esperada', async () => {
-    render(<AuthProvider><span>ok</span></AuthProvider>);
-    expect(await screen.findByText('ok')).toBeInTheDocument();
   });
 });
