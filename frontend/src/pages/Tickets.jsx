@@ -6,7 +6,8 @@ import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
-import ResolveTicketsModal from '../components/ResolveTicketsModal';
+import BulkTicketBar from '../components/BulkTicketBar';
+import { useTicketBulk } from '../lib/useTicketBulk';
 import { LoadingScreen, ErrorBox, Spinner, Menu } from '../components/ui';
 
 const DEFAULTS = { sort: 'created_at', dir: 'desc', perPage: 15, page: 1 };
@@ -46,11 +47,14 @@ export default function Tickets() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [resolveTicket, setResolveTicket] = useState(null);
 
   const canExport = user?.permissions?.includes('ticket.export');
   const canAssign = user?.permissions?.includes('ticket.assign');
   const canManage = user?.permissions?.includes('ticket.update.any');
+  // El backend exige el permiso específico de cada flujo, no solo update.any:
+  // /resolve exige ticket.resolve y /close exige ticket.close.
+  const canResolve = user?.permissions?.includes('ticket.resolve');
+  const canClose = user?.permissions?.includes('ticket.close');
 
   const update = useCallback(
     (partial, { replace = false } = {}) => {
@@ -92,7 +96,15 @@ export default function Tickets() {
 
   useTicketEventInvalidator(['tickets', 'tickets-counters']);
 
+  const bulk = useTicketBulk({
+    user,
+    queryKeys: ['tickets', 'tickets-counters'],
+    resetKey: query,
+    labelFor: (id) => list?.data?.find((t) => t.id === id)?.ticket_number || `Ticket ${id}`,
+  });
+
   // Equivale al efecto [reload]: al cambiar filtros se limpia el error previo y se refrescan los contadores.
+  // La selección ya la descarta `useTicketBulk` con `resetKey`.
   useEffect(() => {
     setError('');
     queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
