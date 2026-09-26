@@ -21,6 +21,8 @@ import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen, Modal, Drawer, Avatar } from '../components/ui';
 import TicketTimeline from '../components/TicketTimeline';
 import ResolveDrawer from '../components/ResolveDrawer';
+import TemplatePicker from '../components/TemplatePicker';
+import { buildVariableContext, MAX_COMMENT_LENGTH } from '../lib/templateVars';
 
 export default function TicketDetail() {
   const { id } = useParams();
