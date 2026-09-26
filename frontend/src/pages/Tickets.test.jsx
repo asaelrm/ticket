@@ -66,6 +66,14 @@ function listResp(rows = [row()], page = 1, pages = 1, total = rows.length) {
 }
 
 const ADMIN = { id: 7, name: 'Admin', department_id: 3, permissions: ['ticket.export', 'ticket.assign', 'ticket.update.any'] };
+// Técnico del seed: además de update.any/resolve/close puede ver toda la lista,
+// así que la búsqueda avanzada sí puede cargarle los directorios.
+const FULL = {
+  id: 7,
+  name: 'Admin',
+  department_id: 3,
+  permissions: ['ticket.assign', 'ticket.update.any', 'ticket.resolve', 'ticket.close', 'ticket.view.all'],
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -193,6 +201,7 @@ describe('Tickets', () => {
 
   it('abre y cierra el modal de búsqueda avanzada', async () => {
     const user = userEvent.setup();
+    authState.user = FULL;
     renderWithProviders(<Tickets />, { route: '/app/tickets' });
     await screen.findByText('TCK-000001');
 
@@ -202,11 +211,31 @@ describe('Tickets', () => {
     expect(dialog).toBeInTheDocument();
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/categories'));
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/departments'));
-    expect(api.get).toHaveBeenCalledWith('/api/users/assignable');
-    expect(api.get).toHaveBeenCalledWith('/api/teams/assignable');
+    // Con ticket.view.all los filtros por solicitante/técnico/equipo son
+    // utilizables, así que se cargan sus directorios.
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/users/assignable'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/teams/assignable'));
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
     expect(screen.queryByRole('dialog', { name: 'Búsqueda avanzada' })).not.toBeInTheDocument();
+  });
+
+  it('no pide los directorios de búsqueda avanzada sin ticket.view.all', async () => {
+    const user = userEvent.setup();
+    authState.user = ADMIN; // sin ticket.view.all
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: /Búsqueda avanzada/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/categories'));
+    expect(api.get).not.toHaveBeenCalledWith('/api/users/assignable');
+    expect(api.get).not.toHaveBeenCalledWith('/api/teams/assignable');
+    // Los filtros que dependen de esos directorios no se ofrecen.
+    expect(within(dialog).queryByLabelText('Solicitante')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Técnico asignado')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Equipo asignado')).not.toBeInTheDocument();
   });
 
   it('aplica filtros avanzados a la consulta', async () => {
