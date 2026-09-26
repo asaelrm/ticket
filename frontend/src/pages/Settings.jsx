@@ -56,6 +56,8 @@ export default function Settings() {
     },
     onSuccess: (normalized) => {
       if (normalized.app_name) setAppName(normalized.app_name);
+      queryClient.setQueryData(['settings'], normalized);
+      queryClient.invalidateQueries({ queryKey: ['settings'] });
       setSuccess('Configuración guardada correctamente.');
     },
     onError: (err) => setError(err.message || 'No se pudieron guardar los ajustes'),

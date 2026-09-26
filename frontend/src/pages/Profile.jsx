@@ -36,6 +36,10 @@ export default function Profile() {
     e.preventDefault();
     setError('');
     setSuccess('');
+    if (!current.trim() || !next.trim() || !confirm.trim()) {
+      setError('Todos los campos son obligatorios');
+      return;
+    }
     if (next !== confirm) {
       setError('Las contraseñas no coinciden');
       return;
