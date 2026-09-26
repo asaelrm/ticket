@@ -351,7 +351,10 @@ describe('Reports: rendimiento por técnico y por equipo', () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
     expect(await screen.findByRole('heading', { name: 'Rendimiento por técnico' })).toBeInTheDocument();
-    expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(4);
+    expect(screen.getByRole('heading', { name: 'Rendimiento por equipo' })).toBeInTheDocument();
+    // Ambas tarjetas muestran su estado vacío en vez de una tabla de ceros.
+    expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText('5 h 0 min')).toBeNull();
   });
 });
 
