@@ -366,7 +366,7 @@ export default function TicketDetail() {
   /**
    * Inserta el texto de una respuesta rápida en el textarea SIN enviarlo.
    * Usa setMessage() directamente (y no onMessageChange) para no disparar el
-   * indicador de "escribiendo…" de quien solo está choosing una plantilla.
+   * indicador de "escribiendo…" de quien solo está eligiendo una plantilla.
    */
   function onInsertTemplate({ text, template, mode }) {
     const el = textareaRef.current;
