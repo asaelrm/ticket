@@ -39,9 +39,16 @@ export default function Teams() {
 
   useEffect(() => {
     if (!membersTeam) return;
+    if (membersQuery.error) return;
     setSelected((membersQuery.data?.members || []).map((m) => m.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [membersTeam?.id, membersQuery.data]);
+  }, [membersTeam?.id, membersQuery.data, membersQuery.error]);
+
+  useEffect(() => {
+    if (membersQuery.error) {
+      setError(membersQuery.error.message || 'No se pudieron cargar los miembros');
+    }
+  }, [membersQuery.error]);
 
   const saveTeam = useMutation({
     mutationFn: ({ id, name, description }) =>
