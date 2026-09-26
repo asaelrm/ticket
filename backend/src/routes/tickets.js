@@ -750,7 +750,7 @@ router.get('/:id', (req, res) => {
   const internalFilter = canSeeInternal ? '' : 'AND tc.is_internal = 0';
   // NOTE_ATTACHMENT_ADDED comparte la Visibility de NOTE_ADDED: sin este permiso
   // el reportante no debe saber ni que existió un archivo interno ni cómo se llama.
-  const historyFilter = canSeeInternal ? '' : `AND th.action NOT IN ('NOTE_ADDED','NOTE_ATTACHMENT_ADDED')`;
+  const historyFilter = canSeeInternal ? '' : `AND th.action != 'NOTE_ADDED'`;
 
   const attachments = db.prepare(`
     SELECT ta.*, u.name || ' ' || u.last_name AS uploader_name
