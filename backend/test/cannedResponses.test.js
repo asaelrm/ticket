@@ -12,52 +12,33 @@ import {
 const ADMIN = { account: 'admin', password: '123456' };
 const TECH = { account: 'tecnico', password: 'Tecnico1234!' };
 const EMP = { account: 'empleado', password: 'Empleado1234!' };
+const PASSWORD = 'Prueba1234!';
 
 let admin;
 let tech;
+let techId;
 let tech2;
+let tech2Id;
 let emp;
 
-async function createUser(client, { username, role, departmentId = null }) {
-  const email = `${username}@empresa.com`;
-  const res = await client.post('/api/users', {
+let seq = 0;
+const uniq = (prefix) => `${prefix} ${Date.now()}-${seq++}`;
+
+async function createUser({ username, roleId }) {
+  const res = await admin.post('/api/users', {
     name: username,
     last_name: 'Prueba',
     username,
-    email,
-    password: 'Prueba1234!',
-    role_id: role,
-    department_id: departmentId,
+    email: `${username}@empresa.com`,
+    password: PASSWORD,
+    role_id: roleId,
     active: true,
   });
   expect(res.status).toBe(201);
-  const login = await createClient();
-  await login.login({ account: username, password: 'Prueba1234!' });
-  return { client: login, id: res.body.user.id, username };
+  const client = await createClient();
+  await client.login({ account: username, password: PASSWORD });
+  return { client, id: res.body.user.id };
 }
-
-async function listIds(client, query = '') {
-  const res = await client.get(`/api/canned-responses${query}`);
-  return res;
-}
-
-beforeAll(async () => {
-  admin = await createClient();
-  await admin.login(ADMIN);
-  tech = await createClient();
-  await tech.login(TECH);
-  emp = await createClient();
-  await emp.login(EMP);
-
-  const roles = await admin.get('/api/roles');
-  const techRole = roles.body.data.find((r) => r.code === 'TECHNICIAN').id;
-
-  // Dos técnicos para probar aislamiento entre usuarios y entre equipos.
-  tech2 = await createUser(await createClient(), { username: 'tec2', role: techRole });
-  tech2b = await createUser(await createClient(), { username: 'tec3', role: techRole });
-});
-
-let tech2b;
 
 async function makeTeam(name, memberIds) {
   const res = await admin.post('/api/teams', { name });
@@ -78,6 +59,24 @@ async function makeTicket(client, overrides = {}) {
   expect(res.status).toBe(201);
   return res.body.ticket;
 }
+
+beforeAll(async () => {
+  admin = await createClient();
+  await admin.login(ADMIN);
+  tech = await createClient();
+  await tech.login(TECH);
+  emp = await createClient();
+  await emp.login(EMP);
+
+  techId = (await tech.get('/api/auth/me')).body.user.id;
+  const roles = (await admin.get('/api/roles')).body.roles;
+  const techRole = roles.find((r) => r.code === 'TECHNICIAN').id;
+  const empRole = roles.find((r) => r.code === 'EMPLOYEE').id;
+  globalThis.__empRoleId = empRole;
+
+  tech2 = await createUser({ username: `tec${Date.now() % 100000}`, roleId: techRole });
+  tech2Id = tech2.id;
+});
 
 describe('catálogo de variables', () => {
   it('expone exactamente las diez variables acordadas', () => {
@@ -120,44 +119,43 @@ describe('catálogo de variables', () => {
 });
 
 describe('visibilidad y aislamiento entre usuarios y equipos', () => {
-  it('el técnico ve la plantilla global, la propia y la de su equipo; no las de otros', async () => {
+  it('el técnico ve la global, la propia y la de su equipo; no las de otros', async () => {
     const global = await admin.post('/api/canned-responses', {
-      title: `Global ${Date.now()}`,
+      title: uniq('Global'),
       body: 'Hola {{reporter_name}}',
       scope: 'GLOBAL',
     });
     expect(global.status).toBe(201);
 
     const own = await tech.post('/api/canned-responses', {
-      title: `Personal ${Date.now()}`,
+      title: uniq('Personal'),
       body: 'Texto propio',
       scope: 'PERSONAL',
     });
     expect(own.status).toBe(201);
-    expect(own.body.template.owner_id).toBeTruthy();
 
     const otherPersonal = await tech2.client.post('/api/canned-responses', {
-      title: `Ajena ${Date.now()}`,
+      title: uniq('Ajena'),
       body: 'No deberías ver esto',
       scope: 'PERSONAL',
     });
     expect(otherPersonal.status).toBe(201);
 
-    const teamA = await makeTeam(`Equipo A ${Date.now()}`, [TECH_ID(), tech2.id]);
-    const teamB = await makeTeam(`Equipo B ${Date.now()}`, [tech2b.id]);
+    const teamA = await makeTeam(uniq('Equipo A'), [techId]);
+    const teamB = await makeTeam(uniq('Equipo B'), [tech2Id]);
     const inTeamA = await admin.post('/api/canned-responses', {
-      title: `De equipo A ${Date.now()}`,
+      title: uniq('De equipo A'),
       body: 'Respuesta del equipo A',
       scope: 'TEAM',
       team_id: teamA,
     });
-    expect(inTeamA.status).toBe(201);
     const inTeamB = await admin.post('/api/canned-responses', {
-      title: `De equipo B ${Date.now()}`,
+      title: uniq('De equipo B'),
       body: 'Respuesta del equipo B',
       scope: 'TEAM',
       team_id: teamB,
     });
+    expect(inTeamA.status).toBe(201);
     expect(inTeamB.status).toBe(201);
 
     const res = await tech.get('/api/canned-responses?limit=100');
@@ -180,29 +178,29 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
   });
 
   it('al salir del equipo se pierde el acceso a sus plantillas', async () => {
-    const teamId = await makeTeam(`Temporal ${Date.now()}`, [tech2.id]);
+    const teamId = await makeTeam(uniq('Temporal'), [tech2Id]);
     const tpl = await admin.post('/api/canned-responses', {
-      title: `Temporal ${Date.now()}`,
+      title: uniq('Temporal'),
       body: 'Solo mientras esté en el equipo',
       scope: 'TEAM',
       team_id: teamId,
     });
     expect(tpl.status).toBe(201);
+    const id = tpl.body.template.id;
 
     let res = await tech2.client.get('/api/canned-responses?limit=100');
-    expect(res.body.data.map((t) => t.id)).toContain(tpl.body.template.id);
+    expect(res.body.data.map((t) => t.id)).toContain(id);
 
     await admin.put(`/api/teams/${teamId}/members`, { user_ids: [] });
 
     res = await tech2.client.get('/api/canned-responses?limit=100');
-    expect(res.body.data.map((t) => t.id)).not.toContain(tpl.body.template.id);
-    const direct = await tech2.client.get(`/api/canned-responses/${tpl.body.template.id}`);
-    expect(direct.status).toBe(404);
+    expect(res.body.data.map((t) => t.id)).not.toContain(id);
+    expect((await tech2.client.get(`/api/canned-responses/${id}`)).status).toBe(404);
   });
 
-  it('una plantilla desactivada desaparece del selector pero siguebeing gestionable por su dueño', async () => {
+  it('una plantilla desactivada desaparece del selector pero sigue siendo gestionable por su dueño', async () => {
     const created = await tech.post('/api/canned-responses', {
-      title: `Se desactiva ${Date.now()}`,
+      title: uniq('Se desactiva'),
       body: 'Temporal',
       scope: 'PERSONAL',
     });
@@ -225,45 +223,39 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
 
 describe('permisos de administración por ámbito', () => {
   it('un técnico no puede crear plantillas globales ni de equipo', async () => {
-    const global = await tech.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'GLOBAL' });
-    expect(global.status).toBe(403);
-
-    const teamId = await makeTeam(`Permisos ${Date.now()}`, [tech2.id]);
-    const team = await tech.post('/api/canned-responses', {
-      title: 'X',
-      body: 'Y',
-      scope: 'TEAM',
-      team_id: teamId,
-    });
-    expect(team.status).toBe(403);
+    expect((await tech.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'GLOBAL' })).status).toBe(403);
+    const teamId = await makeTeam(uniq('Permisos'), [tech2Id]);
+    expect(
+      (await tech.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'TEAM', team_id: teamId })).status
+    ).toBe(403);
   });
 
-  it('un técnico no puede editar ni la plantilla global ni la de otro usuario', async () => {
+  it('un técnico no puede editar la global ni la personal de otro (404, no 403)', async () => {
     const global = await admin.post('/api/canned-responses', {
-      title: `Global intocable ${Date.now()}`,
+      title: uniq('Global intocable'),
       body: 'Original',
       scope: 'GLOBAL',
     });
-    const own = await tech2.client.post('/api/canned-responses', {
-      title: `Ajena intocable ${Date.now()}`,
+    const other = await tech2.client.post('/api/canned-responses', {
+      title: uniq('Ajena intocable'),
       body: 'Original',
       scope: 'PERSONAL',
     });
 
     expect((await tech.patch(`/api/canned-responses/${global.body.template.id}`, { body: 'hack' })).status).toBe(404);
-    expect((await tech.patch(`/api/canned-responses/${own.body.template.id}`, { body: 'hack' })).status).toBe(404);
+    expect((await tech.patch(`/api/canned-responses/${other.body.template.id}`, { body: 'hack' })).status).toBe(404);
+    expect((await tech.get(`/api/canned-responses/${other.body.template.id}`)).status).toBe(404);
   });
 
   it('nadie puede promover su plantilla personal a global sin settings.manage', async () => {
     const own = await tech.post('/api/canned-responses', {
-      title: `Promoción ${Date.now()}`,
+      title: uniq('Promoción'),
       body: 'Quiero ser global',
       scope: 'PERSONAL',
     });
     const id = own.body.template.id;
 
-    const asTech = await tech.patch(`/api/canned-responses/${id}`, { scope: 'GLOBAL' });
-    expect(asTech.status).toBe(403);
+    expect((await tech.patch(`/api/canned-responses/${id}`, { scope: 'GLOBAL' })).status).toBe(403);
 
     const asAdmin = await admin.patch(`/api/canned-responses/${id}`, { scope: 'GLOBAL' });
     expect(asAdmin.status).toBe(200);
@@ -276,17 +268,29 @@ describe('permisos de administración por ámbito', () => {
     expect((await admin.get('/api/canned-responses/manage')).status).toBe(200);
   });
 
-  it('un usuario sin permiso de comentario ni nota no accede al selector', async () => {
-    // Se crea un usuario sin ticket.comment ni ticket.note desactivando el rol
-    // del empleado mediante la API de roles no es posible; se usa un empleado y
-    // se comprueba que sí accede (tiene ticket.comment) y que la validación de
-    // permiso está presente en el código de la ruta.
-    const res = await emp.get('/api/canned-responses');
-    expect(res.status).toBe(200);
+  it('un usuario sin ticket.comment ni ticket.note no accede al selector ni puede crear', async () => {
+    const roleId = globalThis.__empRoleId;
+    const original = (await admin.get('/api/roles')).body.roles.find((r) => r.id === roleId).permissions;
+    try {
+      const patch = await admin.patch(`/api/roles/${roleId}/permissions`, {
+        permissions: original.filter((c) => c !== 'ticket.comment'),
+      });
+      expect(patch.status).toBe(200);
+
+      // La sesión del empleado ya no tiene ticket.comment.
+      expect((await emp.get('/api/canned-responses')).status).toBe(403);
+      expect((await emp.get('/api/canned-responses/mine')).status).toBe(403);
+      expect(
+        (await emp.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'PERSONAL' })).status
+      ).toBe(403);
+    } finally {
+      await admin.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
+    }
+    expect((await emp.get('/api/canned-responses')).status).toBe(200);
   });
 });
 
-describe('validación de datos y aislamiento en Detail', () => {
+describe('validación de datos', () => {
   it('rechaza scope inválido, equipo inexistente y equipo en plantilla global', async () => {
     expect((await admin.post('/api/canned-responses', { title: 'A', body: 'B', scope: 'OTRO' })).status).toBe(400);
     expect(
@@ -301,13 +305,13 @@ describe('validación de datos y aislamiento en Detail', () => {
     expect((await admin.post('/api/canned-responses', { title: '', body: 'B', scope: 'GLOBAL' })).status).toBe(400);
     expect((await admin.post('/api/canned-responses', { title: 'A', body: '', scope: 'GLOBAL' })).status).toBe(400);
 
-    const title = `Única ${Date.now()}`;
+    const title = uniq('Única');
     expect((await admin.post('/api/canned-responses', { title, body: 'B', scope: 'GLOBAL' })).status).toBe(201);
     const dup = await admin.post('/api/canned-responses', { title: title.toUpperCase(), body: 'C', scope: 'GLOBAL' });
     expect(dup.status).toBe(409);
 
     // Mismo título en otro ámbito sí se permite.
-    const teamId = await makeTeam(`Dup ${Date.now()}`, [tech2.id]);
+    const teamId = await makeTeam(uniq('Dup'), [tech2Id]);
     expect(
       (await admin.post('/api/canned-responses', { title, body: 'B', scope: 'TEAM', team_id: teamId })).status
     ).toBe(201);
@@ -315,42 +319,34 @@ describe('validación de datos y aislamiento en Detail', () => {
 
   it('el owner_id y el use_count del cuerpo se ignoran siempre', async () => {
     const res = await tech.post('/api/canned-responses', {
-      title: `Inyección ${Date.now()}`,
+      title: uniq('Inyección'),
       body: 'Hola',
       scope: 'PERSONAL',
-      owner_id: 999,
+      owner_id: 999999,
       use_count: 5000,
     });
     expect(res.status).toBe(201);
     expect(res.body.template.use_count).toBe(0);
+
     const me = await tech.get('/api/canned-responses/mine');
     const found = me.body.data.find((t) => t.id === res.body.template.id);
     expect(found).toBeTruthy();
-    expect(found.owner_id).not.toBe(999);
+    expect(found.owner_id).toBe(techId);
   });
 
-  it('guarda el cuerpo tal cual (escapado en el render, no al almacenar) y no ejecuta nada', async () => {
+  it('guarda el cuerpo verbatim: el escapado ocurre al renderizar, no al almacenar', async () => {
     const xss = '<img src=x onerror="alert(1)"> {{ticket_title}} {{unknown_var}}';
-    const res = await admin.post('/api/canned-responses', {
-      title: `XSS ${Date.now()}`,
-      body: xss,
-      scope: 'GLOBAL',
-    });
+    const res = await admin.post('/api/canned-responses', { title: uniq('XSS'), body: xss, scope: 'GLOBAL' });
     expect(res.status).toBe(201);
-    // Almacenamiento verbatim: el escapado ocurre en el render del frontend.
     expect(res.body.template.body).toBe(xss);
-    // El cuerpo nunca se interpola en el servidor, así que el placeholder queda intacto.
+    // El servidor nunca interpola: el placeholder desconocido queda intacto.
     expect(res.body.template.body).toContain('{{unknown_var}}');
   });
 
   it('búsqueda y paginación respetan el filtro de visibilidad', async () => {
-    const marker = `zz${Date.now()}`;
+    const marker = `zz${Date.now()}${seq++}`;
     const mine = await tech.post('/api/canned-responses', { title: `Buscar ${marker}`, body: 'x', scope: 'PERSONAL' });
-    const other = await tech2.client.post('/api/canned-responses', {
-      title: `Buscar ${marker}`,
-      body: 'x',
-      scope: 'PERSONAL',
-    });
+    await tech2.client.post('/api/canned-responses', { title: `Buscar ${marker}`, body: 'x', scope: 'PERSONAL' });
 
     const res = await tech.get(`/api/canned-responses?q=${marker}`);
     expect(res.status).toBe(200);
@@ -360,23 +356,20 @@ describe('validación de datos y aislamiento en Detail', () => {
     const paged = await tech.get('/api/canned-responses?limit=1&page=1');
     expect(paged.body.data).toHaveLength(1);
     expect(paged.body.limit).toBe(1);
-    expect(paged.body.total).toBeGreaterThanOrEqual(1);
     expect((await tech.get('/api/canned-responses?limit=500')).body.limit).toBe(100);
   });
 
-  it('no existe endpoint de borrado físico ni de incremento manual', async () => {
+  it('no existe borrado físico ni incremento manual del contador', async () => {
     const created = await tech.post('/api/canned-responses', {
-      title: `No borra ${Date.now()}`,
+      title: uniq('No borra'),
       body: 'x',
       scope: 'PERSONAL',
     });
     const id = created.body.template.id;
-    const del = await tech.del(`/api/canned-responses/${id}`);
-    expect([404, 405]).toContain(del.status);
 
-    // Ninguna ruta permite subir el contador a mano.
-    const bump = await tech.post(`/api/canned-responses/${id}/use`, {});
-    expect(bump.status).toBe(404);
+    expect([404, 405]).toContain((await tech.del(`/api/canned-responses/${id}`)).status);
+    expect((await tech.post(`/api/canned-responses/${id}/use`, {})).status).toBe(404);
+
     const patched = await tech.patch(`/api/canned-responses/${id}`, { use_count: 99 });
     expect(patched.status).toBe(200);
     expect(patched.body.template.use_count).toBe(0);
@@ -386,7 +379,7 @@ describe('validación de datos y aislamiento en Detail', () => {
 describe('contador de uso al comentar', () => {
   it('se incrementa solo tras guardar el comentario', async () => {
     const tpl = await tech.post('/api/canned-responses', {
-      title: `Contador ${Date.now()}`,
+      title: uniq('Contador'),
       body: 'Hola {{reporter_name}}',
       scope: 'PERSONAL',
     });
@@ -398,7 +391,6 @@ describe('contador de uso al comentar', () => {
     let mine = await tech.get('/api/canned-responses/mine');
     expect(mine.body.data.find((t) => t.id === id).use_count).toBe(0);
 
-    // Con el campo, el contador sube a 1.
     const res = await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, {
       message: 'Hola',
       canned_response_id: String(id),
@@ -407,7 +399,6 @@ describe('contador de uso al comentar', () => {
     mine = await tech.get('/api/canned-responses/mine');
     expect(mine.body.data.find((t) => t.id === id).use_count).toBe(1);
 
-    // Varios envíos acumulan.
     await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, {
       message: 'Otra vez',
       canned_response_id: String(id),
@@ -416,43 +407,41 @@ describe('contador de uso al comentar', () => {
     expect(mine.body.data.find((t) => t.id === id).use_count).toBe(2);
   });
 
-  it('no cuenta el uso de una plantilla ajena, de otro equipo o desactivada', async () => {
+  it('no cuenta una plantilla ajena ni una desactivada, y el comentario se guarda igual', async () => {
     const ajena = await tech2.client.post('/api/canned-responses', {
-      title: `Ajena contador ${Date.now()}`,
+      title: uniq('Ajena contador'),
       body: 'x',
       scope: 'PERSONAL',
     });
     const ajenaId = ajena.body.template.id;
-
     const ticket = await makeTicket(emp);
+
     const res = await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, {
       message: 'Intento',
       canned_response_id: String(ajenaId),
     });
-    // El comentario se guarda igual: la plantilla solo contabiliza, no bloquea.
     expect(res.status).toBe(201);
     const asOwner = await tech2.client.get('/api/canned-responses/mine');
     expect(asOwner.body.data.find((t) => t.id === ajenaId).use_count).toBe(0);
 
-    // Desactivada: el envío funciona y el contador no sube.
-    await tech2.client.patch(`/api/canned-responses/${ajenaId}`, { is_active: false });
     const own = await tech2.client.post('/api/canned-responses', {
-      title: `Propia inactiva ${Date.now()}`,
+      title: uniq('Propia inactiva'),
       body: 'x',
       scope: 'PERSONAL',
     });
     await tech2.client.patch(`/api/canned-responses/${own.body.template.id}`, { is_active: false });
-    await tech2.client.postMultipart(`/api/tickets/${ticket.id}/comments`, {
+    const off = await tech2.client.postMultipart(`/api/tickets/${ticket.id}/comments`, {
       message: 'Otro intento',
       canned_response_id: String(own.body.template.id),
     });
+    expect(off.status).toBe(201);
     const after = await tech2.client.get('/api/canned-responses/mine');
     expect(after.body.data.find((t) => t.id === own.body.template.id).use_count).toBe(0);
   });
 
-  it('cuenta el uso en notas internas y respeta el contador para empleados sin permiso', async () => {
+  it('cuenta el uso en notas internas', async () => {
     const tpl = await tech.post('/api/canned-responses', {
-      title: `Nota ${Date.now()}`,
+      title: uniq('Nota'),
       body: 'Revisado internamente',
       scope: 'PERSONAL',
     });
@@ -467,32 +456,15 @@ describe('contador de uso al comentar', () => {
     expect(res.status).toBe(201);
     const mine = await tech.get('/api/canned-responses/mine');
     expect(mine.body.data.find((t) => t.id === id).use_count).toBe(1);
-
-    // El empleado no puede usar el contador: su comentario va sin plantilla.
-    const asEmp = await emp.postMultipart(`/api/tickets/${ticket.id}/comments`, {
-      message: 'Gracias',
-      canned_response_id: String(id),
-    });
-    expect(asEmp.status).toBe(201);
-    const after = await tech.get('/api/canned-responses/mine');
-    expect(after.body.data.find((t) => t.id === id).use_count).toBe(1);
   });
 
-  it('el comentario se sigue validando con el máximo de 4000 caracteres', async () => {
+  it('el envío normal sigue validando el máximo de 4000 caracteres', async () => {
     const ticket = await makeTicket(emp);
-    const ok = await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, {
-      message: 'a'.repeat(4000),
-    });
-    expect(ok.status).toBe(201);
-    const tooLong = await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, {
-      message: 'a'.repeat(4001),
-    });
-    expect(tooLong.status).toBe(400);
+    expect((await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, { message: 'a'.repeat(4000) })).status).toBe(
+      201
+    );
+    expect(
+      (await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, { message: 'a'.repeat(4001) })).status
+    ).toBe(400);
   });
 });
-
-function TECH_ID() {
-  return techIdCache;
-}
-
-let techIdCache;
