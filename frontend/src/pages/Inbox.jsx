@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
@@ -432,128 +432,14 @@ export default function Inbox() {
         onClear={() => update(Object.fromEntries(ADVANCED_KEYS.map((k) => [k, ''])))}
       />
 
-      {/* Barra de acciones en lote */}
-      {selected.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-3 lg:px-8">
-            <span className="text-sm font-semibold text-slate-800">{selected.size} seleccionado(s)</span>
-            <button type="button" className="btn-ghost text-sm" onClick={() => setSelected(new Set())}>
-              Quitar selección
-            </button>
-            <div className="ml-auto flex flex-wrap gap-2">
-              {canAssign && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkAssignMe()}>
-                  Asignarme
-                </button>
-              )}
-              {canAssign && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={openAssign}>
-                  Asignar a…
-                </button>
-              )}
-              {canManage && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkStatus('IN_PROGRESS')}>
-                  En proceso
-                </button>
-              )}
-              {canResolve && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => openResolve([...selected])}>
-                  Resuelto
-                </button>
-              )}
-              {canClose && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkStatus('CLOSED')}>
-                  Cerrar
-                </button>
-              )}
-              {canManage && (
-                <button
-                  type="button"
-                  className="btn-danger"
-                  disabled={busy}
-                  onClick={() => {
-                    setCancelReason('');
-                    setCancelOpen(true);
-                  }}
-                >
-                  Cancelar
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Asignar ${selected.size} ticket(s)`}>
-        <label className="label">Técnico asignado</label>
-        <select className="input" value={assignValue} onChange={(e) => setAssignValue(e.target.value)}>
-          <option value="">Seleccione un técnico…</option>
-          {assignUsers.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name} {u.last_name}
-              {u.department_name ? ` · ${u.department_name}` : ''}
-            </option>
-          ))}
-        </select>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={() => setAssignOpen(false)} disabled={busy}>
-            Cancelar
-          </button>
-          <button
-            type="button"
-            className="btn-primary"
-            disabled={busy || !assignValue}
-            onClick={async () => {
-              setAssignOpen(false);
-              bulkMutation.mutate({
-                ids: [...selected],
-                fn: (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: Number(assignValue) }),
-              });
-            }}
-          >
-            Asignar
-          </button>
-        </div>
-      </Modal>
-
-      <ResolveTicketsModal
-        open={resolveOpen}
-        onClose={() => setResolveOpen(false)}
-        count={resolveIds.length}
-        busy={busy}
-        onConfirm={runResolve}
+      <BulkTicketBar
+        bulk={bulk}
+        canAssign={canAssign}
+        canManage={canManage}
+        canResolve={canResolve}
+        canClose={canClose}
       />
 
-      <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title={`Cancelar ${selected.size} ticket(s)`}>
-        <p className="text-sm text-slate-600">Se cancelarán los tickets seleccionados. Esta acción no se puede deshacer.</p>
-        <label className="mt-4 block text-sm font-medium text-slate-700">
-          Motivo de cancelación <span className="text-red-500">*</span>
-          <textarea
-            className="input mt-1 min-h-[90px]"
-            value={cancelReason}
-            onChange={(e) => setCancelReason(e.target.value)}
-            placeholder="Ej. Duplicados o solicitudes que ya no aplican…"
-            maxLength={2000}
-          />
-        </label>
-        <div className="mt-5 flex justify-end gap-2">
-          <button type="button" className="btn-secondary" onClick={() => setCancelOpen(false)} disabled={busy}>
-            Volver
-          </button>
-          <button
-            type="button"
-            className="btn-danger"
-            disabled={busy || !cancelReason.trim()}
-            onClick={async () => {
-              setCancelOpen(false);
-              bulkCancel(cancelReason.trim());
-              setCancelReason('');
-            }}
-          >
-            Cancelar tickets
-          </button>
-        </div>
-      </Modal>
 
       <Modal open={savedOpen} onClose={() => setSavedOpen(false)} title="Filtros guardados">
         <div className="flex items-end gap-2">
