@@ -65,13 +65,6 @@ export default function Inbox() {
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [searchDraft, setSearchDraft] = useState(filters.search);
-  const [selected, setSelected] = useState(() => new Set());
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [assignValue, setAssignValue] = useState('');
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
-  const [resolveOpen, setResolveOpen] = useState(false);
-  const [resolveIds, setResolveIds] = useState([]);
   const [savedFilters, setSavedFilters] = useState(loadSavedFilters);
   const [savedOpen, setSavedOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
@@ -134,10 +127,13 @@ export default function Inbox() {
     queryFn: () => api.get('/api/categories').then((d) => d.data || []),
   });
 
-  const { data: assignUsers = [] } = useQuery({
-    queryKey: ['assignable-users'],
-    queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []),
-    enabled: assignOpen,
+  const bulk = useTicketBulk({
+    user,
+    queryKeys: ['inbox-tickets', 'inbox-ticket-counters'],
+    resetKey: query,
+    // El número se resuelve en el momento de la acción: tras el refetch el
+    // ticket puede haber salido de la página y el detalle de fallos lo necesita.
+    labelFor: (id) => list?.data?.find((t) => t.id === id)?.ticket_number || `Ticket ${id}`,
   });
 
   const reload = useCallback(() => {
@@ -146,9 +142,9 @@ export default function Inbox() {
     queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
   }, [queryClient]);
 
-  // Equivale al efecto [reload, tab]: limpia selección y recarga contadores al cambiar pestaña/filtros.
+  // Equivale al efecto [reload, tab]: al cambiar pestaña/filtros se recarga
+  // contadores. La selección ya la descarta `useTicketBulk` con `resetKey`.
   useEffect(() => {
-    setSelected(new Set());
     queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
   }, [query, queryClient]);
 
