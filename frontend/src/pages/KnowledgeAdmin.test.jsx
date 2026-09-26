@@ -280,7 +280,7 @@ describe('KnowledgeAdmin · categorías', () => {
     const user = await openTab();
     await screen.findByText('Correo');
 
-    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    await user.click(within(cardFor('Correo')).getByRole('button', { name: 'Editar' }));
     const dialog = await screen.findByRole('dialog', { name: 'Editar categoría' });
     expect(within(dialog).getByLabelText('Nombre *')).toHaveValue('Correo');
 
