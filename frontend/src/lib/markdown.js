@@ -76,8 +76,9 @@ export function renderMessage(raw) {
 
   for (const line of lines) {
     // Encabezado ATX. Exige al menos un espacio tras las almohadillas para no
-    // convertir un "#hashtag" en un título, y se limita a 6 niveles.
-    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    // convertir un "#hashtag" en un título, se limita a 6 niveles y admite
+    // sangría inicial igual que las listas.
+    const heading = line.match(/^\s*(#{1,6})\s+(.+)$/);
     if (heading) {
       closeList();
       const level = heading[1].length;
