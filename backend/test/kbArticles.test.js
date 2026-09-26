@@ -720,6 +720,89 @@ describe('relación con tickets', () => {
   });
 });
 
+describe('migraciones y siembra idempotentes', () => {
+  const kbObjects = () =>
+    db
+      .prepare(
+        `SELECT type, name FROM sqlite_master
+         WHERE name LIKE 'kb_%' OR name LIKE 'idx_kb_%'
+         ORDER BY type, name`
+      )
+      .all();
+
+  it('reaplicar el esquema no duplica tablas ni índices ni altera los datos', async () => {
+    const article = await createDraft(tech, { title: uniq('Sobrevive a la migración') });
+    const before = kbObjects();
+    assert.ok(before.length >= 13, 'faltan objetos de conocimiento en el esquema');
+
+    runMigrations();
+    runMigrations();
+
+    assert.deepEqual(kbObjects(), before);
+    const after = await tech.get(`/api/kb-articles/${article.id}`);
+    assert.equal(after.status, 200);
+    assert.equal(after.body.article.title, article.title);
+  });
+
+  it('reejecutar la semilla no duplica permisos, roles ni categorías', () => {
+    const count = (sql) => db.prepare(sql).get().n;
+    const perms = count('SELECT COUNT(*) AS n FROM permissions');
+    const roles = count('SELECT COUNT(*) AS n FROM roles');
+    const cats = count('SELECT COUNT(*) AS n FROM kb_categories');
+    const articles = count('SELECT COUNT(*) AS n FROM kb_articles');
+
+    seed();
+    seed();
+
+    assert.equal(count('SELECT COUNT(*) AS n FROM permissions'), perms);
+    assert.equal(count('SELECT COUNT(*) AS n FROM roles'), roles);
+    assert.equal(count('SELECT COUNT(*) AS n FROM kb_categories'), cats);
+    assert.equal(count('SELECT COUNT(*) AS n FROM kb_articles'), articles);
+  });
+
+  it('la semilla no revierte los cambios hechos desde la interfaz', async () => {
+    const cats = (await admin.get('/api/kb-categories')).body.data;
+    const target = cats.find((c) => c.name === 'General');
+    const renamed = await admin.patch(`/api/kb-categories/${target.id}`, { name: uniq('Renombrada a mano') });
+    assert.equal(renamed.status, 200);
+
+    seed();
+
+    const stillRenamed = db.prepare('SELECT name FROM kb_categories WHERE id = ?').get(target.id);
+    assert.equal(stillRenamed.name, renamed.body.category.name);
+  });
+
+  it('conserva la asignación de kb.* a los roles sembrados', () => {
+    const codeOf = (roleCode) =>
+      db
+        .prepare(
+          `SELECT p.code FROM permissions p
+           JOIN role_permissions rp ON rp.permission_id = p.id
+           JOIN roles r ON r.id = rp.role_id
+           WHERE r.code = ?`
+        )
+        .all(roleCode)
+        .map((r) => r.code);
+
+    assert.deepEqual(codeOf('EMPLOYEE').filter((c) => c.startsWith('kb.')), ['kb.view']);
+    assert.deepEqual(
+      codeOf('TECHNICIAN').filter((c) => c.startsWith('kb.')).sort(),
+      ['kb.create', 'kb.publish', 'kb.view']
+    );
+    assert.deepEqual(
+      codeOf('ADMIN').filter((c) => c.startsWith('kb.')).sort(),
+      ['kb.create', 'kb.manage', 'kb.publish', 'kb.view']
+    );
+  });
+
+  it('el seeding de permisos incluye los cuatro códigos de conocimiento', () => {
+    const codes = PERMISSIONS.map(([code]) => code);
+    for (const code of ['kb.view', 'kb.create', 'kb.publish', 'kb.manage']) {
+      assert.ok(codes.includes(code), `falta el permiso ${code}`);
+    }
+  });
+});
+
 describe('previsualización desde un ticket resuelto', () => {
   it('devuelve la solución y la descripción del problema', async () => {
     const ticket = await makeTicket(tech, { title: 'WiFi cae en el almacén' });
