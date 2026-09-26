@@ -221,11 +221,6 @@ export default function Inbox() {
     assignMeMutation.mutate(t);
   }
 
-  function openAssign() {
-    setAssignValue('');
-    setAssignOpen(true);
-  }
-
   function persistSavedFilters(list) {
     setSavedFilters(list);
     try {
@@ -257,7 +252,7 @@ export default function Inbox() {
   }
 
   return (
-    <div className={selected.size > 0 ? 'pb-28' : ''}>
+    <div className={bulk.selected.size > 0 ? 'pb-28' : ''}>
       <div className="card mb-4">
         <div className="border-b border-slate-200 px-4 py-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Vista de trabajo</p>
@@ -439,7 +434,6 @@ export default function Inbox() {
         canResolve={canResolve}
         canClose={canClose}
       />
-
 
       <Modal open={savedOpen} onClose={() => setSavedOpen(false)} title="Filtros guardados">
         <div className="flex items-end gap-2">
