@@ -35,11 +35,15 @@ const ROLES = {
   EMPLOYEE: {
     name: 'Empleado',
     description: 'Reporta incidencias y consulta sus propios tickets',
-    permissions: ['ticket.create', 'ticket.view.own', 'ticket.comment'],
+    // kb.view solo: el empleado puede LEER artículos ya publicados por un
+    // técnico, nunca crear borradores ni publicar. Publicar es siempre un acto
+    // consciente de alguien con kb.create + kb.publish.
+    permissions: ['ticket.create', 'ticket.view.own', 'ticket.comment', 'kb.view'],
   },
   TECHNICIAN: {
     name: 'Técnico / Soporte',
     description: 'Recibe tickets asignados, trabaja sobre ellos y los resuelve',
+    // Sin kb.manage: un técnico no edita ni publica artículos de otro autor.
     permissions: [
       'ticket.create',
       'ticket.view.all',
@@ -51,6 +55,9 @@ const ROLES = {
       'ticket.note',
       'ticket.reopen',
       'dashboard.view',
+      'kb.view',
+      'kb.create',
+      'kb.publish',
     ],
   },
   ADMIN: {
@@ -59,6 +66,22 @@ const ROLES = {
     permissions: PERMISSIONS.map(([code]) => code),
   },
 };
+
+/**
+ * Taxonomía propia de la base de conocimiento. NO se reutiliza `categories`
+ * porque esas clasifican incidencias (`tickets.category_id`) y mezclar ambos
+ * dominios obligaría a los técnicos a elegir entre "Red" como incidencia y
+ * "Red" como tema de documentación.
+ */
+const INITIAL_KB_CATEGORIES = [
+  ['Hardware y equipos', 'Periféricos, equipos de cómputo y reposición', '#2563eb'],
+  ['Redes y conectividad', 'Cableado, switch, wifi, VPN y resolución de nombres', '#0891b2'],
+  ['Sistemas y software', 'Instalación, configuración y errores de aplicaciones', '#d97706'],
+  ['Cuentas y accesos', 'Alta de usuarios, contraseñas, permisos y credenciales', '#ea580c'],
+  ['Correo y comunicación', 'Correo electrónico, telefonía y videoconferencia', '#dc2626'],
+  ['Procedimientos', 'Guías de trabajo recurrentes y checklists', '#059669'],
+  ['General', 'Sin categoría específica', '#64748b'],
+];
 
 const INITIAL_CATEGORIES = [
   ['Computadoras', 'Problemas con equipos de cómputo y hardware', '#2563eb'],
