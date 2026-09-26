@@ -162,7 +162,28 @@ function byUserData(req) {
     .all(...OPEN_STATUSES, ...w.params);
 }
 
+// Instante en que un ticket se dio por terminado y si le vencía el SLA.
+const DONE_AT = 'COALESCE(t.resolved_at, t.closed_at)';
+// Tickets que un técnico concreto culminationó (resueltos o cerrados por él).
+const COMPLETED_BY = '(t.resolved_by = u.id OR t.closed_by = u.id)';
+const SLA_COMPUTABLE = `${COMPLETED_BY} AND t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL`;
+
+const round1 = (n) => (n == null ? null : Math.round(n * 10) / 10);
+const round2 = (n) => (n == null ? null : Math.round(n * 100) / 100);
+
+// Cumplimiento de SLA en porcentaje sobre los tickets con SLA verificable.
+// Si no hay ninguno comparable devuelve null: un 0% ahí sería mentira, no un dato.
+function slaResult(total, within) {
+  return {
+    sla_comparable: total,
+    sla_within: within,
+    sla_breached: total - within,
+    sla_pct: total ? Math.round((within / total) * 1000) / 10 : null,
+  };
+}
+
 function ticketDetailsData(req) {
+
   const { df, base } = ctx(req);
   return db.prepare(`
     SELECT t.ticket_number, t.title, t.status, t.priority, t.created_at, t.resolved_at, t.closed_at,
