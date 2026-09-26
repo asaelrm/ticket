@@ -177,7 +177,7 @@ export default function TemplatesAdmin() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {list.map((t) => {
-            const manageable = true; // TEMP: verificar que las pruebas detectan la regresión
+            const manageable = canManageScope(t.scope, canGlobal, canTeam);
             return (
               <div key={t.id} className="card p-4">
                 <div className="flex items-start justify-between gap-2">
