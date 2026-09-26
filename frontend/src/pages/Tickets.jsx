@@ -165,6 +165,11 @@ export default function Tickets() {
   }
 
   function changeStatus(t, status, body = {}) {
+    // /resolve exige la solución: se pide antes de llamar al backend.
+    if (status === 'RESOLVED') {
+      setResolveTicket(t);
+      return;
+    }
     statusMutation.mutate({ t, status, body });
   }
 
@@ -332,6 +337,18 @@ export default function Tickets() {
         filters={filters}
         onApply={(form) => update({ ...form, view: '', closed_period: '' })}
         onClear={() => update(Object.fromEntries(ADVANCED_KEYS.map((k) => [k, ''])))}
+      />
+
+      <ResolveTicketsModal
+        open={!!resolveTicket}
+        onClose={() => setResolveTicket(null)}
+        count={1}
+        busy={busy}
+        onConfirm={(resolution) => {
+          const t = resolveTicket;
+          setResolveTicket(null);
+          statusMutation.mutate({ t, status: 'RESOLVED', body: { resolution } });
+        }}
       />
     </div>
   );
