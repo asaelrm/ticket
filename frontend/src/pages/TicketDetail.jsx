@@ -353,7 +353,7 @@ export default function TicketDetail() {
     // El texto final ya viene expandido desde el selector; aun así se valida
     // aquí el máximo definitivo antes de enviarlo.
     if (message.length > MAX_COMMENT_LENGTH) {
-      setApiError(`El mensaje supera el máximo de ${MAX_COMMENT_LENGTH} caracteres`);
+      setError(`El mensaje supera el máximo de ${MAX_COMMENT_LENGTH} caracteres`);
       return;
     }
     const fd = new FormData();
