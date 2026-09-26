@@ -222,7 +222,7 @@ describe('Inbox · acciones de estado con los endpoints dedicados', () => {
 
     // La caja pide la solución antes de tocar el backend.
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText('Resolver 2 ticket(s)')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/Solución \/ trabajo realizado/)).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText(/Solución \/ trabajo realizado/), 'Se cambió la fuente de poder');
