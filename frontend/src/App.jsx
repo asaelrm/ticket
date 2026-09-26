@@ -35,6 +35,19 @@ function Protected({ children, permission }) {
   return children;
 }
 
+// Requiere al menos uno de los permisos indicados. Se usa cuando la página
+// combina dos ámbitos de administración distintos (plantillas globales con
+// settings.manage y de equipo con team.manage) sin crear un permiso nuevo.
+function ProtectedAny({ permissions, children }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) return <LoadingScreen />;
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
+  if (!permissions.some((p) => can(user, p))) return <Navigate to="/app" replace />;
+  return children;
+}
+
 export default function App() {
   return (
     <Suspense fallback={<LoadingScreen />}>
