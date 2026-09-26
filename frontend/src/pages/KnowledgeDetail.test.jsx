@@ -206,7 +206,7 @@ describe('KnowledgeDetail · transiciones', () => {
     await user.click(screen.getByRole('button', { name: 'Volver a borrador' }));
 
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText(/seguirá visible|volverá a ser visible/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/dejará de aparecer en los listados públicos/)).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Volver a borrador' }));
