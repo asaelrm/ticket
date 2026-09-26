@@ -99,10 +99,12 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
   const tooLong = Boolean(expansion && expansion.text.length > MAX_COMMENT_LENGTH);
   const templateVars = current ? extractVariables(current.body) : { used: [], unknown: [] };
 
+  const close = () => setOpen(false);
+
   function insert(mode) {
     if (!current || !expansion || tooLong) return;
     onInsert({ text: expansion.text, template: current, mode });
-    onClose();
+    close();
   }
 
   async function copy() {
@@ -112,7 +114,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
     } catch {
       /* el portapapeles puede estar bloqueado: no es crítico */
     }
-    onClose();
+    close();
   }
 
   function onPanelKeyDown(e) {
