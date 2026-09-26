@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { ErrorBox, Spinner } from '../components/ui';
+import { ErrorBox, Spinner, Modal, ConfirmToggle, EmptyState } from '../components/ui';
 import UserTicketHistory from '../components/UserTicketHistory';
+import MyTemplates from '../components/MyTemplates';
 
 export default function Profile() {
   const { user } = useAuth();
