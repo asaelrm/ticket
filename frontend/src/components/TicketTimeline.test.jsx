@@ -171,9 +171,18 @@ describe('TicketTimeline', () => {
             id: 4,
             attachments: [{ id: 9, original_name: 'captura.png', mime_type: 'image/png', size_bytes: 2048 }],
           }),
+          comentario({
+            id: 5,
+            message: 'Con documento',
+            attachments: [{ id: 10, original_name: 'informe.pdf', mime_type: 'application/pdf', size_bytes: 40960 }],
+          }),
         ]}
       />
     );
-    expect(screen.getByText(/captura\.png/)).toBeInTheDocument();
+
+    // Una imagen se muestra como miniatura y un documento como enlace con su peso.
+    expect(screen.getByAltText('captura.png')).toHaveAttribute('src', '/api/files/9');
+    expect(screen.getByText(/informe\.pdf/)).toBeInTheDocument();
+    expect(screen.getByText('40 KB')).toBeInTheDocument();
   });
 });
