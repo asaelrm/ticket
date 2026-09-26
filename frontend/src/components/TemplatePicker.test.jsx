@@ -115,7 +115,11 @@ describe('TemplatePicker', () => {
   it('deja literal una variable desconocida y la señala', async () => {
     const { user } = await openPicker();
     await user.click(screen.getByText('Con variable desconocida'));
-    expect(await screen.findByText(/Desconocida: \{\{no_existe\}\}/)).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'Respuestas rápidas' });
+    // Se muestra como aviso y, a la vez, queda literal en la vista previa.
+    expect(within(dialog).getByText('{{no_existe}}')).toBeInTheDocument();
+    expect(within(dialog).getByText(/Desconocida:/)).toBeInTheDocument();
+    expect(within(dialog).getByText('Saludos {{no_existe}}')).toBeInTheDocument();
   });
 
   it('escapa el HTML en la vista previa (no ejecuta el contenido de la plantilla)', async () => {
