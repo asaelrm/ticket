@@ -204,7 +204,7 @@ export default function Tickets() {
   const hasAnyFilter = query.length > 0;
 
   return (
-    <div>
+    <div className={bulk.selected.size > 0 ? 'pb-28' : ''}>
       {/* Chips de filtros rápidos con contadores */}
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
         {VIEWS.map((v) => {
@@ -327,7 +327,12 @@ export default function Tickets() {
         </div>
       </div>
 
-      {(error || queryError) && <ErrorBox message={error || queryError.message || 'No se pudieron cargar los tickets'} />}
+      {(error || queryError || bulk.error) && (
+        <ErrorBox
+          message={error || queryError?.message || bulk.error}
+          details={bulk.errorDetails}
+        />
+      )}
 
       {!list ? (
         <LoadingScreen />
@@ -345,6 +350,10 @@ export default function Tickets() {
           canManage={canManage}
           onAssignMe={assignMe}
           onStatusChange={changeStatus}
+          selectable
+          selected={bulk.selected}
+          onToggle={bulk.toggleOne}
+          onToggleAll={bulk.toggleAll}
         />
       )}
 
@@ -356,16 +365,12 @@ export default function Tickets() {
         onClear={() => update(Object.fromEntries(ADVANCED_KEYS.map((k) => [k, ''])))}
       />
 
-      <ResolveTicketsModal
-        open={!!resolveTicket}
-        onClose={() => setResolveTicket(null)}
-        count={1}
-        busy={busy}
-        onConfirm={(resolution) => {
-          const t = resolveTicket;
-          setResolveTicket(null);
-          statusMutation.mutate({ t, status: 'RESOLVED', body: { resolution } });
-        }}
+      <BulkTicketBar
+        bulk={bulk}
+        canAssign={canAssign}
+        canManage={canManage}
+        canResolve={canResolve}
+        canClose={canClose}
       />
     </div>
   );
