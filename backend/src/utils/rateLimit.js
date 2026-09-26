@@ -1,4 +1,7 @@
-// Rate limiting en memoria (ventana deslizante) por clave (IP o ruta).
+// Rate limiting en memoria por clave (la IP). La ventana es FIJA: `reset` se
+// fija en la primera petición de la ventana y no se recalcula, así que en el
+// borde un cliente agotado puede llegar a `2 * max` por minuto. Es el trade-off
+// habitual de este enfoque y no se cambia aquí.
 export function rateLimit({ windowMs = 60_000, max = 100, message = 'Demasiadas solicitudes' } = {}) {
   // En pruebas el límite real volvería la suite dependiente del tiempo y del
   // número de inicios de sesión del mismo proceso (el seed y varios casos de
@@ -11,6 +14,18 @@ export function rateLimit({ windowMs = 60_000, max = 100, message = 'Demasiadas 
   return function rateLimitMw(req, res, next) {
     const key = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
+
+    // Poda: las entradas nunca se borraban, así que cada IP nueva (botnet, NAT,
+    // crawler, nodos de salida) dejaba una entrada viva durante toda la vida
+    // del proceso. Se recorre el mapa una vez cada 1000 peticiones: O(n) pero
+    // amortizado, y en reposo sobre customers con pocas IPs es trivial.
+    if ((hits.pruneAt = (hits.pruneAt || 0) + 1) > 1000) {
+      hits.pruneAt = 0;
+      for (const [k, v] of hits) {
+        if (v.reset <= now) hits.delete(k);
+      }
+    }
+
     const entry = hits.get(key);
     if (!entry || entry.reset <= now) {
       hits.set(key, { count: 1, reset: now + windowMs, created: now });
