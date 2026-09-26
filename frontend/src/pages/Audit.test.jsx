@@ -245,16 +245,17 @@ describe('Audit', () => {
 
   it('pagina hacia atrás y adelante', async () => {
     const user = userEvent.setup();
+    setup([history()], { total: 30 });
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
-    expect(screen.getByText(/de 90/)).toHaveTextContent(/^1.\d+ de 90 .*Página 1 de 3$/);
+    expect(screen.getByText(/de 30/)).toHaveTextContent(/^1–10 de 30 · Página 1 de 3$/);
     expect(screen.getByRole('button', { name: '← Anterior' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeEnabled();
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=10'));
-    expect(await screen.findByText(/de 90/)).toHaveTextContent(/Página 2 de 3$/);
+    expect(await screen.findByText(/de 30/)).toHaveTextContent(/^11–20 de 30 · Página 2 de 3$/);
 
     await user.click(screen.getByRole('button', { name: '← Anterior' }));
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=10'));
@@ -262,14 +263,14 @@ describe('Audit', () => {
 
   it('deshabilita el avance en la última página', async () => {
     const user = userEvent.setup();
+    setup([history()], { total: 30 });
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await screen.findByText(/de 90/);
-    await waitFor(() => expect(screen.getByText(/de 90/)).toHaveTextContent(/Página 2 de 3$/));
+    await waitFor(() => expect(screen.getByText(/de 30/)).toHaveTextContent(/Página 2 de 3$/));
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await waitFor(() => expect(screen.getByText(/de 90/)).toHaveTextContent(/Página 3 de 3$/));
+    await waitFor(() => expect(screen.getByText(/de 30/)).toHaveTextContent(/^21–30 de 30 · Página 3 de 3$/));
 
     expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeDisabled();
     expect(lastAuditUrl()).toBe('/api/audit?page=3&perPage=10');
