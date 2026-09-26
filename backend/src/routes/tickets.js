@@ -155,7 +155,11 @@ function validateFiles(files) {
   return { ok: true, validated };
 }
 
-function persistAndInsertAttachments(validated, ticketId, commentId, userId) {
+// Un adjunto colgado de una nota interna no puede registrarse como
+// ATTACHMENT_ADDED: su descripción incluye el nombre del archivo y el historial
+// es visible para el reportante. Se registra con una acción propia para que el
+// filtro de la nota interna pueda ocultarla sin mostrar ni siquiera su existencia.
+function persistAndInsertAttachments(validated, ticketId, commentId, userId, isInternalNote = false) {
   const inserted = [];
   for (const { buffer, info } of validated) {
     const saved = persistUpload(buffer, info);
@@ -171,7 +175,12 @@ function persistAndInsertAttachments(validated, ticketId, commentId, userId) {
       comment_id: commentId,
       created_at: nowIso(),
     });
-    recordHistory(ticketId, userId, 'ATTACHMENT_ADDED', `Se adjuntó ${saved.originalName}`);
+    recordHistory(
+      ticketId,
+      userId,
+      isInternalNote ? 'NOTE_ATTACHMENT_ADDED' : 'ATTACHMENT_ADDED',
+      `Se adjuntó ${saved.originalName}`
+    );
   }
   return inserted;
 }
