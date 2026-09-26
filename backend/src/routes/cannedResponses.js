@@ -2,7 +2,7 @@ import express from 'express';
 import db, { nowIso } from '../db.js';
 import { safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requireAnyPermission, requirePermission } from '../middleware/auth.js';
-import { MAX_TEMPLATE_BODY, MAX_TEMPLATE_TITLE, validateTemplateBody } from '../utils/templateVars.js';
+import { MAX_TEMPLATE_TITLE, validateTemplateBody } from '../utils/templateVars.js';
 
 const router = express.Router();
 router.use(requireAuth);
