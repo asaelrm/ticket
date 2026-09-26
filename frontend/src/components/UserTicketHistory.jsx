@@ -12,7 +12,7 @@ export default function UserTicketHistory({ userId, self = false, perPage = 8 })
     setPage(1);
   }, [scope, userId]);
 
-  const { data, isPending, error, isFetching } = useQuery({
+  const { data, isPending, error } = useQuery({
     queryKey: ['user-ticket-history', userId, scope, page, perPage],
     queryFn: () => api.get(`/api/users/${userId}/tickets?scope=${scope}&page=${page}&perPage=${perPage}`),
     enabled: !!userId,
