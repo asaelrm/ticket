@@ -521,8 +521,8 @@ describe('búsqueda, filtros y paginación', () => {
   });
 
   it('filtra solo por destacados', async () => {
-    const plain = await createDraft(tech, { title: uniq('No destacado') });
-    const star = await createDraft(tech, { title: uniq('Sí destacado') });
+    const plain = await createDraft(tech, { title: uniq('Sin destacar') });
+    const star = await createDraft(tech, { title: uniq('Con destaque') });
     await publish(tech, plain.id);
     await publish(tech, star.id);
     await tech.post(`/api/kb-articles/${star.id}/feature`);
@@ -555,7 +555,7 @@ describe('búsqueda, filtros y paginación', () => {
 
     const byTitle = await emp.get('/api/kb-articles?sort=title&perPage=100');
     const titles = byTitle.body.data.map((x) => x.title);
-    assert.deepEqual(titles, [...titles].sort((x, y) => x.localeCompare(y, 'es')));
+    assert.deepEqual(titles, [...titles].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)));
   });
 
   it('limita perPage a 100 y page a 1 como mínimo', async () => {
@@ -621,7 +621,10 @@ describe('historial de cambios', () => {
     await tech.patch(`/api/kb-articles/${article.id}`, { description: largo });
     const res = await tech.get(`/api/kb-articles/${article.id}/history`);
     const updated = res.body.data.find((h) => h.action === 'UPDATED');
-    assert.equal(updated.new_value.length, 120);
+    // 117 caracteres + elipsis, nunca los 5000 enviados.
+    assert.equal(updated.new_value.length, 118);
+    assert.equal(updated.new_value.endsWith('\u2026'), true);
+    assert.equal(largo.length > updated.new_value.length, true);
   });
 
   it('el historial de otro artículo es 404', async () => {
