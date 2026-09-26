@@ -38,7 +38,7 @@ function setup(rows = [history()], { total = 90 } = {}) {
     if (url.startsWith('/api/audit?')) {
       const params = new URLSearchParams(url.slice('/api/audit?'.length));
       const page = Number(params.get('page') || 1);
-      const perPage = Number(params.get('perPage') || 30);
+      const perPage = Number(params.get('perPage') || 10);
       return Promise.resolve({
         data: rows,
         total,
@@ -79,7 +79,7 @@ describe('Audit', () => {
     renderWithProviders(<Audit />, { route: '/app/audit' });
 
     expect(await screen.findByText('TCK-000011')).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledWith('/api/audit?page=1&perPage=30');
+    expect(api.get).toHaveBeenCalledWith('/api/audit?page=1&perPage=10');
   });
 
   it('muestra los registros con usuario, acción y detalle', async () => {
@@ -155,7 +155,7 @@ describe('Audit', () => {
     expect(auditCalls().length).toBe(before);
   });
 
-  it('los filtros del formulario no llegan a la consulta: el submit solo reinicia la página', async () => {
+  it('envía al API todos los filtros escritos al pulsar Filtrar', async () => {
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
@@ -170,10 +170,44 @@ describe('Audit', () => {
     const before = auditCalls().length;
     await user.click(screen.getByRole('button', { name: 'Filtrar' }));
 
+    await waitFor(() =>
+      expect(lastAuditUrl()).toBe(
+        '/api/audit?search=impresora&action=RESOLVED&user=2&from=2026-09-01&to=2026-09-30&page=1&perPage=10'
+      )
+    );
+    expect(auditCalls().length).toBe(before + 1);
     expect(screen.getByPlaceholderText('Ticket, título o detalle…')).toHaveValue('impresora');
     expect(screen.getByLabelText('Acción')).toHaveValue('RESOLVED');
-    expect(auditCalls().length).toBe(before);
-    expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=30');
+  });
+
+  it('la consulta distingue los filtros aplicados en su queryKey', async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderWithProviders(<Audit />, { route: '/app/audit' });
+    await screen.findByText('TCK-000011');
+    await screen.findByRole('option', { name: 'Creación' });
+
+    expect(queryClient.getQueryData(['audit', { search: '', action: '', user: '', from: '', to: '', page: 1, perPage: 10 }])).toBeDefined();
+
+    await user.selectOptions(screen.getByLabelText('Acción'), 'CREATED');
+    await user.click(screen.getByRole('button', { name: 'Filtrar' }));
+
+    await waitFor(() =>
+      expect(queryClient.getQueryData(['audit', { search: '', action: 'CREATED', user: '', from: '', to: '', page: 1, perPage: 10 }])).toBeDefined()
+    );
+  });
+
+  it('aplicar filtros vacíos consulta sin parámetros de filtro', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Audit />, { route: '/app/audit' });
+    await screen.findByText('TCK-000011');
+
+    await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'pc');
+    await user.click(screen.getByRole('button', { name: 'Filtrar' }));
+    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?search=pc&page=1&perPage=10'));
+
+    await user.click(screen.getByRole('button', { name: 'Limpiar' }));
+    await user.click(screen.getByRole('button', { name: 'Filtrar' }));
+    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=10'));
   });
 
   it('la paginación tampoco arrastra los filtros pendientes del formulario', async () => {
@@ -184,7 +218,7 @@ describe('Audit', () => {
     await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'impresora');
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
 
-    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=30'));
+    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=10'));
   });
 
   it('ofrece en el filtro de acción solo las acciones existentes', async () => {
@@ -214,16 +248,16 @@ describe('Audit', () => {
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
-    expect(screen.getByText('1–30 de 90 · Página 1 de 3')).toBeInTheDocument();
+    expect(screen.getByText('1.10 de 90 · Página 1 de 3')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '← Anterior' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeEnabled();
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=30'));
-    expect(await screen.findByText('31–60 de 90 · Página 2 de 3')).toBeInTheDocument();
+    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=10'));
+    expect(await screen.findByText('11.20 de 90 · Página 2 de 3')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '← Anterior' }));
-    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=30'));
+    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=10'));
   });
 
   it('deshabilita el avance en la última página', async () => {
@@ -232,12 +266,12 @@ describe('Audit', () => {
     await screen.findByText('TCK-000011');
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await screen.findByText('31–60 de 90 · Página 2 de 3');
+    await screen.findByText('11.20 de 90 · Página 2 de 3');
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await screen.findByText('61–90 de 90 · Página 3 de 3');
+    await screen.findByText('21.30 de 90 · Página 3 de 3');
 
     expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeDisabled();
-    expect(lastAuditUrl()).toBe('/api/audit?page=3&perPage=30');
+    expect(lastAuditUrl()).toBe('/api/audit?page=3&perPage=10');
   });
 
   it('cambia el número de registros por página y vuelve a la primera página', async () => {
@@ -246,7 +280,7 @@ describe('Audit', () => {
     await screen.findByText('TCK-000011');
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=30'));
+    await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=10'));
 
     await user.selectOptions(screen.getByRole('combobox', { name: /Mostrar/ }), '50');
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=50'));
@@ -259,7 +293,7 @@ describe('Audit', () => {
     const select = screen.getByRole('combobox', { name: /Mostrar/ });
     expect(within(select).getAllByRole('option').map((o) => o.value)).toEqual(['10', '25', '50', '100']);
     expect(select).toHaveValue('10');
-    expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=30');
+    expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=10');
   });
 
   it('mantiene la tabla anterior mientras carga la página siguiente', async () => {
@@ -269,7 +303,7 @@ describe('Audit', () => {
 
     const base = api.get.getMockImplementation();
     api.get.mockImplementation((url) => {
-      if (url === '/api/audit?page=2&perPage=30') return new Promise(() => {});
+      if (url === '/api/audit?page=2&perPage=10') return new Promise(() => {});
       return base(url);
     });
 
