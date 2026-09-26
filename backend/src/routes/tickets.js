@@ -3,6 +3,7 @@ import db, { nowIso } from '../db.js';
 import config from '../config.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { visibleTemplateFor } from './cannedResponses.js';
+import { visibleArticlesForTicket } from './kbArticles.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { uploadMiddleware, uploadSizeError } from '../middleware/upload.js';
 import { validateFile, persistUpload } from '../utils/fileType.js';
@@ -785,6 +786,24 @@ router.get('/:id', (req, res) => {
   };
 
   res.json({ ticket, attachments, comments, history, can });
+});
+
+/**
+ * Artículos de la base de conocimiento enlazados a este ticket.
+ *
+ * Requiere la MISMA comprobación de visibilidad que el detalle del ticket, para
+ * que un empleado no pueda enumerar los artículos consultando el id de un
+ * ticket ajeno. Solo devuelve artículos publicados: un borrador enlazado
+ * permanece invisible aquí por mucho que se conozca el ticket.
+ */
+router.get('/:id/articles', requirePermission('kb.view'), (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const ticket = getTicket(id);
+  if (!ticket || !canViewTicket(req.user, ticket)) {
+    return res.status(404).json({ error: 'Ticket no encontrado' });
+  }
+  const articles = visibleArticlesForTicket(req.user, id);
+  res.json({ data: articles, total: articles.length });
 });
 
 // Conversación en vivo: emite comentarios, cambios y "escribiendo…" por SSE.
