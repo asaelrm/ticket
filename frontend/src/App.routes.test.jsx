@@ -39,6 +39,10 @@ vi.mock('./pages/Reports', () => ({ default: () => 'PAGE reports' }));
 vi.mock('./pages/Settings', () => ({ default: () => 'PAGE settings' }));
 vi.mock('./pages/Audit', () => ({ default: () => 'PAGE audit' }));
 vi.mock('./pages/Profile', () => ({ default: () => 'PAGE profile' }));
+vi.mock('./pages/Knowledge', () => ({ default: () => 'PAGE knowledge' }));
+vi.mock('./pages/KnowledgeDetail', () => ({ default: () => 'PAGE knowledge-detail' }));
+vi.mock('./pages/KnowledgeEditor', () => ({ default: () => 'PAGE knowledge-editor' }));
+vi.mock('./pages/KnowledgeAdmin', () => ({ default: () => 'PAGE knowledge-admin' }));
 
 const MANAGER = {
   id: 7,
@@ -109,5 +113,42 @@ describe('Permisos de las rutas de gestión', () => {
 
     renderApp('/app');
     expect(await screen.findByText('PAGE dashboard')).toBeInTheDocument();
+  });
+});
+
+describe('Permisos de las rutas de la base de conocimiento', () => {
+  // kb.view consulta, kb.create redacta, kb.manage modera. Son los mismos
+  // permisos que exigen GET /, POST y PATCH /:id en el backend.
+  it.each([
+    ['/app/knowledge', 'kb.view', 'PAGE knowledge'],
+    ['/app/knowledge/5', 'kb.view', 'PAGE knowledge-detail'],
+    ['/app/knowledge/new', 'kb.create', 'PAGE knowledge-editor'],
+    ['/app/knowledge/5/edit', 'kb.create', 'PAGE knowledge-editor'],
+    ['/app/knowledge/admin', 'kb.manage', 'PAGE knowledge-admin'],
+  ])('%s se abre con %s y se redirige sin él', async (route, permission, page) => {
+    authState.user = { id: 7, name: 'Lector', permissions: [permission] };
+
+    const granted = renderApp(route);
+    expect(await screen.findByText(page)).toBeInTheDocument();
+    granted.unmount();
+
+    authState.user = { id: 7, name: 'Lector', permissions: [] };
+    renderApp(route);
+    expect(await screen.findByText('PAGE my-tickets')).toBeInTheDocument();
+    expect(screen.queryByText(page)).not.toBeInTheDocument();
+  });
+
+  it('la ruta literal "new" no se confunde con un identificador de artículo', async () => {
+    authState.user = { id: 7, name: 'Autor', permissions: ['kb.view', 'kb.create'] };
+
+    renderApp('/app/knowledge/new');
+    expect(await screen.findByText('PAGE knowledge-editor')).toBeInTheDocument();
+  });
+
+  it('la administración exige kb.manage aunque se tenga kb.create', async () => {
+    authState.user = { id: 7, name: 'Autor', permissions: ['kb.view', 'kb.create', 'kb.publish'] };
+
+    renderApp('/app/knowledge/admin');
+    expect(await screen.findByText('PAGE my-tickets')).toBeInTheDocument();
   });
 });
