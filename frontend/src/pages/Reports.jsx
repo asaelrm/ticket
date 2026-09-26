@@ -158,6 +158,18 @@ export default function Reports() {
       ['department', 'Tickets por departamento', ['Departamento', 'Total', 'Abiertos'], data.byDepartment.map((d) => [d.name, d.n, d.open])],
       ['reporters', 'Top reporteros', ['Empleado', 'Total', 'Abiertos'], data.performance.by_user.map((u) => [u.reporter, u.total, u.open])],
       ['resolved', 'Resueltos por día', ['Día', 'Cantidad'], data.performance.by_day.map((d) => [d.day, d.n])],
+      ['technicians', 'Rendimiento por técnico', ['Técnico', 'Asignados', 'Abiertos', 'Resueltos', 'Cerrados', 'Tiempo total', 'Tiempo medio', 'Resolución media', 'Incumpl. SLA', 'Cumplimiento SLA'], data.byTechnician.map((t) => [t.technician, t.assigned, t.open, t.resolved, t.closed, minutosONo(t.total_time_minutes), minutosONo(t.avg_time_minutes), horasONo(t.avg_resolution_hours), t.sla_breached, t.sla_pct == null ? 'Sin SLA comparable' : `${t.sla_pct}%`])],
+      ['teams', 'Rendimiento por equipo', ['Equipo', 'Asignados', 'Abiertos', 'Completados', 'Resolución media', 'Incumpl. SLA', 'Cumplimiento SLA'], data.byTeam.data.map((t) => [t.team, t.assigned, t.open, t.completed, horasONo(t.avg_resolution_hours), t.sla_breached, t.sla_pct == null ? 'Sin SLA comparable' : `${t.sla_pct}%`])],
+      ['csat', 'Satisfacción (CSAT)', ['Métrica', 'Valor'], [
+        ['Valoración media', data.csat?.average == null ? 'Sin respuestas' : `${data.csat.average} / 5`],
+        ['Respuestas recibidas', data.csat?.responses ?? 0],
+        ['Tickets resueltos o cerrados', data.csat?.eligible ?? 0],
+        ['Tasa de respuesta', data.csat?.response_rate == null ? 'Sin base comparable' : `${data.csat.response_rate}%`],
+      ]],
+      ['csat', 'CSAT por técnico', ['Filtro', 'Respuestas', 'Media'], (data.csat?.by_technician || []).map((r) => [r.label, r.responses, r.average == null ? 'Sin datos' : `${r.average} / 5`])],
+      ['csat', 'CSAT por departamento', ['Filtro', 'Respuestas', 'Media'], (data.csat?.by_department || []).map((r) => [r.label, r.responses, r.average == null ? 'Sin datos' : `${r.average} / 5`])],
+      ['csat', 'CSAT por categoría', ['Filtro', 'Respuestas', 'Media'], (data.csat?.by_category || []).map((r) => [r.label, r.responses, r.average == null ? 'Sin datos' : `${r.average} / 5`])],
+      ['csat', 'Evolución del CSAT', ['Mes', 'Respuestas', 'Media'], (data.csat?.by_month || []).map((m) => [m.month, m.responses, m.average == null ? 'Sin datos' : `${m.average} / 5`])],
       ['details', 'Detalle de tickets', ['Ticket', 'Título', 'Estado', 'Prioridad', 'Reportero', 'Asignado a', 'Departamento', 'Categoría', 'Creado', 'Resuelto/cerrado'], data.details.map((t) => [t.ticket_number, t.title, STATUS_LABEL[t.status] || t.status, PRIORITY_LABEL[t.priority] || t.priority, t.reporter, t.assigned_to, t.department, t.category, t.created_at, t.resolved_at || t.closed_at || ''])],
     ];
     const opened = printDocument({
