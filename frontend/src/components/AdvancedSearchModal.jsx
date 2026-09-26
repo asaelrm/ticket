@@ -90,6 +90,17 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
     onClear?.();
   }
 
+  function apply() {
+    // Si los filtros de directorio no son utilizables, tampoco se aplican: una
+    // vista guardada con `?user=…` no debe recortar los resultados de alguien
+    // que no puede ni ver ese selector.
+    const next = canViewAll
+      ? form
+      : { ...form, ...Object.fromEntries(DIRECTORY_KEYS.map((k) => [k, ''])) };
+    onApply(next);
+    onClose();
+  }
+
   return (
     <Modal open={open} onClose={onClose} title="Búsqueda avanzada" wide>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -137,41 +148,49 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
             ))}
           </select>
         </div>
-        <div>
-          <label className="label">Solicitante</label>
-          <select className="input" value={form.user} onChange={(e) => set('user', e.target.value)}>
-            <option value="">Todos</option>
-            {options.users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} {u.last_name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label">Técnico asignado</label>
-          <select className="input" value={form.assigned} onChange={(e) => set('assigned', e.target.value)}>
-            <option value="">Todos</option>
-            <option value="none">Sin asignar</option>
-            {options.users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} {u.last_name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="sm:col-span-2">
-          <label className="label">Equipo asignado</label>
-          <select className="input" value={form.team} onChange={(e) => set('team', e.target.value)}>
-            <option value="">Todos</option>
-            {options.teams.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {t.member_count ? ` (${t.member_count})` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+        {canViewAll ? (
+          <>
+            <div>
+              <label className="label">Solicitante</label>
+              <select className="input" value={form.user} onChange={(e) => set('user', e.target.value)}>
+                <option value="">Todos</option>
+                {options.users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} {u.last_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Técnico asignado</label>
+              <select className="input" value={form.assigned} onChange={(e) => set('assigned', e.target.value)}>
+                <option value="">Todos</option>
+                <option value="none">Sin asignar</option>
+                {options.users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} {u.last_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="label">Equipo asignado</label>
+              <select className="input" value={form.team} onChange={(e) => set('team', e.target.value)}>
+                <option value="">Todos</option>
+                {options.teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.member_count ? ` (${t.member_count})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        ) : (
+          <p className="sm:col-span-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            El filtrado por solicitante, técnico o equipo requiere permiso para ver todos los tickets.
+          </p>
+        )}
 
         <div className="sm:col-span-2">
           <label className="label">Fecha de creación</label>
