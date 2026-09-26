@@ -19,6 +19,7 @@ const Users = lazy(() => import('./pages/Users'));
 const Categories = lazy(() => import('./pages/Categories'));
 const Departments = lazy(() => import('./pages/Departments'));
 const Teams = lazy(() => import('./pages/Teams'));
+const TemplatesAdmin = lazy(() => import('./pages/TemplatesAdmin'));
 const Roles = lazy(() => import('./pages/Roles'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Settings = lazy(() => import('./pages/Settings'));
