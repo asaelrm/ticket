@@ -24,6 +24,10 @@ const Roles = lazy(() => import('./pages/Roles'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Settings = lazy(() => import('./pages/Settings'));
 const Profile = lazy(() => import('./pages/Profile'));
+const Knowledge = lazy(() => import('./pages/Knowledge'));
+const KnowledgeDetail = lazy(() => import('./pages/KnowledgeDetail'));
+const KnowledgeEditor = lazy(() => import('./pages/KnowledgeEditor'));
+const KnowledgeAdmin = lazy(() => import('./pages/KnowledgeAdmin'));
 
 function Protected({ children, permission }) {
   const { user, loading } = useAuth();
