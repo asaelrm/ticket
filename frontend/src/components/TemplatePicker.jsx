@@ -37,21 +37,12 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
 
   const { data, isFetching, error } = useQuery({
     queryKey: ['canned-responses', debounced],
-    queryFn: () => api.get(`/api/canned-responses?q=${encodeURIComponent(debounced)}`).then((d) => d.data || []),
+    queryFn: () => api.get(`/api/canned-responses?q=${encodeURIComponent(debounced)}`).then((d) => d.data?.data || []),
     enabled: open,
     staleTime: 5 * 60 * 1000,
   });
 
   const templates = data || [];
-
-  const grouped = useMemo(() => {
-    const map = new Map(SCOPE_ORDER.map((s) => [s, []]));
-    for (const t of templates) {
-      if (map.has(t.scope)) map.get(t.scope).push(t);
-      else map.set(t.scope, [t]);
-    }
-    return map;
-  }, [templates]);
 
   useEffect(() => {
     setHighlight(0);
