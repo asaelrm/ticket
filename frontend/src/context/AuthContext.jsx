@@ -42,12 +42,17 @@ export function AuthProvider({ children }) {
   }, [user]);
 
   const login = useCallback(async (account, password, remember) => {
+    // Antes de fijar la identidad nueva: las claves de caché no incluyen el
+    // usuario, así que sin purgar, un empleado que abriera sesión en el mismo
+    // navegador donde antes hubo un administrador vería los tickets, usuarios y
+    // registros de auditoría que ese otro usuario tenía cacheados.
+    queryClient.clear();
     await api.post('/api/auth/login', { account, password, remember });
     // Se consulta /me para garantizar que el usuario incluye sus permisos.
     const data = await api.get('/api/auth/me');
     setUser(data.user);
     return data.user;
-  }, []);
+  }, [queryClient]);
 
   const logout = useCallback(async () => {
     try {
@@ -55,8 +60,13 @@ export function AuthProvider({ children }) {
     } catch {
       // La sesión puede haber expirado; cerrar sesión local igualmente.
     }
+    // La caché pertenece a la sesión que se está cerrando. Sin esto, el
+    // siguiente usuario de la máquina hereda sus datos mientras React Query va
+    // revalidando, y también si la revalidación falla con 401/403, porque las
+    // pantallas muestran el dato cacheado y solo añaden el aviso de error.
+    queryClient.clear();
     setUser(null);
-  }, []);
+  }, [queryClient]);
 
   const value = { user, setUser, loading, login, logout, appName, setAppName };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
