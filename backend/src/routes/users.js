@@ -5,6 +5,7 @@ import { hashPassword } from '../utils/password.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission, requireAnyPermission, publicUser } from '../middleware/auth.js';
 import { saveDirectorySnapshot } from '../directorySync.js';
+import { destroyUserSessions } from '../utils/sessionStore.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -296,6 +297,12 @@ router.post('/:id/reset-password', requirePermission('user.manage'), (req, res) 
     nowIso(),
     id
   );
+
+  // Un restablecimiento de contraseña deja sin efecto las sesiones vivas del
+  // usuario. Sin esto, quien hubiera robado la cookie conserva el acceso
+  // durante toda la vigencia de la sesión, incluso después de que el
+  // propietario haya cambiado su contraseña.
+  destroyUserSessions(id);
 
   res.json({
     ok: true,
