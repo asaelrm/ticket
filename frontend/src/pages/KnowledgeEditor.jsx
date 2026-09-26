@@ -272,7 +272,7 @@ export default function KnowledgeEditor() {
             to={article ? `/app/knowledge/${article.id}` : '/app/knowledge'}
             className="btn-ghost !px-2 !py-1 text-sm"
           >
-            Cancelar
+            ← Volver
           </Link>
         </div>
       </div>

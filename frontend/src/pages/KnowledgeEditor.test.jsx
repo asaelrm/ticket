@@ -61,13 +61,13 @@ function LocationProbe() {
   return <p data-testid="location">{`${pathname}${search}`}</p>;
 }
 
-function renderEditor(route, existing) {
+function renderEditor(route, path = '/app/knowledge/:id/edit') {
   return renderWithProviders(
     <>
       <KnowledgeEditor />
       <LocationProbe />
     </>,
-    { path: '/app/knowledge/:id/edit', route }
+    { path, route }
   );
 }
 
