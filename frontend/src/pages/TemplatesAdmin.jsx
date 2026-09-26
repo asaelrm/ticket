@@ -143,7 +143,7 @@ export default function TemplatesAdmin() {
 
       <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
         Las plantillas de equipo son visibles solo para los miembros actuales del equipo: el sistema no guarda historial de
-        pertenencia. No Platzholders ni datos de un cliente concreto en el texto de la plantilla.
+        pertenencia. No incluya datos de un cliente concreto en el texto de la plantilla.
       </p>
 
       <div className="mb-3 space-y-2">
