@@ -121,4 +121,31 @@ describe('NewTicket', () => {
     expect(await screen.findByLabelText(/Título/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Crear ticket' })).toBeInTheDocument();
   });
+
+  it('libera la URL de la miniatura al quitar el archivo y al desmontar', async () => {
+    // Regresión de memoria: antes se creaba la URL en el render y solo se
+    // revocaba en onLoad, de modo que una imagen que se reemplazaba o se
+    // desmontaba antes de cargar retenía el File y su URL en blobs.
+    const revoked = [];
+    const createObjectURL = vi.fn(() => `blob:mock/${createObjectURL.mock.calls.length}`);
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: (u) => revoked.push(u) }));
+    vi.spyOn(URL, 'revokeObjectURL');
+
+    const { container, unmount } = renderWithProviders(<NewTicket />, { route: '/new-ticket' });
+    await screen.findByLabelText(/Título/);
+    const input = container.querySelector('input[type="file"]');
+
+    const png = (name) => new File(['x'], name, { type: 'image/png' });
+    fireEvent.change(input, { target: { files: [png('a.png')] } });
+    const primera = await screen.findByRole('img');
+    expect(primera.getAttribute('src')).toBe('blob:mock/1');
+
+    // Cambiar el archivo por otro debe revocar la URL anterior, no dejarla viva.
+    fireEvent.change(input, { target: { files: [png('b.png')] } });
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock/1'));
+
+    unmount();
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock/2'));
+    expect(revoked).toEqual(expect.arrayContaining(['blob:mock/1', 'blob:mock/2']));
+  });
 });
