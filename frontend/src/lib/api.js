@@ -64,6 +64,18 @@ export function fileUrl(id) {
   return `/api/files/${id}`;
 }
 
+// El backend rechaza PATCH con RESOLVED/CLOSED/CANCELLED a propósito
+// (tickets.js): esos tres flujos exigen su endpoint dedicado para validar los
+// datos obligatorios (solución, nota, motivo). Esta función es el único punto
+// que traduce un estado destino a la llamada correcta, de modo que la acción
+// de fila y la masiva nunca diverjan del contrato del servidor.
+export async function setTicketStatus(id, status, payload = {}) {
+  if (status === 'CANCELLED') return api.post(`/api/tickets/${id}/cancel`, payload);
+  if (status === 'RESOLVED') return api.post(`/api/tickets/${id}/resolve`, payload);
+  if (status === 'CLOSED') return api.post(`/api/tickets/${id}/close`, payload);
+  return api.patch(`/api/tickets/${id}`, { status });
+}
+
 // Flujo de conversación en vivo (Server-Sent Events) de un ticket.
 export function ticketStreamUrl(id) {
   return `/api/tickets/${id}/stream`;
