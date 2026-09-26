@@ -87,7 +87,7 @@ describe('MyTemplates · carga y listado', () => {
     expect(within(inactive).getByText(/inactiva/)).toBeInTheDocument();
   });
 
-  it('no consulta ningún otro endpoint (ni equipos, niCatálogo, ni globales)', async () => {
+  it('no consulta ningún otro endpoint (ni equipos, ni catálogo, ni globales)', async () => {
     renderWithProviders(<MyTemplates />);
     await screen.findByText('Saludo inicial');
     const urls = api.get.mock.calls.map(([u]) => String(u));
