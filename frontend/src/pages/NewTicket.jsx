@@ -234,5 +234,25 @@ export default function NewTicket() {
           </div>
         </form>
       </div>
-    </div>  );
+    </div>
+  );
+}
+
+// Miniatura de un archivo local. El object URL se crea en un efecto y se libera
+// al desmontar o cambiar el archivo. Antes se creaba dentro del render con un
+// revoke en onLoad: cada tecla del formulario generaba una URL nueva (y por
+// tanto reiniciaba la carga de todas las miniaturas) y, si la carga se abortaba
+// porque el src había cambiado, onLoad no llegaba a dispararse y esa URL —con
+// el File entero detrás— se quedaba retenida durante toda la sesión.
+function FileThumb({ file }) {
+  const [url, setUrl] = useState('');
+
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [file]);
+
+  if (!url) return <span className="h-10 w-10 rounded-md bg-slate-100" aria-hidden="true" />;
+  return <img src={url} alt="" className="h-10 w-10 rounded-md object-cover" />;
 }
