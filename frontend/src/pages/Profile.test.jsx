@@ -153,6 +153,52 @@ describe('Profile', () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
+  it('exige los tres campos si el formulario está vacío', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Profile />, { route: '/app/profile' });
+    await screen.findByText('Cambiar contraseña');
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Todos los campos son obligatorios');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['sin contraseña actual', { next: 'nueva123', confirm: 'nueva123' }],
+    ['sin contraseña nueva', { current: 'vieja123', confirm: 'vieja123' }],
+    ['sin confirmación', { current: 'vieja123', next: 'nueva123' }],
+    ['con campos composed solo de espacios', { current: '  ', next: 'nueva123', confirm: 'nueva123' }],
+  ])('no llama a la API %s', async (_caso, valores) => {
+    const user = userEvent.setup();
+    renderWithProviders(<Profile />, { route: '/app/profile' });
+    await screen.findByText('Cambiar contraseña');
+
+    if (valores.current) await user.type(passwordField('Contraseña actual'), valores.current);
+    if (valores.next) await user.type(passwordField('Nueva contraseña'), valores.next);
+    if (valores.confirm) await user.type(passwordField('Confirmar nueva'), valores.confirm);
+    await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Todos los campos son obligatorios');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('descarta el mensaje de validación anterior al reenviar', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Profile />, { route: '/app/profile' });
+    await screen.findByText('Cambiar contraseña');
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Todos los campos son obligatorios');
+
+    await user.type(passwordField('Contraseña actual'), 'vieja123');
+    await user.type(passwordField('Nueva contraseña'), 'nueva123');
+    await user.type(passwordField('Confirmar nueva'), 'otra123');
+    await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Las contraseñas no coinciden');
+  });
+
   it('el aviso de longitud mínima acompaña al formulario', async () => {
     renderWithProviders(<Profile />, { route: '/app/profile' });
     expect(await screen.findByText('Mínimo 6 caracteres.')).toBeInTheDocument();

@@ -258,16 +258,35 @@ describe('Settings', () => {
     expect(await screen.findByText('Todavía no se han enviado correos.')).toBeInTheDocument();
   });
 
-  it('no vuelve a consultar la configuración al guardar', async () => {
+  it('sincroniza la caché de ["settings"] con la respuesta del servidor al guardar', async () => {
     const user = userEvent.setup();
-    renderWithProviders(<Settings />, { route: '/app/settings' });
+    const { queryClient } = renderWithProviders(<Settings />, { route: '/app/settings' });
     await screen.findByText('Configuración del sistema');
 
     const before = settingsCalls();
     await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
     await screen.findByText('Configuración guardada correctamente.');
 
+    // La invalidación mantiene coherente cualquier vista que use ['settings'],
+    // pero no provoca una consulta duplicada inmediata.
+    expect(queryClient.getQueryData(['settings']).app_name).toBe('Ticket PRO');
+    await waitFor(() => expect(queryClient.getQueryState(['settings']).isInvalidated).toBe(true));
     expect(settingsCalls()).toBe(before);
+  });
+
+  it('sincroniza todos los valores guardados, no solo el nombre del sistema', async () => {
+    const user = userEvent.setup();
+    const { queryClient } = renderWithProviders(<Settings />, { route: '/app/settings' });
+    await screen.findByText('Configuración del sistema');
+
+    const edited = fieldFor('Nombre de la empresa', 'input');
+    await user.clear(edited);
+    await user.type(edited, 'Acme Argentina');
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
+    await screen.findByText('Configuración guardada correctamente.');
+
+    expect(queryClient.getQueryData(['settings']).company_name).toBe('Acme');
+    expect(authState.setAppName).toHaveBeenCalledWith('Ticket PRO');
   });
 
   it('expone los campos de SLA y de escalación dentro del mismo formulario', async () => {
