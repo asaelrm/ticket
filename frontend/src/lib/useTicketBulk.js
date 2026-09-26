@@ -163,6 +163,7 @@ export function useTicketBulk({ user, queryKeys, resetKey, labelFor }) {
     clearFeedback,
     // acciones
     bulkAssignMe,
+    bulkAssignTo,
     bulkStatus,
     bulkPriority,
     bulkCancel,

@@ -14,7 +14,8 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
-import ResolveTicketsModal from '../components/ResolveTicketsModal';
+import BulkTicketBar from '../components/BulkTicketBar';
+import { useTicketBulk } from '../lib/useTicketBulk';
 import { LoadingScreen, ErrorBox, Spinner, Modal } from '../components/ui';
 
 const TABS = [
