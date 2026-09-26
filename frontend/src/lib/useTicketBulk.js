@@ -111,6 +111,9 @@ export function useTicketBulk({ user, queryKeys, resetKey, labelFor }) {
   const bulkAssignMe = () =>
     runBulk(selected, (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: user.id }));
 
+  const bulkAssignTo = (assignedToId) =>
+    runBulk(selected, (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: assignedToId }));
+
   const bulkStatus = (status) => runBulk(selected, (id) => callStatus(id, status));
 
   // El backend recalcula el SLA con la nueva prioridad (tickets.js:927).

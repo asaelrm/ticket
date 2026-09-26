@@ -8,11 +8,11 @@ import ResolveTicketsModal from './ResolveTicketsModal';
 // vuelve a decidir nada, salvo qué botón es visible según el permiso real que
 // exige el backend (ticket.assign / ticket.update.any / ticket.resolve /
 // ticket.close).
-export default function BulkTicketBar({ bulk, user, canAssign, canManage, canResolve, canClose }) {
+export default function BulkTicketBar({ bulk, canAssign, canManage, canResolve, canClose }) {
   const { selected, busy } = bulk;
 
-  // El directorio solo se pide si quien puede asignar abre el diálogo, así que
-  // no seIamzan las 403 por un selector cerrado.
+  // El directorio solo se pide si quien puede asignar abre el diálogo, de modo
+  // que un selector cerrado no genera peticiones que acabarían en 403.
   const { data: assignUsers = [] } = useQuery({
     queryKey: ['assignable-users'],
     queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []),
