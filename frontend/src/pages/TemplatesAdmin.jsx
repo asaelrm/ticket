@@ -13,6 +13,17 @@ import {
 
 const SCOPE_LABEL = { GLOBAL: 'Global', TEAM: 'Equipo' };
 
+// El listado de gestión devuelve globales y de equipo sin filtrar por permiso,
+// así que la fila decide si el usuario puede gestionarla: quien solo tiene
+// team.manage no puede editar una global (ni quien solo tiene settings.manage
+// una de equipo); el backend responde 404 a esos intentos. Ocultar la acción
+// donde el guardado no puede funcionar evita el error sin cambiar el diseño.
+function canManageScope(scope, canGlobal, canTeam) {
+  if (scope === 'GLOBAL') return canGlobal;
+  if (scope === 'TEAM') return canTeam;
+  return false;
+}
+
 function emptyForm() {
   return { title: '', body: '', scope: 'GLOBAL', team_id: '', is_active: true };
 }
@@ -165,34 +176,41 @@ export default function TemplatesAdmin() {
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          {list.map((t) => (
-            <div key={t.id} className="card p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-800">{t.title}</p>
-                  <p className="text-xs text-slate-400">
-                    {SCOPE_LABEL[t.scope]}
-                    {t.scope === 'TEAM' && t.team_name ? `: ${t.team_name}` : ''} · {t.use_count} usos
-                  </p>
+          {list.map((t) => {
+            const manageable = canManageScope(t.scope, canGlobal, canTeam);
+            return (
+              <div key={t.id} className="card p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-slate-800">{t.title}</p>
+                    <p className="text-xs text-slate-400">
+                      {SCOPE_LABEL[t.scope]}
+                      {t.scope === 'TEAM' && t.team_name ? `: ${t.team_name}` : ''} · {t.use_count} usos
+                    </p>
+                  </div>
+                  {manageable && (
+                    <ConfirmToggle
+                      active={!!t.is_active}
+                      name={t.title}
+                      labelActivate="Desactivar"
+                      labelDeactivate="Activar"
+                      onToggle={() => toggleMutation.mutate(t)}
+                    />
+                  )}
                 </div>
-                <ConfirmToggle
-                  active={!!t.is_active}
-                  name={t.title}
-                  labelActivate="Desactivar"
-                  labelDeactivate="Activar"
-                  onToggle={() => toggleMutation.mutate(t)}
-                />
+                <p className="mt-2 line-clamp-3 text-sm text-slate-500">{t.body}</p>
+                {manageable && (
+                  <button
+                    type="button"
+                    className="btn-ghost mt-3 !px-2 !py-1 text-xs"
+                    onClick={() => openEdit(t)}
+                  >
+                    Editar
+                  </button>
+                )}
               </div>
-              <p className="mt-2 line-clamp-3 text-sm text-slate-500">{t.body}</p>
-              <button
-                type="button"
-                className="btn-ghost mt-3 !px-2 !py-1 text-xs"
-                onClick={() => openEdit(t)}
-              >
-                Editar
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
