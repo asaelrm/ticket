@@ -72,11 +72,13 @@ describe('El adjunto de una nota interna no se filtra al reportante', () => {
   it('el adjunto interno se registra con acción propia y la ve quien tiene permiso', async () => {
     const ticket = await createTicket(empleadoC, { title: 'Nota interna visible para técnicos' });
 
-    await tecnicoC.postMultipart(
+    const nota = await tecnicoC.postMultipart(
       `/api/tickets/${ticket.id}/comments`,
       { message: 'Adjunto para el equipo', is_internal: '1' },
       [archivo()]
     );
+    assert.equal(nota.status, 201);
+    const attachmentId = nota.body.attachments[0].id;
 
     const admin = await adminC.get(`/api/tickets/${ticket.id}`);
     assert.equal(admin.status, 200);
@@ -86,10 +88,13 @@ describe('El adjunto de una nota interna no se filtra al reportante', () => {
     assert.ok(evento.description.includes(SECRETO), 'con el detalle del archivo');
     assert.notEqual(evento.action, 'ATTACHMENT_ADDED', 'no se confunde con un adjunto público');
 
-    const nota = admin.body.comments.find((c) => c.is_internal);
-    assert.ok(nota, 'el técnico ve la nota interna');
-    assert.equal(nota.attachments.length, 1, 'y el archivo sigue siendo accesible');
-    assert.equal(nota.attachments[0].original_name, SECRETO);
+    const interna = admin.body.comments.find((c) => c.is_internal);
+    assert.ok(interna, 'el técnico ve la nota interna');
+    assert.equal(interna.attachment_count, 1, 'y sabe que tiene un archivo');
+
+    // Con el permiso se descarga; sin él, tampoco por adivinar el id.
+    assert.equal((await adminC.get(`/api/files/${attachmentId}`)).status, 200);
+    assert.equal((await empleadoC.get(`/api/files/${attachmentId}`)).status, 404);
   });
 
   it('un comentario público con adjunto mantiene su evento visible', async () => {
