@@ -1102,15 +1102,23 @@ function processComment(req, res, attachOnly) {
   // desactivada, el comentario se guarda igual y solo se omite el contador:
   // nunca se bloquea el envío por esto.
   if (!attachOnly && message) {
-    const templateId = parseIntSafe(req.body?.canned_response_id);
-    if (templateId) {
+    // El cliente puede haber insertado varias plantillas en el mismo comentario,
+    // así que el campo llega repetido. Se valida una a una con la misma regla de
+    // visibilidad y se ignoran los identificadores repetidos o no numéricos.
+    const rawIds = req.body?.canned_response_id;
+    const ids = (Array.isArray(rawIds) ? rawIds : [rawIds])
+      .map((v) => parseIntSafe(v))
+      .filter((v) => v && v > 0);
+    for (const templateId of new Set(ids)) {
       const template = visibleTemplateFor(req.user, templateId);
       if (template && template.is_active) {
-        // Una sola sentencia atómica: no hay endpoint que permita incrementarlo
-        // de forma arbitraria ni lecturas-modificación-escrituras que se
-        // pisen entre peticiones concurrentes.
+        // Una sola sentencia atómica por plantilla: no hay endpoint que permita
+        // incrementarlo de forma arbitraria ni lecturas-modificación-escrituras
+        // que se pisen entre peticiones concurrentes.
         db.prepare('UPDATE canned_responses SET use_count = use_count + 1 WHERE id = ?').run(template.id);
       }
+    }
+  }
     }
   }
 
