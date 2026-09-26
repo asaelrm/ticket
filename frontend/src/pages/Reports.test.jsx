@@ -311,7 +311,7 @@ describe('Reports: rendimiento por técnico y por equipo', () => {
   it('lista el trabajo de cada técnico con su tiempo y su SLA', async () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
-    expect(await screen.findByText('Rendimiento por técnico')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Rendimiento por técnico' })).toBeInTheDocument();
     expect(screen.getByText('Juan Pérez')).toBeInTheDocument();
     expect(screen.getByText('5 h 0 min')).toBeInTheDocument();
     expect(screen.getByText('75 min')).toBeInTheDocument();
@@ -322,7 +322,7 @@ describe('Reports: rendimiento por técnico y por equipo', () => {
   it('advierte que los tickets del equipo se atribuyen al equipo actual', async () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
-    expect(await screen.findByText('Rendimiento por equipo')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Rendimiento por equipo' })).toBeInTheDocument();
     expect(screen.getByText('Soporte Norte')).toBeInTheDocument();
     expect(screen.getByText(/no guarda el equipo que los resolvió/)).toBeInTheDocument();
   });
@@ -340,7 +340,7 @@ describe('Reports: rendimiento por técnico y por equipo', () => {
 
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
-    expect(await screen.findByText('Rendimiento por técnico')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Rendimiento por técnico' })).toBeInTheDocument();
     expect(screen.getByText('Sin SLA comparable')).toBeInTheDocument();
     expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(2);
   });
@@ -350,7 +350,7 @@ describe('Reports: rendimiento por técnico y por equipo', () => {
 
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
-    expect(await screen.findByText('Rendimiento por técnico')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Rendimiento por técnico' })).toBeInTheDocument();
     expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(4);
   });
 });
