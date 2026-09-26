@@ -56,8 +56,8 @@ export default function Settings() {
     },
     onSuccess: (normalized) => {
       if (normalized.app_name) setAppName(normalized.app_name);
+      // El PATCH devuelve el estado completo guardado: se sincroniza la caché sin volver a consultar.
       queryClient.setQueryData(['settings'], normalized);
-      queryClient.invalidateQueries({ queryKey: ['settings'] });
       setSuccess('Configuración guardada correctamente.');
     },
     onError: (err) => setError(err.message || 'No se pudieron guardar los ajustes'),

@@ -267,10 +267,8 @@ describe('Settings', () => {
     await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
     await screen.findByText('Configuración guardada correctamente.');
 
-    // La invalidación mantiene coherente cualquier vista que use ['settings'],
-    // pero no provoca una consulta duplicada inmediata.
+    // El PATCH devuelve el estado completo: la caché queda actualizada sin una consulta extra.
     expect(queryClient.getQueryData(['settings']).app_name).toBe('Ticket PRO');
-    await waitFor(() => expect(queryClient.getQueryState(['settings']).isInvalidated).toBe(true));
     expect(settingsCalls()).toBe(before);
   });
 
