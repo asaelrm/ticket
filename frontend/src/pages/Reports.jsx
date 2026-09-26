@@ -23,6 +23,9 @@ const SECTIONS = [
   ['department', 'Departamentos'],
   ['reporters', 'Reporteros'],
   ['resolved', 'Resueltos por día'],
+  ['technicians', 'Rendimiento por técnico'],
+  ['teams', 'Rendimiento por equipo'],
+  ['csat', 'Satisfacción (CSAT)'],
   ['details', 'Detalle de tickets'],
 ];
 
@@ -114,6 +117,9 @@ export default function Reports() {
         byCategory: r.byCategory,
         byDepartment: r.byDepartment,
         performance: { by_day: r.byDay, by_user: r.byUser },
+        byTechnician: r.byTechnician || [],
+        byTeam: r.byTeam || { basis: 'current_assignment', note: '', data: [] },
+        csat: r.csat || null,
         details: r.details,
       })),
     // Conserva los reportes previos al cambiar de filtros mientras carga la nueva consulta.
