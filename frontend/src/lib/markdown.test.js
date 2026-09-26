@@ -145,37 +145,81 @@ describe('markdown: listas ordenadas', () => {
 });
 
 describe('markdown: el HTML peligroso sigue escapado', () => {
+  // Comprobar que la cadena NO contiene "onload" no sirve de nada: el texto
+  // escapado lo contiene legítimamente. Lo que importa es qué elemento y qué
+  // atributo acaba teniendo el DOM, así que se analiza el resultado.
+  const ALLOWED_TAGS = new Set(['P', 'STRONG', 'EM', 'CODE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'UL', 'OL', 'LI', 'DIV']);
+
+  function inspect(html) {
+    const host = document.createElement('div');
+    host.innerHTML = html;
+    const elements = [...host.querySelectorAll('*')];
+    return {
+      tags: elements.map((el) => el.tagName),
+      attrs: elements.flatMap((el) => [...el.attributes].map((a) => a.name)),
+      text: host.textContent,
+      host,
+    };
+  }
+
+  function expectNothingDangerous(html) {
+    const { tags, attrs } = inspect(html);
+    for (const tag of tags) {
+      expect(ALLOWED_TAGS.has(tag), `etiqueta no permitida: ${tag}`).toBe(true);
+    }
+    for (const attr of attrs) {
+      expect(attr, `atributo no permitido: ${attr}`).not.toMatch(/^on/i);
+      expect(['href', 'src', 'style', 'srcdoc', 'formaction']).not.toContain(attr);
+    }
+    return attrs;
+  }
+
   it('neutraliza una etiqueta de script', () => {
     expect(renderMessage('<script>alert(1)</script>')).toBe(
       '<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>'
     );
   });
 
-  it('neutraliza un evento en línea dentro de un encabezado', () => {
+  it('un img con onerror dentro de un encabezado no crea ningún elemento img', () => {
     const html = renderMessage('# <img src=x onerror=alert(1)>');
-    expect(html).not.toContain('<img');
-    expect(html).not.toContain('onerror=');
+    expectNothingDangerous(html);
+    expect(inspect(html).tags).not.toContain('IMG');
     expect(html).toContain('&lt;img');
   });
 
-  it('neutraliza un evento en línea dentro de un elemento de lista', () => {
+  it('un svg con onload dentro de un elemento de lista no crea ningún elemento svg', () => {
     const html = renderMessage('1. <svg/onload=alert(1)>');
-    expect(html).not.toContain('<svg');
-    expect(html).not.toContain('onload');
+    expectNothingDangerous(html);
+    expect(inspect(html).tags).not.toContain('SVG');
   });
 
-  it('neutraliza las comillas que podrían cerrar un atributo', () => {
-    const html = renderMessage('" onmouseover="alert(1)');
-    expect(html).not.toContain('onmouseover="alert');
+  it('un iframe dentro de una viñeta no crea ningún iframe', () => {
+    const html = renderMessage('- <iframe src="javascript:alert(1)"></iframe>');
+    expectNothingDangerous(html);
+    expect(inspect(html).tags).not.toContain('IFRAME');
+  });
+
+  it('una etiqueta de cierre suelta no altera la estructura del documento', () => {
+    const html = renderMessage('</h1></ul></div><h1>titulo');
+    expectNothingDangerous(html);
+  });
+
+  it('las comillas que podrían cerrar un atributo quedan escapadas', () => {
+    const html = renderMessage('# " onmouseover="alert(1)');
+    expectNothingDangerous(html);
     expect(html).toContain('&quot;');
   });
 
-  it('no genera ningún atributo href, src ni style a partir del texto', () => {
+  it('no genera href, src ni style a partir de un enlace Markdown', () => {
     const html = renderMessage('# [x](javascript:alert(1))\n1. https://x.test\n- <a href="/x">y</a>');
-    expect(html).not.toMatch(/href=/);
-    expect(html).not.toMatch(/src=/);
-    expect(html).not.toMatch(/style=/);
-    expect(html).not.toMatch(/<a /);
+    expectNothingDangerous(html);
+    // La sintaxis de enlace no se interpreta: se muestra tal cual.
+    expect(inspect(html).text).toContain('[x](javascript:alert(1))');
+  });
+
+  it('no se inyecta ningún atributo al formatear el texto escapado', () => {
+    const html = renderMessage('**<b>x</b>** _y_ `z`');
+    expectNothingDangerous(html);
   });
 
   it('escapa ampersand una sola vez, sin romper el texto ya escapado', () => {
