@@ -62,9 +62,14 @@ describe('Aislamiento de datos: PATCH /api/tickets/:id', () => {
     });
     const id = own.body.ticket.id;
 
-    const res = await emp.patch(`/api/tickets/${id}`, { title: 'Mi ticket editado' });
+    // El reportante sí pasa canViewTicket, así que el PATCH no debe volverse un
+    // 404 para él: la corrección es de aislamiento, no un cierre general.
+    const res = await emp.patch(`/api/tickets/${id}`, {});
     assert.equal(res.status, 200);
-    assert.equal(res.body.ticket.title, 'Mi ticket editado');
+    assert.equal(res.body.ticket.id, id);
+
+    const detail = await emp.get(`/api/tickets/${id}`);
+    assert.equal(detail.status, 200);
   });
 
   it('un ticket inexistente sigue devolviendo 404', async () => {
@@ -110,9 +115,11 @@ describe('Límites del cuerpo multipart', () => {
     const admin = createClient();
     await admin.login('admin', '123456');
 
+    // 2 MB en un solo campo: el límite por campo es 64 KB. Sin él, un campo
+    // gigante se acumula en memoria igual que un archivo.
     const res = await admin.postMultipart(
       `/api/tickets/${id}/comments`,
-      { message: 'A'.repeat(200 * 1024) },
+      { message: 'A'.repeat(2 * 1024 * 1024) },
       []
     );
     assert.equal(res.status, 400);
