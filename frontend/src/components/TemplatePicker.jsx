@@ -21,7 +21,8 @@ function scopeBadge(t) {
  * lo inserta en el textarea. El contador de caracteres avisa cuando el texto
  * expandido superaría el máximo del comentario para que no se intente enviar.
  */
-export default function TemplatePicker({ open, onClose, context, onInsert, onManagePersonal, onManageGlobal, canManageGlobal = false }) {
+export default function TemplatePicker({ context, onInsert, onManagePersonal, onManageGlobal, canManageGlobal = false }) {
+  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [highlight, setHighlight] = useState(0);
