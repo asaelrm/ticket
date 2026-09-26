@@ -47,7 +47,7 @@ function actionBadge(action) {
   return tones[action] || 'bg-slate-100 text-slate-600 ring-slate-500/20';
 }
 
-const INITIAL_FILTERS = { search: '', action: '', user: '', from: '', to: '', page: 1, perPage: 30 };
+const INITIAL_FILTERS = { search: '', action: '', user: '', from: '', to: '', page: 1, perPage: 10 };
 
 export default function Audit() {
   // filters controla el form; applied es lo realmente consultado (solo cambia al enviar/paginar).
@@ -85,7 +85,7 @@ export default function Audit() {
           className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"
           onSubmit={(e) => {
             e.preventDefault();
-            applyFilter({ page: 1 });
+            applyFilter({ ...filters, page: 1 });
           }}
         >
           <label className="label lg:col-span-2">
