@@ -1091,6 +1091,29 @@ function processComment(req, res, attachOnly) {
   );
   touchTicket(ticket.id);
 
+  // Contador de uso de la respuesta rápida (plantilla). Solo se incrementa aquí,
+  // después de que el comentario (y sus adjuntos) quedaron persistidos, y
+  // únicamente si el usuariodogs...
+
+  // El identificador de la plantilla es opcional y llega en el FormData del
+  // comentario. La validación usa la MISMA regla de visibilidad del selector, de
+  // modo que un technicians no puede acreditar uso de una plantilla ajena (de
+  // otro usuario o de un equipo del que no es miembro). Si la plantilla ya no es
+  // visible o fue desactivada, el comentario se guarda igual y solo se omite el
+  // contador: nunca se bloquea el envío por esto.
+  if (!attachOnly && message) {
+    const templateId = parseIntSafe(req.body?.canned_response_id);
+    if (templateId) {
+      const template = visibleTemplateFor(req.user, templateId);
+      if (template && template.is_active) {
+        // Una sola sentencia atómica: no hay endpoint que permita incrementarlo
+        // de forma arbitraria ni lecturas-modificación-escrituras que se
+        // pisen entre peticiones concurrentes.
+        db.prepare('UPDATE canned_responses SET use_count = use_count + 1 WHERE id = ?').run(template.id);
+      }
+    }
+  }
+
   const comment = db.prepare(
     `SELECT tc.*, u.name || ' ' || u.last_name AS user_name,
             (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.comment_id = tc.id) AS attachment_count
