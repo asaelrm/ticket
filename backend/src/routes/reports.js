@@ -182,6 +182,157 @@ function slaResult(total, within) {
   };
 }
 
+// --- Satisfacción (CSAT) --------------------------------------------------
+// Un 0 de media o un 0% de respuesta no es lo mismo que "no hay datos":
+// sin respuestas la media y la tasa se devuelven como null.
+
+function csatData(req) {
+  const { df, base } = ctx(req);
+
+  const totals = db
+    .prepare(
+      `SELECT COUNT(t.csat_rating) AS responses,
+              AVG(t.csat_rating) AS average,
+              SUM(CASE WHEN t.status IN ('RESOLVED','CLOSED') THEN 1 ELSE 0 END) AS eligible
+       FROM tickets t ${base}`
+    )
+    .get(...df.params);
+
+  const responses = totals.responses || 0;
+  const eligible = totals.eligible || 0;
+
+  const { combine } = ctx(req);
+  const wAnswered = combine(['t.csat_rating IS NOT NULL']);
+  const counts = db
+    .prepare(`SELECT t.csat_rating AS rating, COUNT(*) AS n FROM tickets t ${wAnswered.sql} GROUP BY t.csat_rating`)
+    .all(...wAnswered.params);
+  const byRating = new Map(counts.map((c) => [c.rating, c.n]));
+
+  return {
+    responses,
+    eligible,
+    // Denominador cero = tasa desconocida, no tasa cero.
+    response_rate: eligible ? Math.round((responses / eligible) * 1000) / 10 : null,
+    average: totals.average == null ? null : round2(totals.average),
+    has_data: responses > 0,
+    distribution: [1, 2, 3, 4, 5].map((rating) => ({ rating, n: byRating.get(rating) || 0 })),
+    by_technician: csatBy(req, 'users u ON u.id = t.resolved_by', {
+      label: "COALESCE(u.name || ' ' || u.last_name, 'Sin técnico')",
+      group: 't.resolved_by',
+    }),
+    by_department: csatBy(req, 'departments d ON d.id = t.department_id', {
+      label: "COALESCE(d.name, 'Sin departamento')",
+      group: 'd.id',
+    }),
+    by_category: csatBy(req, 'categories c ON c.id = t.category_id', {
+      label: "COALESCE(c.name, 'Sin categoría')",
+      group: 'c.id',
+    }),
+    by_month: csatByMonth(req),
+  };
+}
+
+// Promedio y número de respuestas de la misma tabla para cada desglose.
+function csatBy(req, join, { label, group }) {
+  const { combine } = ctx(req);
+  const w = combine(['t.csat_rating IS NOT NULL']);
+  return db
+    .prepare(
+      `SELECT ${label} AS label, COUNT(*) AS responses, AVG(t.csat_rating) AS average
+       FROM tickets t LEFT JOIN ${join} ${w.sql}
+       GROUP BY ${group} HAVING responses > 0
+       ORDER BY responses DESC, average DESC`
+    )
+    .all(...w.params)
+    .map((r) => ({ ...r, average: round2(r.average) }));
+}
+
+// La evolución se agrupa por la fecha en que se respondió, no por la de
+// creación del ticket: es cuando existe la medición.
+function csatByMonth(req) {
+  const { combine } = ctx(req);
+  const w = combine(['t.csat_rating IS NOT NULL']);
+  return db
+    .prepare(
+      `SELECT substr(COALESCE(t.csat_answered_at, t.updated_at), 1, 7) AS month,
+              COUNT(*) AS responses, AVG(t.csat_rating) AS average
+       FROM tickets t ${w.sql}
+       GROUP BY month ORDER BY month ASC`
+    )
+    .all(...w.params)
+    .map((r) => ({ ...r, average: round2(r.average) }));
+}
+
+// --- Rendimiento por técnico y por equipo ---------------------------------
+
+function technicianData(req) {
+  const { combine } = ctx(req);
+  const w = combine([]);
+  const rows = db
+    .prepare(
+      `SELECT u.id, u.name || ' ' || u.last_name AS technician,
+         SUM(CASE WHEN t.assigned_to_id = u.id THEN 1 ELSE 0 END) AS assigned,
+         SUM(CASE WHEN t.assigned_to_id = u.id AND ${OPEN_IN} THEN 1 ELSE 0 END) AS open,
+         SUM(CASE WHEN t.resolved_by = u.id THEN 1 ELSE 0 END) AS resolved,
+         SUM(CASE WHEN t.closed_by = u.id THEN 1 ELSE 0 END) AS closed,
+         COALESCE(SUM(CASE WHEN t.resolved_by = u.id THEN t.time_spent_minutes ELSE 0 END), 0) AS total_time_minutes,
+         AVG(CASE WHEN t.resolved_by = u.id THEN t.time_spent_minutes END) AS avg_time_minutes,
+         AVG(CASE WHEN t.resolved_by = u.id AND t.resolved_at IS NOT NULL
+             THEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 END) AS avg_resolution_hours,
+         SUM(CASE WHEN ${SLA_COMPUTABLE} THEN 1 ELSE 0 END) AS sla_comparable,
+         SUM(CASE WHEN ${SLA_COMPUTABLE} AND ${DONE_AT} <= t.sla_due_at THEN 1 ELSE 0 END) AS sla_within
+       FROM tickets t
+       JOIN users u ON u.id = t.assigned_to_id OR u.id = t.resolved_by OR u.id = t.closed_by
+       ${w.sql}
+       GROUP BY u.id
+       ORDER BY resolved DESC, closed DESC, assigned DESC`
+    )
+    .all(...OPEN_STATUSES, ...w.params);
+
+  return rows.map((r) => ({
+    ...r,
+    avg_time_minutes: round1(r.avg_time_minutes),
+    avg_resolution_hours: round1(r.avg_resolution_hours),
+    ...slaResult(r.sla_comparable, r.sla_within),
+  }));
+}
+
+// Un ticket solo conserva el equipo que tiene ahora: no hay histórico de a qué
+// equipo pertenecía cuando se resolvió. 'assigned' y 'open' sí son fiables;
+// lo completado se atribuye al equipo actual y así se declara en la respuesta.
+const TEAM_BASIS = 'current_assignment';
+
+function teamData(req) {
+  const { combine } = ctx(req);
+  const w = combine(['t.assigned_team_id IS NOT NULL']);
+  const rows = db
+    .prepare(
+      `SELECT tm.id, tm.name AS team,
+         SUM(CASE WHEN t.assigned_team_id = tm.id THEN 1 ELSE 0 END) AS assigned,
+         SUM(CASE WHEN t.assigned_team_id = tm.id AND ${OPEN_IN} THEN 1 ELSE 0 END) AS open,
+         SUM(CASE WHEN ${DONE_AT} IS NOT NULL THEN 1 ELSE 0 END) AS completed,
+         AVG(CASE WHEN t.resolved_at IS NOT NULL
+             THEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 END) AS avg_resolution_hours,
+         SUM(CASE WHEN t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL THEN 1 ELSE 0 END) AS sla_comparable,
+         SUM(CASE WHEN t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL AND ${DONE_AT} <= t.sla_due_at THEN 1 ELSE 0 END) AS sla_within
+       FROM tickets t JOIN teams tm ON tm.id = t.assigned_team_id
+       ${w.sql}
+       GROUP BY tm.id
+       ORDER BY open DESC, completed DESC`
+    )
+    .all(...OPEN_STATUSES, ...w.params);
+
+  return {
+    basis: TEAM_BASIS,
+    note: 'Los tickets completados se atribuyen al equipo asignado actualmente; el modelo no guarda el equipo que los resolvió en su momento.',
+    data: rows.map((r) => ({
+      ...r,
+      avg_resolution_hours: round1(r.avg_resolution_hours),
+      ...slaResult(r.sla_comparable, r.sla_within),
+    })),
+  };
+}
+
 function ticketDetailsData(req) {
 
   const { df, base } = ctx(req);
