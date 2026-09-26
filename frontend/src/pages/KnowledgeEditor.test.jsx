@@ -115,11 +115,8 @@ describe('KnowledgeEditor · creación', () => {
     renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     const select = await screen.findByLabelText('Categoría');
-    expect([...select.options].map((o) => o.textContent)).toEqual([
-      'Sin categoría',
-      'Correo',
-      'Redes',
-    ]);
+    await waitFor(() => expect(select.options).toHaveLength(3));
+    expect([...select.options].map((o) => o.textContent)).toEqual(['Sin categoría', 'Correo', 'Redes']);
   });
 
   it('exige título, resumen, descripción y solución antes de llamar a la API', async () => {
@@ -151,7 +148,9 @@ describe('KnowledgeEditor · creación', () => {
 
   it('envía solo los seis campos editoriales y navega a la ficha del borrador', async () => {
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new', '/app/knowledge/new');
+    // '*' mantiene montado el testigo de ruta: si no, al navegar a la ficha el
+    // árbol de la ruta edit deja de coincidir y se desmonta todo.
+    renderEditor('/app/knowledge/new', '*');
 
     await fillValid(user);
     await user.click(screen.getByRole('button', { name: /Guardar borrador/ }));
