@@ -187,10 +187,8 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
                   <button
                     type="button"
                     onMouseEnter={() => setHighlight(index)}
-                    onClick={() => {
-                      setHighlight(index);
-                      insert('cursor');
-                    }}
+                    onClick={() => setHighlight(index)}
+                    aria-pressed={index === highlight}
                     className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
                       index === highlight ? 'bg-brand-50' : ''
                     }`}
