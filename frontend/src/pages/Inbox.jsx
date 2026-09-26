@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import {
   api,
-  ticketStatusRequest,
   STATUSES,
   PRIORITIES,
   STATUS_LABEL,
@@ -14,11 +13,10 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
-import ResolveTicketsModal from '../components/ResolveTicketsModal';
 import { LoadingScreen, ErrorBox, Spinner, Modal } from '../components/ui';
 
 const TABS = [
-  { key: 'mine', label: 'Asignados a mí', counter: 'assigned_to_me' },
+  { key: 'mine', label: 'Asignados a m├¡', counter: 'assigned_to_me' },
   { key: 'my-teams', label: 'Mi equipo', counter: 'assigned_to_my_teams' },
   { key: 'open', label: 'Abiertos', counter: 'open' },
   { key: 'unassigned', label: 'Sin asignar', counter: 'unassigned' },
@@ -69,8 +67,6 @@ export default function Inbox() {
   const [assignValue, setAssignValue] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
-  const [resolveOpen, setResolveOpen] = useState(false);
-  const [resolveIds, setResolveIds] = useState([]);
   const [savedFilters, setSavedFilters] = useState(loadSavedFilters);
   const [savedOpen, setSavedOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
@@ -114,8 +110,8 @@ export default function Inbox() {
   const { data: list, error: queryError } = useQuery({
     queryKey: ['inbox-tickets', tab, filters],
     queryFn: () => api.get(`/api/tickets?${query}`),
-    // Sin polling: los cambios llegan por SSE (conexión global) y se refresca al
-    // volver a la pestaña/recuperar la conexión (refetchOnWindowFocus por defecto).
+    // Sin polling: los cambios llegan por SSE (conexi├│n global) y se refresca al
+    // volver a la pesta├▒a/recuperar la conexi├│n (refetchOnWindowFocus por defecto).
   });
 
   const { data: counters } = useQuery({
@@ -145,7 +141,7 @@ export default function Inbox() {
     queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
   }, [queryClient]);
 
-  // Equivale al efecto [reload, tab]: limpia selección y recarga contadores al cambiar pestaña/filtros.
+  // Equivale al efecto [reload, tab]: limpia selecci├│n y recarga contadores al cambiar pesta├▒a/filtros.
   useEffect(() => {
     setSelected(new Set());
     queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
@@ -163,18 +159,14 @@ export default function Inbox() {
 
   const canManage = user?.permissions?.includes('ticket.update.any');
   const canAssign = user?.permissions?.includes('ticket.assign');
-  // El backend exige el permiso específico de cada flujo, no solo update.any:
-  // /resolve exige ticket.resolve y /close exige ticket.close.
-  const canResolve = user?.permissions?.includes('ticket.resolve');
-  const canClose = user?.permissions?.includes('ticket.close');
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
   const hasAnyFilter = Boolean(filters.search) || advancedCount > 0;
 
   const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) => {
-      const r = ticketStatusRequest(t.id, status, body);
-      return api[r.method](r.path, r.body);
-    },
+    mutationFn: ({ t, status, body }) =>
+      status === 'CANCELLED'
+        ? api.post(`/api/tickets/${t.id}/cancel`, body)
+        : api.patch(`/api/tickets/${t.id}`, { status }),
     onMutate: () => {
       setBusy(true);
       setError('');
@@ -216,17 +208,11 @@ export default function Inbox() {
       setError('');
     },
     onSuccess: (results, { ids }) => {
-      const rejected = results.filter((r) => r.status === 'rejected');
+      const failed = results.filter((r) => r.status === 'rejected').length;
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
       queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
-      if (rejected.length) {
-        // El backend ya explica el motivo (p. ej. "Debe registrar una resolución
-        // antes de cerrar el ticket"); se muestra el primero para que el usuario
-        // sepa qué corregir sin abrir cada ticket.
-        const first = rejected[0].reason?.message || 'Error desconocido';
-        setError(`${rejected.length} de ${ids.length} ticket(s) no se pudieron actualizar. ${first}`);
-      }
+      if (failed) setError(`${failed} de ${ids.length} ticket(s) no se pudieron actualizar.`);
     },
     onSettled: () => {
       setBusy(false);
@@ -234,11 +220,6 @@ export default function Inbox() {
   });
 
   function changeStatus(t, status, body = {}) {
-    if (status === 'RESOLVED') {
-      setResolveIds([t.id]);
-      setResolveOpen(true);
-      return;
-    }
     statusMutation.mutate({ t, status, body });
   }
 
@@ -266,35 +247,12 @@ export default function Inbox() {
     });
   }
 
-  // Una única función para fila y lote: garantiza que ambas superficies usen
-  // exactamente el mismo contrato con el backend.
-  const callStatus = (id, status, payload) => {
-    const r = ticketStatusRequest(id, status, payload);
-    return api[r.method](r.path, r.body);
-  };
-
   const bulkAssignMe = () =>
     bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: user.id }) });
   const bulkStatus = (status) =>
-    bulkMutation.mutate({ ids: [...selected], fn: (id) => callStatus(id, status) });
+    bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { status }) });
   const bulkCancel = (reason) =>
     bulkMutation.mutate({ ids: [...selected], fn: (id) => api.post(`/api/tickets/${id}/cancel`, { reason }) });
-
-  function openResolve(ids) {
-    setResolveIds(ids);
-    setResolveOpen(true);
-  }
-
-  function runResolve(resolution) {
-    const ids = resolveIds;
-    setResolveOpen(false);
-    if (ids.length === 1) {
-      // Hereda la invalidación del statusMutation de fila.
-      statusMutation.mutate({ t: { id: ids[0] }, status: 'RESOLVED', body: { resolution } });
-      return;
-    }
-    bulkMutation.mutate({ ids, fn: (id) => callStatus(id, 'RESOLVED', { resolution }) });
-  }
 
   function openAssign() {
     setAssignValue('');
@@ -373,12 +331,12 @@ export default function Inbox() {
               className="input !pl-9"
               value={searchDraft}
               onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder="Buscar por número, título, solicitante, correo…"
+              placeholder="Buscar por n├║mero, t├¡tulo, solicitante, correoÔÇª"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
-              Más filtros
+              M├ís filtros
               {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
             </button>
             <button type="button" className="btn-secondary !text-white" onClick={() => setSavedOpen(true)}>
@@ -408,9 +366,9 @@ export default function Inbox() {
             </select>
           </div>
           <div>
-            <label className="label" htmlFor="inbox-category">Categoría</label>
+            <label className="label" htmlFor="inbox-category">Categor├¡a</label>
             <select id="inbox-category" className="input" value={filters.category} onChange={(e) => update({ category: e.target.value })}>
-              <option value="">Todas las categorías</option>
+              <option value="">Todas las categor├¡as</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -431,7 +389,7 @@ export default function Inbox() {
               onClick={() => update({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
               title={filters.dir === 'asc' ? 'Ascendente' : 'Descendente'}
             >
-              {filters.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
+              {filters.dir === 'asc' ? 'Ôåæ Asc' : 'Ôåô Desc'}
             </button>
           </div>
           <div className="flex items-end">
@@ -460,7 +418,7 @@ export default function Inbox() {
               </span>
             </>
           ) : (
-            'Cargando…'
+            'CargandoÔÇª'
           )}
         </p>
         <button type="button" className="btn-secondary !px-2.5" onClick={reload} title="Actualizar">
@@ -508,7 +466,7 @@ export default function Inbox() {
           <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-3 lg:px-8">
             <span className="text-sm font-semibold text-slate-800">{selected.size} seleccionado(s)</span>
             <button type="button" className="btn-ghost text-sm" onClick={() => setSelected(new Set())}>
-              Quitar selección
+              Quitar selecci├│n
             </button>
             <div className="ml-auto flex flex-wrap gap-2">
               {canAssign && (
@@ -518,7 +476,7 @@ export default function Inbox() {
               )}
               {canAssign && (
                 <button type="button" className="btn-secondary" disabled={busy} onClick={openAssign}>
-                  Asignar a…
+                  Asignar aÔÇª
                 </button>
               )}
               {canManage && (
@@ -526,12 +484,12 @@ export default function Inbox() {
                   En proceso
                 </button>
               )}
-              {canResolve && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => openResolve([...selected])}>
+              {canManage && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkStatus('RESOLVED')}>
                   Resuelto
                 </button>
               )}
-              {canClose && (
+              {canManage && (
                 <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkStatus('CLOSED')}>
                   Cerrar
                 </button>
@@ -555,13 +513,13 @@ export default function Inbox() {
       )}
 
       <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Asignar ${selected.size} ticket(s)`}>
-        <label className="label">Técnico asignado</label>
+        <label className="label">T├®cnico asignado</label>
         <select className="input" value={assignValue} onChange={(e) => setAssignValue(e.target.value)}>
-          <option value="">Seleccione un técnico…</option>
+          <option value="">Seleccione un t├®cnicoÔÇª</option>
           {assignUsers.map((u) => (
             <option key={u.id} value={u.id}>
               {u.name} {u.last_name}
-              {u.department_name ? ` · ${u.department_name}` : ''}
+              {u.department_name ? ` ┬À ${u.department_name}` : ''}
             </option>
           ))}
         </select>
@@ -586,23 +544,15 @@ export default function Inbox() {
         </div>
       </Modal>
 
-      <ResolveTicketsModal
-        open={resolveOpen}
-        onClose={() => setResolveOpen(false)}
-        count={resolveIds.length}
-        busy={busy}
-        onConfirm={runResolve}
-      />
-
       <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title={`Cancelar ${selected.size} ticket(s)`}>
-        <p className="text-sm text-slate-600">Se cancelarán los tickets seleccionados. Esta acción no se puede deshacer.</p>
+        <p className="text-sm text-slate-600">Se cancelar├ín los tickets seleccionados. Esta acci├│n no se puede deshacer.</p>
         <label className="mt-4 block text-sm font-medium text-slate-700">
-          Motivo de cancelación <span className="text-red-500">*</span>
+          Motivo de cancelaci├│n <span className="text-red-500">*</span>
           <textarea
             className="input mt-1 min-h-[90px]"
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}
-            placeholder="Ej. Duplicados o solicitudes que ya no aplican…"
+            placeholder="Ej. Duplicados o solicitudes que ya no aplicanÔÇª"
             maxLength={2000}
           />
         </label>
@@ -633,7 +583,7 @@ export default function Inbox() {
               className="input"
               value={saveName}
               onChange={(e) => setSaveName(e.target.value)}
-              placeholder="Ej. Críticos sin asignar"
+              placeholder="Ej. Cr├¡ticos sin asignar"
               maxLength={40}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -651,7 +601,7 @@ export default function Inbox() {
         <div className="mt-5 border-t border-slate-200 pt-4">
           {savedFilters.length === 0 ? (
             <p className="text-sm text-slate-500">
-              Aún no ha guardado filtros. Configure la bandeja (pestaña, búsqueda y filtros) y guarde la combinación actual.
+              A├║n no ha guardado filtros. Configure la bandeja (pesta├▒a, b├║squeda y filtros) y guarde la combinaci├│n actual.
             </p>
           ) : (
             <ul className="space-y-2">
@@ -666,8 +616,8 @@ export default function Inbox() {
                       <p className="truncate text-sm font-medium text-slate-800">{f.name}</p>
                       <p className="truncate text-xs text-slate-500">
                         {tabLabel}
-                        {count ? ` · ${count} filtro(s)` : ''}
-                        {search ? ` · “${search}”` : ''}
+                        {count ? ` ┬À ${count} filtro(s)` : ''}
+                        {search ? ` ┬À ÔÇ£${search}ÔÇØ` : ''}
                       </p>
                     </div>
                     <button type="button" className="btn-secondary !px-3 !py-1.5" onClick={() => applySavedFilter(f)}>
@@ -680,7 +630,7 @@ export default function Inbox() {
                       title="Eliminar"
                       aria-label={`Eliminar filtro ${f.name}`}
                     >
-                      ✕
+                      Ô£ò
                     </button>
                   </li>
                 );

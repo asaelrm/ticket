@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, download, ticketStatusRequest, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
+import { api, download, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
-import ResolveTicketsModal from '../components/ResolveTicketsModal';
 import { LoadingScreen, ErrorBox, Spinner, Menu } from '../components/ui';
 
 const DEFAULTS = { sort: 'created_at', dir: 'desc', perPage: 15, page: 1 };
@@ -46,7 +45,6 @@ export default function Tickets() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [resolveTicket, setResolveTicket] = useState(null);
 
   const canExport = user?.permissions?.includes('ticket.export');
   const canAssign = user?.permissions?.includes('ticket.assign');
@@ -78,8 +76,8 @@ export default function Tickets() {
   const { data: list, error: queryError } = useQuery({
     queryKey: ['tickets', query],
     queryFn: () => api.get(`/api/tickets?${query}`),
-    // Sin polling: los cambios llegan por SSE (conexión global) y se refresca al
-    // volver a la pestaña/recuperar la conexión (refetchOnWindowFocus por defecto).
+    // Sin polling: los cambios llegan por SSE (conexi├│n global) y se refresca al
+    // volver a la pesta├▒a/recuperar la conexi├│n (refetchOnWindowFocus por defecto).
   });
 
   const { data: counters } = useQuery({
@@ -143,10 +141,10 @@ export default function Tickets() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) => {
-      const r = ticketStatusRequest(t.id, status, body);
-      return api[r.method](r.path, r.body);
-    },
+    mutationFn: ({ t, status, body }) =>
+      status === 'CANCELLED'
+        ? api.post(`/api/tickets/${t.id}/cancel`, body)
+        : api.patch(`/api/tickets/${t.id}`, { status }),
     onMutate: () => {
       setBusy(true);
       setError('');
@@ -168,11 +166,6 @@ export default function Tickets() {
   }
 
   function changeStatus(t, status, body = {}) {
-    // /resolve exige la solución: se pide antes de llamar al backend.
-    if (status === 'RESOLVED') {
-      setResolveTicket(t);
-      return;
-    }
     statusMutation.mutate({ t, status, body });
   }
 
@@ -191,7 +184,7 @@ export default function Tickets() {
 
   return (
     <div>
-      {/* Chips de filtros rápidos con contadores */}
+      {/* Chips de filtros r├ípidos con contadores */}
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
         {VIEWS.map((v) => {
           const active = chipActive(v.key);
@@ -220,7 +213,7 @@ export default function Tickets() {
       <div className="card mb-4">
         <div className="flex flex-wrap items-center gap-2 p-3">
             <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
-              Búsqueda avanzada
+              B├║squeda avanzada
               {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
             </button>
             <select
@@ -241,7 +234,7 @@ export default function Tickets() {
               onClick={() => update({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
               title={filters.dir === 'asc' ? 'Ascendente' : 'Descendente'}
             >
-              {filters.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
+              {filters.dir === 'asc' ? 'Ôåæ Asc' : 'Ôåô Desc'}
             </button>
             {hasAnyFilter && (
               <button type="button" className="btn-ghost text-sm" onClick={() => setSearchParams({}, { replace: false })}>
@@ -281,7 +274,7 @@ export default function Tickets() {
               </span>
             </>
           ) : (
-            'Cargando…'
+            'CargandoÔÇª'
           )}
         </p>
         <div className="flex gap-2">
@@ -340,18 +333,6 @@ export default function Tickets() {
         filters={filters}
         onApply={(form) => update({ ...form, view: '', closed_period: '' })}
         onClear={() => update(Object.fromEntries(ADVANCED_KEYS.map((k) => [k, ''])))}
-      />
-
-      <ResolveTicketsModal
-        open={!!resolveTicket}
-        onClose={() => setResolveTicket(null)}
-        count={1}
-        busy={busy}
-        onConfirm={(resolution) => {
-          const t = resolveTicket;
-          setResolveTicket(null);
-          statusMutation.mutate({ t, status: 'RESOLVED', body: { resolution } });
-        }}
       />
     </div>
   );
