@@ -234,6 +234,8 @@ describe('Profile', () => {
 
     api.post.mockRejectedValueOnce(new Error('La contraseña actual no es correcta'));
     await user.type(passwordField('Contraseña actual'), 'otra123');
+    await user.type(passwordField('Nueva contraseña'), 'otra123456');
+    await user.type(passwordField('Confirmar nueva'), 'otra123456');
     await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña actual no es correcta');
