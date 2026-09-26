@@ -39,6 +39,21 @@ export const ARTICLE_SORTS = [
 // servidor no está aplicando.
 export const DEFAULT_KB_PERPAGE = 10;
 
+/**
+ * Límites de longitud. Deben coincidir con MAX_ARTICLE_* de
+ * backend/src/utils/articleLimits.js y con los CHECK de schema.sql: son la
+ * misma constante en el esquema, en el servidor y en los formularios. El
+ * `maxLength` evita el error tonto; la validación del servidor sigue siendo la
+ * que manda, porque el límite del HTML no se puede eludir.
+ */
+export const ARTICLE_LIMITS = {
+  title: 200,
+  summary: 500,
+  description: 20000,
+  solution: 20000,
+  keywords: 200,
+};
+
 function has(user, code) {
   return !!user && !!user.permissions?.includes(code);
 }

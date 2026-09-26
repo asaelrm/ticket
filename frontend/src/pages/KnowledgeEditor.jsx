@@ -5,17 +5,9 @@ import { api } from '../lib/api';
 import { renderMessage } from '../lib/markdown';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
-import { fieldErrors, statusLabel, ARTICLE_STATUS_COLOR, canEditArticle } from '../lib/kb';
+import { fieldErrors, statusLabel, ARTICLE_STATUS_COLOR, canEditArticle, ARTICLE_LIMITS } from '../lib/kb';
 
-// Límites que replica backend/src/utils/articleLimits.js. Deben coincidir con
-// los CHECK de schema.sql: es la misma constante en tres sitios.
-const LIMITS = {
-  title: 200,
-  summary: 500,
-  description: 20000,
-  solution: 20000,
-  keywords: 200,
-};
+const LIMITS = ARTICLE_LIMITS;
 
 const EMPTY = {
   title: '',
