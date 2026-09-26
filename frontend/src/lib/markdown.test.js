@@ -46,9 +46,11 @@ describe('markdown: compatibilidad con lo que ya se renderizaba', () => {
 
   it('normaliza CRLF y tolera valores vacíos o nulos', () => {
     expect(renderMessage('uno\r\ndos')).toBe('<p>uno</p><p>dos</p>');
-    expect(renderMessage('')).toBe('');
-    expect(renderMessage(null)).toBe('');
-    expect(renderMessage(undefined)).toBe('');
+    // Una cadena vacía es una línea en blanco: el separador es el resultado
+    // histórico y no debe cambiar.
+    expect(renderMessage('')).toBe('<div class="h-2"></div>');
+    expect(renderMessage(null)).toBe('<div class="h-2"></div>');
+    expect(renderMessage(undefined)).toBe('<div class="h-2"></div>');
   });
 });
 
@@ -125,8 +127,16 @@ describe('markdown: listas ordenadas', () => {
   });
 
   it('no interpreta como lista una línea con número pegado al texto', () => {
-    expect(renderMessage('2024. Informe anual')).toBe('<p>2024. Informe anual</p>');
     expect(renderMessage('v1.5')).toBe('<p>v1.5</p>');
+    expect(renderMessage('3.5 pulgadas')).toBe('<p>3.5 pulgadas</p>');
+  });
+
+  it('sí interpreta un año como elemento, igual que hace Markdown', () => {
+    // Criterio documentado, no un descuido: `2024. Informe anual` es una lista
+    // ordenada en cualquier Markdown estándar y el número se ve igual.
+    expect(renderMessage('2024. Informe anual')).toBe(
+      '<ol class="my-1 ml-4 list-decimal space-y-0.5"><li>Informe anual</li></ol>'
+    );
   });
 
   it('deja sin lista un número sin contenido detrás', () => {
