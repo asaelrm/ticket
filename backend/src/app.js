@@ -106,6 +106,7 @@ export function createApp() {
   app.use('/api/categories', categoriesRoutes);
   app.use('/api/departments', departmentsRoutes);
   app.use('/api/teams', teamsRoutes);
+  app.use('/api/canned-responses', cannedResponsesRoutes);
   app.use('/api/files', filesRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/reports', reportsRoutes);
