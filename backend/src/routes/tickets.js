@@ -748,7 +748,9 @@ router.get('/:id', (req, res) => {
   // Las notas internas solo son visibles para quien puede crearlas (técnicos/admin).
   const canSeeInternal = hasPerm(req.user, 'ticket.note');
   const internalFilter = canSeeInternal ? '' : 'AND tc.is_internal = 0';
-  const historyFilter = canSeeInternal ? '' : `AND th.action != 'NOTE_ADDED'`;
+  // NOTE_ATTACHMENT_ADDED comparte la Visibility de NOTE_ADDED: sin este permiso
+  // el reportante no debe saber ni que existió un archivo interno ni cómo se llama.
+  const historyFilter = canSeeInternal ? '' : `AND th.action NOT IN ('NOTE_ADDED','NOTE_ATTACHMENT_ADDED')`;
 
   const attachments = db.prepare(`
     SELECT ta.*, u.name || ' ' || u.last_name AS uploader_name
@@ -1064,7 +1066,7 @@ function processComment(req, res, attachOnly) {
   let attachments = [];
   if (filesCheck.validated.length) {
     try {
-      attachments = persistAndInsertAttachments(filesCheck.validated, ticket.id, commentId, req.user.id);
+      attachments = persistAndInsertAttachments(filesCheck.validated, ticket.id, commentId, req.user.id, isInternal);
     } catch (err) {
       db.prepare('DELETE FROM ticket_comments WHERE id = ?').run(commentId);
       db.prepare('DELETE FROM ticket_attachments WHERE comment_id = ?').run(commentId);
