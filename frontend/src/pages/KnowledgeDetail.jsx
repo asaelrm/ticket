@@ -64,7 +64,9 @@ export default function KnowledgeDetail() {
 
   const transitions = availableTransitions(user, article);
   const editable = canEditArticle(user, article);
-  const needsConfirm = (t) => t.kind === 'danger' || t.key === 'publish';
+  // Publicar, despublicar y archivar cambian lo que ve el resto del equipo, así
+  // que los tres piden confirmación. Destacar es reversible y no molesta.
+  const needsConfirm = (t) => t.key === 'publish' || t.key === 'unpublish' || t.kind === 'danger';
 
   function runTransition(t) {
     if (needsConfirm(t)) {
@@ -76,9 +78,11 @@ export default function KnowledgeDetail() {
 
   const confirmText = {
     publish:
-      'El artículo quedará visible para todos los usuarios con permiso de consulta y ya no será editable por su autor sin volver a publicarlo.',
+      'El artículo pasará a estar visible para todos los usuarios con permiso de consulta. Podrá seguir editándolo: los cambios se aplican sin despublicarlo.',
+    unpublish:
+      'El artículo dejará de aparecer en los listados públicos. Seguirá siendo visible para usted y para los administradores, y podrá volver a publicarlo cuando quiera.',
     archive:
-      'El artículo dejará de aparecer en los listados públicos. Se conserva su historial y sus consultas, y podrás volver a publicarlo desde "Mis artículos".',
+      'El artículo dejará de aparecer en los listados públicos. Se conserva su historial y sus consultas, y podrás volver a publicarlo desde aquí mismo.',
   }[confirm?.key];
 
   return (

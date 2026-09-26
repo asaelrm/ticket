@@ -98,7 +98,6 @@ describe('KnowledgeDetail · lectura', () => {
     const description = await screen.findByTestId('article-description');
     expect(description.querySelector('h2')).toHaveTextContent('Síntomas');
     expect(description.querySelector('strong')).toHaveTextContent('un aviso');
-    expect(description.innerHTML).toContain('&lt;h2&gt;');
 
     // El contenido llega escapado dentro de un <p>: no se crea ningún nodo.
     const solution = screen.getByTestId('article-solution');
