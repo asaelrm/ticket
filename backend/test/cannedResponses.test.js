@@ -49,6 +49,24 @@ async function makeTeam(name, memberIds) {
   return id;
 }
 
+/**
+ * Aplica unos permisos temporales a un rol y los restaura pase lo que pase.
+ * Los permisos se releen en cada petición, así que las sesiones ya abiertas
+ * ven el cambio sin volver a iniciar sesión.
+ */
+async function withRolePermissions(roleId, permissions, fn) {
+  const roles = (await admin.get('/api/roles')).body.roles;
+  const original = roles.find((r) => r.id === roleId).permissions;
+  try {
+    const patch = await admin.patch(`/api/roles/${roleId}/permissions`, { permissions });
+    assert.equal(patch.status, 200);
+    await fn(original);
+  } finally {
+    const restore = await admin.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
+    assert.equal(restore.status, 200);
+  }
+}
+
 async function makeTicket(client, over = {}) {
   const res = await client.post('/api/tickets', {
     title: 'Impresora sin papel',
