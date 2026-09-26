@@ -100,7 +100,7 @@ beforeEach(() => {
 
 describe('KnowledgeEditor · creación', () => {
   it('renderiza el formulario vacío con los contadores de longitud', async () => {
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     expect(screen.getByRole('heading', { name: 'Nuevo artículo' })).toBeInTheDocument();
     await waitFor(() => expect(field('Título *')).toHaveValue(''));
@@ -112,7 +112,7 @@ describe('KnowledgeEditor · creación', () => {
   });
 
   it('ofrece las categorías activas del servidor', async () => {
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     const select = await screen.findByLabelText('Categoría');
     expect([...select.options].map((o) => o.textContent)).toEqual([
@@ -124,7 +124,7 @@ describe('KnowledgeEditor · creación', () => {
 
   it('exige título, resumen, descripción y solución antes de llamar a la API', async () => {
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await user.click(await screen.findByRole('button', { name: /Guardar borrador/ }));
 
@@ -140,7 +140,7 @@ describe('KnowledgeEditor · creación', () => {
 
   it('no cuenta como vacío un texto solo con espacios', async () => {
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await user.type(await screen.findByLabelText('Título *'), '   ');
     await user.click(screen.getByRole('button', { name: /Guardar borrador/ }));
@@ -151,7 +151,7 @@ describe('KnowledgeEditor · creación', () => {
 
   it('envía solo los seis campos editoriales y navega a la ficha del borrador', async () => {
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await fillValid(user);
     await user.click(screen.getByRole('button', { name: /Guardar borrador/ }));
@@ -181,7 +181,7 @@ describe('KnowledgeEditor · creación', () => {
 
   it('envía category_id null cuando no se elige categoría', async () => {
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await fillValid(user);
     await user.selectOptions(screen.getByLabelText('Categoría'), '');
@@ -202,7 +202,7 @@ describe('KnowledgeEditor · creación', () => {
       })
     );
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await fillValid(user);
     await user.click(screen.getByRole('button', { name: /Guardar borrador/ }));
@@ -214,7 +214,7 @@ describe('KnowledgeEditor · creación', () => {
   it('muestra el error de la API y mantiene el formulario', async () => {
     api.post.mockRejectedValue(new Error('Ya tienes un artículo con ese título'));
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await fillValid(user);
     await user.click(screen.getByRole('button', { name: /Guardar borrador/ }));
@@ -228,7 +228,7 @@ describe('KnowledgeEditor · creación', () => {
       Object.assign(new Error('Datos inválidos'), { fields: { 'El título': 'El título es obligatorio' } })
     );
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await fillValid(user);
     await user.click(screen.getByRole('button', { name: /Guardar borrador/ }));
@@ -240,7 +240,7 @@ describe('KnowledgeEditor · creación', () => {
 
   it('previsualiza el Markdown escapando el HTML del usuario', async () => {
     const user = userEvent.setup();
-    renderEditor('/app/knowledge/new');
+    renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await user.type(await screen.findByLabelText('Solución *'), '## Pasos\n- uno\n<img src=x onerror=alert(1)>');
     await user.click(screen.getByRole('button', { name: 'Mostrar' }));
