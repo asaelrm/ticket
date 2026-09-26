@@ -25,6 +25,10 @@ export const PERMISSIONS = [
   ['dashboard.view', 'Ver dashboard y estadísticas'],
   ['report.view', 'Ver reportes'],
   ['settings.manage', 'Cambiar configuración'],
+  ['kb.view', 'Consultar artículos publicados de la base de conocimiento'],
+  ['kb.create', 'Crear borradores de artículos de conocimiento'],
+  ['kb.publish', 'Publicar y archivar artículos propios'],
+  ['kb.manage', 'Administrar artículos de conocimiento de cualquier autor'],
 ];
 
 const ROLES = {

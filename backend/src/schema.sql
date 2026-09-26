@@ -258,3 +258,84 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
+
+-- 9. Base de conocimiento
+-- A diferencia de canned_responses, aquí NO hay una columna de ámbito (scope):
+-- el ciclo de vida del artículo ya aporta la visibilidad. Un DRAFT es privado
+-- por definición (solo su autor), un PUBLISHED es público para quien tenga
+-- kb.view y un ARCHIVED sale de los listados públicos sin desaparecer de la
+-- gestión. Así se evita la dimensión ortogonal scope/team_id y todo lo que
+-- arrastra (filtros, selectores, comprobaciones de consistencia).
+--
+-- El autor se borra con SET NULL y no con CASCADE (a diferencia de
+-- canned_responses.owner_id): el conocimiento de la organización no debe
+-- destruirse al dar de baja a un empleado. La UI muestra "Autor eliminado".
+--
+-- El contenido se guarda VERBATIM: el escapado ocurre al renderizar, nunca al
+-- almacenar. Coherente con canned_responses.body y con su prueba de regresión.
+CREATE TABLE IF NOT EXISTS kb_categories (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL UNIQUE,
+  description TEXT,
+  color       TEXT NOT NULL DEFAULT '#64748b',
+  active      INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS kb_articles (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  title        TEXT NOT NULL,
+  summary      TEXT NOT NULL,
+  description  TEXT NOT NULL,
+  solution     TEXT NOT NULL,
+  keywords     TEXT,
+  category_id  INTEGER REFERENCES kb_categories(id) ON DELETE SET NULL,
+  status       TEXT NOT NULL DEFAULT 'DRAFT'
+               CHECK (status IN ('DRAFT','PUBLISHED','ARCHIVED')),
+  author_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  is_featured  INTEGER NOT NULL DEFAULT 0 CHECK (is_featured IN (0,1)),
+  view_count   INTEGER NOT NULL DEFAULT 0 CHECK (view_count >= 0),
+  published_at TEXT,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at   TEXT,
+  CHECK (length(trim(title)) > 0       AND length(title)       <= 200),
+  CHECK (length(trim(summary)) > 0     AND length(summary)     <= 500),
+  CHECK (length(trim(description)) > 0 AND length(description) <= 20000),
+  CHECK (length(trim(solution)) > 0    AND length(solution)    <= 20000)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_status      ON kb_articles(status);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_category    ON kb_articles(category_id);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_author      ON kb_articles(author_id);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_popular     ON kb_articles(view_count DESC);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_published   ON kb_articles(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_status_date ON kb_articles(status, published_at DESC);
+
+-- Relación muchos-a-muchos artículo <-> ticket. CASCADE en ambos lados porque
+-- un enlace no significa nada sin las dos filas. Sustituye a una columna
+-- source_ticket_id redundante y aporta navegación bidireccional.
+-- No hay ninguna sincronización automática: el enlace es solo una relación.
+CREATE TABLE IF NOT EXISTS kb_ticket_articles (
+  article_id INTEGER NOT NULL REFERENCES kb_articles(id) ON DELETE CASCADE,
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (article_id, ticket_id)
+);
+CREATE INDEX IF NOT EXISTS idx_kb_ticket_articles_ticket ON kb_ticket_articles(ticket_id);
+
+-- Auditoría ligera: quién cambió qué campo y cuándo. old_value/new_value
+-- guardan un RECORTE legible, nunca el cuerpo completo del artículo, para no
+-- inflar la tabla. Las instantáneas de contenido quedan fuera de esta versión.
+CREATE TABLE IF NOT EXISTS kb_article_history (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  article_id INTEGER NOT NULL REFERENCES kb_articles(id) ON DELETE CASCADE,
+  user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  action     TEXT NOT NULL,
+  field      TEXT,
+  old_value  TEXT,
+  new_value  TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_kb_history_article ON kb_article_history(article_id);
+CREATE INDEX IF NOT EXISTS idx_kb_history_created ON kb_article_history(created_at);
