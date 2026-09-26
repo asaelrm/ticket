@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
 const AuthContext = createContext(null);
@@ -7,6 +8,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [appName, setAppName] = useState('Ticket');
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     let active = true;
