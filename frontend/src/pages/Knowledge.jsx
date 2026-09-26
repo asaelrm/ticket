@@ -4,13 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api, formatDate } from '../lib/api';
 import { useAuth, can } from '../context/AuthContext';
 import { Pagination, ErrorBox, EmptyState, LoadingScreen } from '../components/ui';
-import {
-  parseFilters,
-  toQuery,
-  statusLabel,
-  ARTICLE_STATUS_COLOR,
-  ARTICLE_SORTS,
-} from '../lib/kb';
+import { parseFilters, toQuery, ARTICLE_SORTS } from '../lib/kb';
 
 // Listado público de la base de conocimiento. Solo trae artículos publicados:
 // el servidor nunca devuelve borradores ni archivados en este endpoint, así que
@@ -200,7 +194,3 @@ export default function Knowledge() {
     </div>
   );
 }
-
-// Reexportado para que las pruebas y el editor compartan la misma paleta de
-// estados sin duplicarla.
-export { ARTICLE_STATUS_COLOR, statusLabel };
