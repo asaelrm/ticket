@@ -29,14 +29,21 @@ router.get('/', (req, res) => {
   res.json({ data: rows });
 });
 
-router.get('/assignable', (req, res) => {
-  const rows = db.prepare(
-    `SELECT te.id, te.name, te.description,
-       (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = te.id) AS member_count
-     FROM teams te WHERE te.active = 1 ORDER BY te.name ASC`
-  ).all();
-  res.json({ data: rows });
-});
+// Equipos que se pueden asignar. Mismo criterio que /api/users/assignable:
+// asignación de tickets (ticket.assign), filtro por equipo de la búsqueda
+// avanzada (ticket.view.all) y administración de equipos (team.manage).
+router.get(
+  '/assignable',
+  requireAnyPermission(['ticket.assign', 'ticket.view.all', 'team.manage']),
+  (req, res) => {
+    const rows = db.prepare(
+      `SELECT te.id, te.name, te.description,
+         (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = te.id) AS member_count
+       FROM teams te WHERE te.active = 1 ORDER BY te.name ASC`
+    ).all();
+    res.json({ data: rows });
+  }
+);
 
 router.get('/:id', (req, res) => {
   if (!canViewTeams(req.user)) return res.status(403).json({ error: 'No tiene permiso para ver equipos' });
