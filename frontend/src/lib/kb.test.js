@@ -64,9 +64,15 @@ describe('canReadArticle', () => {
     expect(canReadArticle(author, article({ status: 'ARCHIVED' }))).toBe(true);
   });
 
-  it('devuelve false sin usuario o sin artículo', () => {
-    expect(canReadArticle(null, article())).toBe(false);
+  it('devuelve false sin artículo', () => {
     expect(canReadArticle(reader, null)).toBe(false);
+  });
+
+  it('no comprueba kb.view: la garantiza la ruta, igual que en el servidor', () => {
+    // El backend protege GET /:id con requirePermission('kb.view'), así que
+    // canRead() nunca se ejecuta sin usuario. Replicar ese matiz aquí evita
+    // fingir una segunda barrera que no existe.
+    expect(canReadArticle(null, article())).toBe(true);
   });
 });
 
