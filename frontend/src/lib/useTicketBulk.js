@@ -24,6 +24,7 @@ export function useTicketBulk({ user, queryKeys, resetKey, labelFor }) {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolveIds, setResolveIds] = useState([]);
 
   // Comportamiento seguro: cualquier cambio de filtros o de página descarta la
   // selección pendiente en lugar de arrastrarla sobre otra lista de tickets.
@@ -44,16 +45,16 @@ export function useTicketBulk({ user, queryKeys, resetKey, labelFor }) {
     mutationFn: ({ targets }) => Promise.allSettled(targets.map((t) => t.run())),
     onMutate: clearFeedback,
     onSuccess: (results, { targets }) => {
-      // Se conservan seleccionados solo los que fallaron: el usuario puede ver
-      // de inmediato cuáles requieren atención y reintentarlos, en lugar de
+      // Se conservan seleccionados solo los que fallaron: el usuario ve de
+      // inmediato cuáles requieren atención y puede reintentarlos, en lugar de
       // perderlos en un "todo bien" engañoso.
       const failedIds = new Set();
       const details = [];
       results.forEach((r, i) => {
         if (r.status === 'rejected') {
           failedIds.add(targets[i].id);
-          // El backend ya explica el motivo en lenguaje natural; se muestra
-          // tal cual y nunca se exponen datos técnicos internos.
+          // El backend ya explica el motivo en lenguaje natural; se muestra tal
+          // cual, sin exponer datos técnicos internos.
           const reason = r.reason?.message || 'No se pudo actualizar el ticket';
           details.push(`${targets[i].label} — ${reason}`);
         }
@@ -72,8 +73,8 @@ export function useTicketBulk({ user, queryKeys, resetKey, labelFor }) {
     },
   });
 
-  // Envuelve cada id con su etiqueta legible antes de la llamada, porque tras el
-  // refetch el ticket puede salir de la página actual y we'd perder su número.
+  // Envuelve cada id con su etiqueta legible antes de la llamada: tras el refetch
+  // el ticket puede salir de la página actual y se perdería su número.
   const runBulk = (ids, fn) => {
     const targets = [...ids].map((id) => ({ id, label: labelFor(id), run: () => fn(id) }));
     setBusy(true);
@@ -134,25 +135,14 @@ export function useTicketBulk({ user, queryKeys, resetKey, labelFor }) {
     setCancelOpen(true);
   };
 
-  const openResolve = (ids) => {
-    setResolveOpen(true);
-    runBulk(ids, (id) => callStatus(id, 'RESOLVED', { resolution: pendingResolution }));
-  };
-
-  // La resolución se pide antes de tocar el backend, así que se guarda aparte y
-  // `runResolve` la aplica al confirmar.
-  const [pendingResolution, setPendingResolution] = useState('');
-  const [resolveIds, setResolveIds] = useState([]);
-
+  // /resolve exige la solución, así que se pide antes de tocar el backend.
   const requestResolve = (ids) => {
-    setPendingResolution('');
     setResolveIds([...ids]);
     setResolveOpen(true);
   };
 
   const runResolve = (resolution) => {
     const ids = resolveIds;
-    setResolveOpen(true);
     setResolveOpen(false);
     runBulk(ids, (id) => callStatus(id, 'RESOLVED', { resolution }));
   };
@@ -163,32 +153,35 @@ export function useTicketBulk({ user, queryKeys, resetKey, labelFor }) {
     toggleOne,
     toggleAll,
     clearSelection: () => setSelected(new Set()),
-    // feedback
+    // estado y feedback
     busy,
     error,
     errorDetails,
     clearFeedback,
-    // permisosResolvedores
     // acciones
     bulkAssignMe,
     bulkStatus,
     bulkPriority,
     bulkCancel,
+    // asignación
     openAssign,
     assignOpen,
     setAssignOpen,
     assignValue,
     setAssignValue,
+    // prioridad
     openPriority,
     priorityOpen,
     setPriorityOpen,
     priorityValue,
     setPriorityValue,
+    // cancelación
     openCancel,
     cancelOpen,
     setCancelOpen,
     cancelReason,
     setCancelReason,
+    // resolución
     requestResolve,
     resolveOpen,
     setResolveOpen,
