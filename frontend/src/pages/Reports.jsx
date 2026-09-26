@@ -404,6 +404,30 @@ function Kpi({ label, value, color = 'text-slate-800' }) {
   );
 }
 
+// Un número que el backend no pudo calcular se muestra como texto, nunca como 0.
+function valorONo(valor, sufijo = '', decimals = 1) {
+  if (valor == null) return 'Sin datos';
+  return `${Number(valor).toFixed(decimals).replace(/\.0+$/, '')}${sufijo}`;
+}
+
+function horasONo(horas) {
+  if (horas == null) return 'Sin datos';
+  return horas >= 24 ? `${(horas / 24).toFixed(1)} días` : `${horas} h`;
+}
+
+function minutosONo(minutos) {
+  if (minutos == null) return 'Sin datos';
+  const total = Math.round(minutos);
+  if (total < 60) return `${total} min`;
+  return `${Math.floor(total / 60)} h ${total % 60} min`;
+}
+
+function slaCelda(pct) {
+  if (pct == null) return <span className="text-slate-400">Sin SLA comparable</span>;
+  const tono = pct >= 90 ? 'text-emerald-600' : pct >= 70 ? 'text-amber-600' : 'text-red-600';
+  return <span className={`font-semibold ${tono}`}>{Number(pct).toFixed(1)}%</span>;
+}
+
 function ChartCard({ title, children, bodyClass = '' }) {
   return (
     <div className="card p-5">
