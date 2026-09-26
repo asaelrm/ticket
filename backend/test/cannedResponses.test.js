@@ -580,7 +580,21 @@ describe('validación de datos', () => {
     assert.equal((await tech.get('/api/canned-responses?limit=500')).body.limit, 100);
   });
 
+  it('un sort desconocido o heredado no rompe el listado', async () => {
+    // Los órdenes heredados de Object (constructor, toString, __proto__) se
+    // resolverían a un valor heredado y acabarían concatenados en el ORDER BY.
+    for (const sort of ['constructor', 'toString', '__proto__', 'valueOf', 'inventado', '']) {
+      const res = await tech.get(`/api/canned-responses?sort=${sort}`);
+      assert.equal(res.status, 200, `sort=${sort} debe devolver la lista, no un error`);
+      assert.ok(Array.isArray(res.body.data), `sort=${sort} debe devolver data`);
+    }
+    const manage = await admin.get('/api/canned-responses/manage?sort=constructor');
+    assert.equal(manage.status, 200);
+    assert.ok(Array.isArray(manage.body.data));
+  });
+
   it('no existe borrado físico ni incremento manual del contador', async () => {
+    const created = await tech.post('/api/canned-responses', {
       title: uniq('No borra'),
       body: 'x',
       scope: 'PERSONAL',
