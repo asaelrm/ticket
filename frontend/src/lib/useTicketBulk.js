@@ -32,8 +32,11 @@ export function useTicketBulk({ user, queryKeys, resetKey, labelFor }) {
     setSelected(new Set());
   }, [resetKey]);
 
+  // `queryKeys` es una lista plana de claves; se envuelven porque
+  // invalidateQueries espera un array y así el prefijo invalida el listado y sus
+  // variantes (p. ej. ['inbox-tickets', tab, filters]).
   const invalidate = () => {
-    for (const key of queryKeys) queryClient.invalidateQueries({ queryKey: key });
+    for (const key of queryKeys) queryClient.invalidateQueries({ queryKey: [key] });
   };
 
   const clearFeedback = () => {
