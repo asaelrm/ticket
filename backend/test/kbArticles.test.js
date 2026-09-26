@@ -1,7 +1,8 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db from '../src/db.js';
+import db, { runMigrations } from '../src/db.js';
+import { seed, PERMISSIONS } from '../src/seed.js';
 import {
   MAX_ARTICLE_TITLE,
   MAX_ARTICLE_SUMMARY,
