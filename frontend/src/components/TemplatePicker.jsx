@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -7,7 +7,6 @@ import { extractVariables, expandTemplate, MAX_COMMENT_LENGTH } from '../lib/tem
 import { Spinner, EmptyState, ErrorBox } from './ui';
 
 const SCOPE_LABEL = { GLOBAL: 'Global', PERSONAL: 'Personal', TEAM: 'Equipo' };
-const SCOPE_ORDER = ['GLOBAL', 'TEAM', 'PERSONAL'];
 
 function scopeBadge(t) {
   if (t.scope === 'TEAM') return `Equipo: ${t.team_name || '—'}`;
