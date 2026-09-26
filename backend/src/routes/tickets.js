@@ -409,7 +409,13 @@ const SORT_COLUMNS = {
 };
 
 function sortClause(req) {
-  const col = SORT_COLUMNS[req.query.sort] || SORT_COLUMNS.created_at;
+  // Object.hasOwn y no `||` a secas: sin él, `?sort=constructor` rescataba
+  // Object.prototype.constructor y lo interpolaba en el ORDER BY, produciendo
+  // un 500 por SQL inválido en cada petición con un parámetro manipulado.
+  const key = req.query.sort;
+  const col = typeof key === 'string' && Object.hasOwn(SORT_COLUMNS, key)
+    ? SORT_COLUMNS[key]
+    : SORT_COLUMNS.created_at;
   const dir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
   return `ORDER BY ${col} ${dir}, t.id DESC`;
 }
@@ -876,7 +882,13 @@ router.post('/:id/typing', (req, res) => {
 router.patch('/:id', (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
-  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  // Misma regla que GET /:id: si el actor no puede ver el ticket, tampoco puede
+  // saber que existe. Sin esta comprobación, un cuerpo vacío (`{}`) sortía del
+  // `if (!sets.length)` de más abajo con el ticket entero en la respuesta para
+  // cualquier usuario autenticado, Employee incluido.
+  if (!ticket || !canViewTicket(req.user, ticket)) {
+    return res.status(404).json({ error: 'Ticket no encontrado' });
+  }
 
   const canManage = hasPerm(req.user, 'ticket.update.any');
   const canAssign = hasPerm(req.user, 'ticket.assign');
