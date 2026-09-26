@@ -45,7 +45,7 @@ async function crearTicket(client, over = {}) {
 // medida sea real y no un número negativo por comparar contra el reloj actual.
 function registrarResolucion(ticketId, { tecnico, minutos, csat, team, slaDueAt, answeredAt }) {
   const creado = '2026-03-15T09:00:00.000Z';
-  constahora = '2026-03-15T12:00:00.000Z';
+  const ahora = '2026-03-15T12:00:00.000Z';
   db.prepare(
     `UPDATE tickets
         SET status = 'CLOSED', created_at = ?, resolved_at = ?, closed_at = ?,
