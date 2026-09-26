@@ -73,6 +73,16 @@ const ICONS = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9l2 2 4-4" />
     </svg>
   ),
+  knowledge: (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.5S10 4 5.5 4H3v14h2.5C9 18 12 20.5 12 20.5S15 18 18.5 18H21V4h-2.5C14 4 12 6.5 12 6.5zm0 0V20.5" />
+    </svg>
+  ),
+  kbAdmin: (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h16v4H4zM4 12h7v8H4zM15 12h5v8h-5z" />
+    </svg>
+  ),
 };
 
 const TITLES = {
@@ -91,6 +101,9 @@ const TITLES = {
   '/app/profile': 'Mi cuenta',
   '/app/inbox': 'Bandeja',
   '/app/audit': 'Auditoría',
+  '/app/knowledge': 'Base de conocimiento',
+  '/app/knowledge/new': 'Nuevo artículo',
+  '/app/knowledge/admin': 'Administrar conocimientos',
 };
 
 export default function Layout() {

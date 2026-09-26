@@ -90,6 +90,15 @@ export default function App() {
           }
         />
         <Route path="roles" element={<Protected permission="role.manage"><Roles /></Protected>} />
+        {/* Base de conocimiento. Cada ruta exige el permiso mínimo del backend:
+            consultar (kb.view), redactar (kb.create) o moderar (kb.manage). Las
+            rutas literales se declaran antes que ':id' por claridad, aunque React
+            Router ya las prioriza. */}
+        <Route path="knowledge" element={<Protected permission="kb.view"><Knowledge /></Protected>} />
+        <Route path="knowledge/new" element={<Protected permission="kb.create"><KnowledgeEditor /></Protected>} />
+        <Route path="knowledge/admin" element={<Protected permission="kb.manage"><KnowledgeAdmin /></Protected>} />
+        <Route path="knowledge/:id" element={<Protected permission="kb.view"><KnowledgeDetail /></Protected>} />
+        <Route path="knowledge/:id/edit" element={<Protected permission="kb.create"><KnowledgeEditor /></Protected>} />
         <Route path="reports" element={<Protected permission="report.view"><Reports /></Protected>} />
         <Route path="settings" element={<Protected permission="settings.manage"><Settings /></Protected>} />
         <Route path="profile" element={<Profile />} />
