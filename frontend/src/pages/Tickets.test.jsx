@@ -350,3 +350,60 @@ describe('Tickets', () => {
     expect(screen.queryByRole('button', { name: '⋯' })).not.toBeInTheDocument();
   });
 });
+
+// El backend rechaza PATCH con RESOLVED/CLOSED: el menú de fila debe usar los
+// endpoints dedicados igual que la bandeja.
+describe('Tickets · acciones de estado con los endpoints dedicados', () => {
+  const FULL = { id: 7, name: 'Admin', permissions: ['ticket.assign', 'ticket.update.any', 'ticket.resolve', 'ticket.close'] };
+
+  it('resuelve por /resolve indicando la solución', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Marcar resuelto/ }));
+
+    // No se llama al backend hasta recoger la solución obligatoria.
+    expect(api.post).not.toHaveBeenCalled();
+    await user.type(await screen.findByLabelText(/Solución \/ trabajo realizado/), 'Se reinició el router');
+    await user.click(screen.getByRole('button', { name: 'Resolver 1 ticket(s)' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/tickets/1/resolve', { resolution: 'Se reinició el router' })
+    );
+    expect(api.patch).not.toHaveBeenCalledWith('/api/tickets/1', { status: 'RESOLVED' });
+  });
+
+  it('cierra por /close y mantiene PATCH para "en proceso"', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Marcar en proceso/ }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'IN_PROGRESS' }));
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Cerrar ticket/ }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/close', {}));
+  });
+
+  it('sigue cancelando por /cancel con el motivo obligatorio', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Cancelar ticket/ }));
+
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText(/Motivo de cancelación/), 'Duplicado');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar ticket' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/cancel', { reason: 'Duplicado' }));
+  });
+});
