@@ -35,6 +35,9 @@ router.get('/:id', requirePermission('kb.view'), (req, res) => {
   const id = parseIntSafe(req.params.id);
   const row = db.prepare(`${LIST_SQL} WHERE c.id = ?`).get(id);
   if (!row) return res.status(404).json({ error: 'Categoría de conocimiento no encontrada' });
+  if (!row.active && !req.user.permissions.includes('kb.manage')) {
+    return res.status(404).json({ error: 'Categoría de conocimiento no encontrada' });
+  }
   res.json({ category: row });
 });
 
