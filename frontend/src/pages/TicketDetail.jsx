@@ -350,11 +350,17 @@ export default function TicketDetail() {
   function onSubmitComment(e) {
     e.preventDefault();
     if (!message.trim() && files.length === 0) return;
+    // El texto final ya viene expandido desde el selector; aun así se valida
+    // aquí el máximo definitivo antes de enviarlo.
+    if (message.length > MAX_COMMENT_LENGTH) {
+      setApiError(`El mensaje supera el máximo de ${MAX_COMMENT_LENGTH} caracteres`);
+      return;
+    }
     const fd = new FormData();
     if (message.trim()) fd.append('message', message.trim());
     if (internalMode) fd.append('is_internal', '1');
-    // Contabiliza el uso de la plantilla en el servidor, después de guardar el
-    // comentario. Si no se usó ninguna, no se envía el campo.
+    // Contabiliza el uso de cada plantilla en el servidor, después de guardar
+    // el comentario. Si no se usó ninguna, no se envía el campo.
     for (const tid of usedTemplateIds) fd.append('canned_response_id', String(tid));
     for (const f of files) fd.append('files', f);
     apiAction.mutate(
