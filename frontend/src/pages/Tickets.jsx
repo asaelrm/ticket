@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, download, setTicketStatus, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
+import { api, download, ticketStatusRequest, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
@@ -143,7 +143,10 @@ export default function Tickets() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) => setTicketStatus(t.id, status, body),
+    mutationFn: ({ t, status, body }) => {
+      const r = ticketStatusRequest(t.id, status, body);
+      return api[r.method](r.path, r.body);
+    },
     onMutate: () => {
       setBusy(true);
       setError('');

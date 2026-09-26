@@ -221,12 +221,12 @@ describe('Inbox · acciones de estado con los endpoints dedicados', () => {
     await user.click(await screen.findByRole('button', { name: /^Resuelto$/ }));
 
     // La caja pide la solución antes de tocar el backend.
-    const dialog = await screen.findByText('Resolver 2 ticket(s)');
-    expect(dialog).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Resolver 2 ticket(s)')).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
 
     await user.type(screen.getByLabelText(/Solución \/ trabajo realizado/), 'Se cambió la fuente de poder');
-    await user.click(screen.getByRole('button', { name: 'Resolver 2 ticket(s)' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Resolver 2 ticket(s)' }));
 
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/tickets/1/resolve', { resolution: 'Se cambió la fuente de poder' })
