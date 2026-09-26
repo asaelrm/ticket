@@ -113,6 +113,7 @@ describe('Profile', () => {
         return Promise.resolve({ ...HISTORY, data: [{ ...HISTORY.data[0], id: 12, title: 'Ticket asignado' }] });
       }
       if (url === HISTORY_URL) return Promise.resolve(HISTORY);
+      if (url === TEMPLATES_URL) return Promise.resolve(NO_TEMPLATES);
       return Promise.reject(new Error(`404 ${url}`));
     });
 
@@ -251,7 +252,11 @@ describe('Profile', () => {
   });
 
   it('muestra el error si falla la carga del historial', async () => {
-    api.get.mockImplementation((url) => (url === HISTORY_URL ? Promise.reject(new Error('No se pudo cargar el historial')) : Promise.reject(new Error('404'))));
+    api.get.mockImplementation((url) => {
+      if (url === TEMPLATES_URL) return Promise.resolve(NO_TEMPLATES);
+      if (url === HISTORY_URL) return Promise.reject(new Error('No se pudo cargar el historial'));
+      return Promise.reject(new Error('404'));
+    });
 
     renderWithProviders(<Profile />, { route: '/app/profile' });
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar el historial');
