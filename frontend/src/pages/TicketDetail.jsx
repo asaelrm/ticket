@@ -648,6 +648,7 @@ export default function TicketDetail() {
                   </div>
                   <textarea
                     ref={textareaRef}
+                    aria-label={internalMode ? 'Nota interna' : 'Comentario'}
                     className="min-h-[110px] w-full resize-y border-0 bg-[#0b3046] px-3.5 py-3 text-sm text-slate-100 placeholder:text-slate-300/70 focus:outline-none"
                     value={message}
                     onChange={(e) => onMessageChange(e.target.value)}
@@ -658,6 +659,17 @@ export default function TicketDetail() {
                     }
                   />
                 </div>
+
+                {message.length > MAX_COMMENT_LENGTH - 400 && (
+                  <p
+                    className={`text-xs ${
+                      message.length > MAX_COMMENT_LENGTH ? 'font-semibold text-red-400' : 'text-cyan-200/70'
+                    }`}
+                  >
+                    {message.length}/{MAX_COMMENT_LENGTH} caracteres
+                    {message.length > MAX_COMMENT_LENGTH && ' · supera el máximo del comentario'}
+                  </p>
+                )}
 
                 {files.length > 0 && (
                   <ul className="flex flex-wrap gap-2">
