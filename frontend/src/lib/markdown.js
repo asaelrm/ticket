@@ -41,7 +41,7 @@ const HEADING_CLASS = {
  * Subconjunto soportado: párrafos, negrita, cursiva, código en línea,
  * encabezados ATX (`#` … `######`), listas con viñetas y listas ordenadas.
  *
- * Se mantiene el renderizado por líneas, sinagramas de inglés ni dependencias
+ * Se mantiene el renderizado por líneas, sin gramática de inglés ni dependencias
  * externas. Una lista se cierra en cuanto aparece una línea que no es de la
  * lista, y cambiar de viñeta a numerada cierra la anterior para que el HTML
  * siga siendo válido.
