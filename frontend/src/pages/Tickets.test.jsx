@@ -383,8 +383,6 @@ describe('Tickets', () => {
 // El backend rechaza PATCH con RESOLVED/CLOSED: el menú de fila debe usar los
 // endpoints dedicados igual que la bandeja.
 describe('Tickets · acciones de estado con los endpoints dedicados', () => {
-  const FULL = { id: 7, name: 'Admin', permissions: ['ticket.assign', 'ticket.update.any', 'ticket.resolve', 'ticket.close'] };
-
   it('resuelve por /resolve indicando la solución', async () => {
     const user = userEvent.setup();
     authState.user = FULL;
