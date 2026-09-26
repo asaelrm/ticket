@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import {
   api,
-  setTicketStatus,
+  ticketStatusRequest,
   STATUSES,
   PRIORITIES,
   STATUS_LABEL,
