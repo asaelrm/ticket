@@ -370,8 +370,7 @@ export default function TicketDetail() {
    */
   function onInsertTemplate({ text, template, mode }) {
     const el = textareaRef.current;
-    if (mode === 'replace') {
-      setMessage(text);
+    if (mode === 'replace') {      setMessage(text);
       setUsedTemplateIds((prev) => [...new Set([...prev, template.id])]);
       return;
     }
