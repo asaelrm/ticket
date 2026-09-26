@@ -221,10 +221,7 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
           <button
             type="button"
             className="btn-primary"
-            onClick={() => {
-              onApply(form);
-              onClose();
-            }}
+            onClick={apply}
           >
             {loading && <Spinner className="h-4 w-4 text-white" />}
             Aplicar filtros

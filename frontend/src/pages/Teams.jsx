@@ -22,10 +22,14 @@ export default function Teams() {
     queryFn: () => api.get('/api/teams').then((d) => d.data || []),
   });
 
-  // Misma fuente de datos que Inbox/AdvancedSearchModal/TicketDetail.
+  // Misma fuente de datos que Inbox/AdvancedSearchModal/TicketDetail. Solo se
+  // pide para gestionar miembros, que es lo único que la pantalla puede hacer con
+  // ella: así un usuario sin team.manage no genera una petición que acabaría en
+  // 403 aunque ya pueda listar equipos.
   const { data: users = [] } = useQuery({
     queryKey: ['assignable-users'],
     queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []),
+    enabled: canManage,
   });
 
   const membersQuery = useQuery({
