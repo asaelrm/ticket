@@ -12,7 +12,7 @@ export default function UserTicketHistory({ userId, self = false, perPage = 8 })
     setPage(1);
   }, [scope, userId]);
 
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, isFetching } = useQuery({
     queryKey: ['user-ticket-history', userId, scope, page, perPage],
     queryFn: () => api.get(`/api/users/${userId}/tickets?scope=${scope}&page=${page}&perPage=${perPage}`),
     enabled: !!userId,
@@ -46,7 +46,9 @@ export default function UserTicketHistory({ userId, self = false, perPage = 8 })
 
       {error && <ErrorBox message={error.message || 'No se pudo cargar el historial'} />}
 
-      {isPending && !data ? (
+      {!userId ? (
+        <EmptyState icon="🎫" title="Sin tickets" subtitle="No hay tickets en este historial." />
+      ) : isPending && !data ? (
         <div className="flex justify-center py-8">
           <Spinner />
         </div>
