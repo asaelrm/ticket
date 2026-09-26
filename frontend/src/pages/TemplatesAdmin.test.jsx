@@ -295,8 +295,39 @@ describe('TemplatesAdmin · activación y desactivación', () => {
 });
 
 describe('TemplatesAdmin · permisos por ámbito', () => {
-  it('con settings.manage se ofrecen global y equipo, y se cargan los equipos', async () => {
+  it('con ambos permisos se cargan los equipos y se ofrecen los dos ámbitos', async () => {
+    renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
+    await screen.findByText('Saludo global');
+    expect(api.get).toHaveBeenCalledWith('/api/teams');
+
+    const filter = screen.getByLabelText('Filtrar por ámbito');
+    expect(within(filter).getByRole('option', { name: 'Global' })).toBeInTheDocument();
+    expect(within(filter).getByRole('option', { name: 'Equipo' })).toBeInTheDocument();
+
+    const { dialog } = await openEditor();
+    const scopeSelect = within(dialog).getByLabelText('Ámbito *');
+    expect(within(scopeSelect).getByRole('option', { name: 'Global' })).toBeInTheDocument();
+    expect(within(scopeSelect).getByRole('option', { name: 'Equipo' })).toBeInTheDocument();
+  });
+
+  it('con solo settings.manage no se ofrece el ámbito TEAM ni se cargan los equipos', async () => {
     authState.user = SETTINGS_ONLY;
+    renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
+    await screen.findByText('Saludo global');
+    const filter = screen.getByLabelText('Filtrar por ámbito');
+    expect(within(filter).getByRole('option', { name: 'Global' })).toBeInTheDocument();
+    expect(within(filter).queryByRole('option', { name: 'Equipo' })).toBeNull();
+
+    const { dialog } = await openEditor();
+    const scopeSelect = within(dialog).getByLabelText('Ámbito *');
+    expect(within(scopeSelect).queryByRole('option', { name: 'Equipo' })).toBeNull();
+    expect(within(dialog).queryByLabelText('Equipo *')).toBeNull();
+    // La consulta de equipos no se dispara sin team.manage.
+    expect(api.get).not.toHaveBeenCalledWith('/api/teams');
+  });
+
+  it('con solo team.manage no se ofrece el ámbito GLOBAL ni se cargan las globales filtradas', async () => {
+    authState.user = TEAM_ONLY;
     renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
     await screen.findByText('Saludo global');
     expect(api.get).toHaveBeenCalledWith('/api/teams');
@@ -316,21 +347,6 @@ describe('TemplatesAdmin · permisos por ámbito', () => {
     // Sin GLOBAL disponible, la nueva plantilla se crea de equipo.
     expect(scopeSelect).toHaveValue('TEAM');
     await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
-  });
-
-  it('con solo settings.manage no se ofrece el ámbito TEAM ni se cargan los equipos', async () => {
-    authState.user = SETTINGS_ONLY;
-    renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
-    await screen.findByText('Saludo global');
-    const filter = screen.getByLabelText('Filtrar por ámbito');
-    expect(within(filter).queryByRole('option', { name: 'Equipo' })).toBeInTheDocument();
-
-    const { dialog } = await openEditor();
-    const scopeSelect = within(dialog).getByLabelText('Ámbito *');
-    expect(within(scopeSelect).queryByRole('option', { name: 'Equipo' })).toBeNull();
-    expect(within(dialog).queryByLabelText('Equipo *')).toBeNull();
-    // La consulta de equipos no se dispara sin team.manage.
-    expect(api.get).not.toHaveBeenCalledWith('/api/teams');
   });
 
   it('con solo team.manage no ofrece editar ni conmutar una global: el backend daría 404', async () => {
