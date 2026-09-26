@@ -112,7 +112,7 @@ describe('AdvancedSearchModal · directorios según la función', () => {
     const onApply = vi.fn();
     renderModal({ onApply });
 
-    await screen.findByRole('dialog', { name: 'Búsqueda avanzado' });
+    await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
     await user.selectOptions(screen.getByLabelText('Estado'), 'IN_PROGRESS');
     await user.selectOptions(screen.getByLabelText('Prioridad'), 'CRITICAL');
     await user.click(screen.getByRole('button', { name: /Aplicar filtros/ }));
