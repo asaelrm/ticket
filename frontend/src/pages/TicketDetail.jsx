@@ -370,13 +370,21 @@ export default function TicketDetail() {
    */
   function onInsertTemplate({ text, template, mode }) {
     const el = textareaRef.current;
-    if (mode === 'replace') {      setMessage(text);
-      setUsedTemplateIds((prev) => [...new Set([...prev, template.id])]);
+    const remember = () => setUsedTemplateIds((prev) => [...new Set([...prev, template.id])]);
+    if (mode === 'replace') {
+      // La última línea de defensa: el selector ya bloquea esto, pero el
+      //.replace no debe poder dejar un comentario por encima del máximo.
+      if (text.length > MAX_COMMENT_LENGTH) return;
+      setMessage(text);
+      remember();
       return;
     }
     if (!el) {
-      setMessage((prev) => `${prev}${prev ? '\n' : ''}${text}`);
-      setUsedTemplateIds((prev) => [...new Set([...prev, template.id])]);
+      setMessage((prev) => {
+        const next = `${prev}${prev ? '\n' : ''}${text}`;
+        return next.length > MAX_COMMENT_LENGTH ? prev : next;
+      });
+      remember();
       return;
     }
     const start = el.selectionStart;
@@ -384,7 +392,7 @@ export default function TicketDetail() {
     const next = message.slice(0, start) + text + message.slice(end);
     if (next.length > MAX_COMMENT_LENGTH) return;
     setMessage(next);
-    setUsedTemplateIds((prev) => [...new Set([...prev, template.id])]);
+    remember();
     requestAnimationFrame(() => {
       el.focus();
       el.selectionStart = start + text.length;
