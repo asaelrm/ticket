@@ -181,8 +181,9 @@ describe('Autorización de los directorios asignables', () => {
 
     const roles = await admin.get('/api/roles');
     assert.equal(roles.status, 200);
-    const tecnico = roles.body.data.find((r) => r.code === 'TECHNICIAN');
+    const tecnico = roles.body.roles.find((r) => r.code === 'TECHNICIAN');
     assert.ok(tecnico, 'Debe existir el rol TECHNICIAN');
+    const original = tecnico.permissions;
 
     const soloAssign = await admin.patch(`/api/roles/${tecnico.id}/permissions`, {
       permissions: ['ticket.create', 'ticket.comment', 'ticket.assign', 'ticket.resolve', 'ticket.close'],
@@ -198,7 +199,6 @@ describe('Autorización de los directorios asignables', () => {
       }
     } finally {
       // Restaura la matriz sembrada para no afectar a los tests siguientes.
-      const original = roles.body.data.find((r) => r.code === 'TECHNICIAN').permissions;
       await admin.patch(`/api/roles/${tecnico.id}/permissions`, { permissions: original });
     }
   });
@@ -207,7 +207,7 @@ describe('Autorización de los directorios asignables', () => {
     const admin = createClient();
     await admin.login('admin', '123456');
     const roles = await admin.get('/api/roles');
-    const tecnico = roles.body.data.find((r) => r.code === 'TECHNICIAN');
+    const tecnico = roles.body.roles.find((r) => r.code === 'TECHNICIAN');
     const original = tecnico.permissions;
 
     const stripped = await admin.patch(`/api/roles/${tecnico.id}/permissions`, {
