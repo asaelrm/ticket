@@ -105,8 +105,8 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
     <Modal open={open} onClose={onClose} title="Búsqueda avanzada" wide>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="label">Estado</label>
-          <select className="input" value={form.status} onChange={(e) => set('status', e.target.value)}>
+          <label className="label" htmlFor="adv-status">Estado</label>
+          <select id="adv-status" className="input" value={form.status} onChange={(e) => set('status', e.target.value)}>
             <option value="">Todos</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -116,8 +116,8 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
           </select>
         </div>
         <div>
-          <label className="label">Prioridad</label>
-          <select className="input" value={form.priority} onChange={(e) => set('priority', e.target.value)}>
+          <label className="label" htmlFor="adv-priority">Prioridad</label>
+          <select id="adv-priority" className="input" value={form.priority} onChange={(e) => set('priority', e.target.value)}>
             <option value="">Todas</option>
             {PRIORITIES.map((p) => (
               <option key={p} value={p}>
@@ -127,8 +127,8 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
           </select>
         </div>
         <div>
-          <label className="label">Categoría</label>
-          <select className="input" value={form.category} onChange={(e) => set('category', e.target.value)}>
+          <label className="label" htmlFor="adv-category">Categoría</label>
+          <select id="adv-category" className="input" value={form.category} onChange={(e) => set('category', e.target.value)}>
             <option value="">Todas</option>
             {options.categories.map((c) => (
               <option key={c.id} value={c.id}>
@@ -138,8 +138,8 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
           </select>
         </div>
         <div>
-          <label className="label">Departamento</label>
-          <select className="input" value={form.department} onChange={(e) => set('department', e.target.value)}>
+          <label className="label" htmlFor="adv-department">Departamento</label>
+          <select id="adv-department" className="input" value={form.department} onChange={(e) => set('department', e.target.value)}>
             <option value="">Todos</option>
             {options.departments.map((d) => (
               <option key={d.id} value={d.id}>
@@ -151,8 +151,8 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
         {canViewAll ? (
           <>
             <div>
-              <label className="label">Solicitante</label>
-              <select className="input" value={form.user} onChange={(e) => set('user', e.target.value)}>
+              <label className="label" htmlFor="adv-user">Solicitante</label>
+              <select id="adv-user" className="input" value={form.user} onChange={(e) => set('user', e.target.value)}>
                 <option value="">Todos</option>
                 {options.users.map((u) => (
                   <option key={u.id} value={u.id}>
@@ -162,8 +162,8 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
               </select>
             </div>
             <div>
-              <label className="label">Técnico asignado</label>
-              <select className="input" value={form.assigned} onChange={(e) => set('assigned', e.target.value)}>
+              <label className="label" htmlFor="adv-assigned">Técnico asignado</label>
+              <select id="adv-assigned" className="input" value={form.assigned} onChange={(e) => set('assigned', e.target.value)}>
                 <option value="">Todos</option>
                 <option value="none">Sin asignar</option>
                 {options.users.map((u) => (
@@ -174,8 +174,8 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="label">Equipo asignado</label>
-              <select className="input" value={form.team} onChange={(e) => set('team', e.target.value)}>
+              <label className="label" htmlFor="adv-team">Equipo asignado</label>
+              <select id="adv-team" className="input" value={form.team} onChange={(e) => set('team', e.target.value)}>
                 <option value="">Todos</option>
                 {options.teams.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -193,10 +193,17 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
         )}
 
         <div className="sm:col-span-2">
-          <label className="label">Fecha de creación</label>
+          <label className="label" htmlFor="adv-from">Fecha de creación (desde)</label>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input type="date" className="input" value={form.from} onChange={(e) => set('from', e.target.value)} />
-            <input type="date" className="input" value={form.to} onChange={(e) => set('to', e.target.value)} />
+            <input id="adv-from" type="date" className="input" value={form.from} onChange={(e) => set('from', e.target.value)} />
+            <input
+              id="adv-to"
+              type="date"
+              className="input"
+              aria-label="Fecha de creación (hasta)"
+              value={form.to}
+              onChange={(e) => set('to', e.target.value)}
+            />
           </div>
           <p className="mt-1 text-xs text-slate-400">Desde / hasta (dejar vacío para no limitar).</p>
         </div>
