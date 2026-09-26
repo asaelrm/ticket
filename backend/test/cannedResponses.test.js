@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
 import {
   TEMPLATE_VARIABLES,
@@ -9,9 +10,6 @@ import {
   MAX_COMMENT_LENGTH,
 } from '../src/utils/templateVars.js';
 
-const ADMIN = { account: 'admin', password: '123456' };
-const TECH = { account: 'tecnico', password: 'Tecnico1234!' };
-const EMP = { account: 'empleado', password: 'Empleado1234!' };
 const PASSWORD = 'Prueba1234!';
 
 let admin;
@@ -20,6 +18,7 @@ let techId;
 let tech2;
 let tech2Id;
 let emp;
+let empRoleId;
 
 let seq = 0;
 const uniq = (prefix) => `${prefix} ${Date.now()}-${seq++}`;
@@ -34,45 +33,44 @@ async function createUser({ username, roleId }) {
     role_id: roleId,
     active: true,
   });
-  expect(res.status).toBe(201);
-  const client = await createClient();
-  await client.login({ account: username, password: PASSWORD });
+  assert.equal(res.status, 201);
+  const client = createClient();
+  await client.login(username, PASSWORD);
   return { client, id: res.body.user.id };
 }
 
 async function makeTeam(name, memberIds) {
   const res = await admin.post('/api/teams', { name });
-  expect(res.status).toBe(201);
+  assert.equal(res.status, 201);
   const id = res.body.team.id;
   const put = await admin.put(`/api/teams/${id}/members`, { user_ids: memberIds });
-  expect(put.status).toBe(200);
+  assert.equal(put.status, 200);
   return id;
 }
 
-async function makeTicket(client, overrides = {}) {
+async function makeTicket(client, over = {}) {
   const res = await client.post('/api/tickets', {
     title: 'Impresora sin papel',
     description: 'La impresora no imprime',
     priority: 'HIGH',
-    ...overrides,
+    ...over,
   });
-  expect(res.status).toBe(201);
+  assert.equal(res.status, 201);
   return res.body.ticket;
 }
 
-beforeAll(async () => {
-  admin = await createClient();
-  await admin.login(ADMIN);
-  tech = await createClient();
-  await tech.login(TECH);
-  emp = await createClient();
-  await emp.login(EMP);
+before(async () => {
+  admin = createClient();
+  await admin.login('admin', '123456');
+  tech = createClient();
+  await tech.login('tecnico', 'Tecnico1234!');
+  emp = createClient();
+  await emp.login('empleado', 'Empleado1234!');
 
   techId = (await tech.get('/api/auth/me')).body.user.id;
   const roles = (await admin.get('/api/roles')).body.roles;
   const techRole = roles.find((r) => r.code === 'TECHNICIAN').id;
-  const empRole = roles.find((r) => r.code === 'EMPLOYEE').id;
-  globalThis.__empRoleId = empRole;
+  empRoleId = roles.find((r) => r.code === 'EMPLOYEE').id;
 
   tech2 = await createUser({ username: `tec${Date.now() % 100000}`, roleId: techRole });
   tech2Id = tech2.id;
@@ -80,7 +78,7 @@ beforeAll(async () => {
 
 describe('catálogo de variables', () => {
   it('expone exactamente las diez variables acordadas', () => {
-    expect(TEMPLATE_VARIABLE_KEYS).toEqual([
+    assert.deepEqual(TEMPLATE_VARIABLE_KEYS, [
       'ticket_number',
       'ticket_title',
       'reporter_name',
@@ -92,29 +90,29 @@ describe('catálogo de variables', () => {
       'technician_name',
       'sla_due',
     ]);
-    expect(TEMPLATE_VARIABLES).toHaveLength(10);
+    assert.equal(TEMPLATE_VARIABLES.length, 10);
   });
 
   it('detecta variables usadas y desconocidas sin evaluarlas', () => {
     const { used, unknown } = extractTemplateVariables(
       'Hola {{ticket_number}} de {{team_name}} y {{__proto__}} {{constructor}}'
     );
-    expect(used).toEqual(['ticket_number', 'team_name']);
-    expect(unknown).toEqual(['__proto__', 'constructor']);
+    assert.deepEqual(used, ['ticket_number', 'team_name']);
+    assert.deepEqual(unknown, ['__proto__', 'constructor']);
   });
 
   it('acepta espacios dentro de las llaves', () => {
-    expect(extractTemplateVariables('{{ ticket_title }}').used).toEqual(['ticket_title']);
+    assert.deepEqual(extractTemplateVariables('{{ ticket_title }}').used, ['ticket_title']);
   });
 
   it('valida el cuerpo vacío y el máximo de 2000 caracteres', () => {
-    expect(validateTemplateBody('   ').ok).toBe(false);
-    expect(validateTemplateBody('a'.repeat(MAX_TEMPLATE_BODY)).ok).toBe(true);
-    expect(validateTemplateBody('a'.repeat(MAX_TEMPLATE_BODY + 1)).ok).toBe(false);
+    assert.equal(validateTemplateBody('   ').ok, false);
+    assert.equal(validateTemplateBody('a'.repeat(MAX_TEMPLATE_BODY)).ok, true);
+    assert.equal(validateTemplateBody('a'.repeat(MAX_TEMPLATE_BODY + 1)).ok, false);
   });
 
   it('el máximo de la plantilla es menor que el del comentario', () => {
-    expect(MAX_TEMPLATE_BODY).toBeLessThan(MAX_COMMENT_LENGTH);
+    assert.ok(MAX_TEMPLATE_BODY < MAX_COMMENT_LENGTH);
   });
 });
 
@@ -125,21 +123,21 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
       body: 'Hola {{reporter_name}}',
       scope: 'GLOBAL',
     });
-    expect(global.status).toBe(201);
+    assert.equal(global.status, 201);
 
     const own = await tech.post('/api/canned-responses', {
       title: uniq('Personal'),
       body: 'Texto propio',
       scope: 'PERSONAL',
     });
-    expect(own.status).toBe(201);
+    assert.equal(own.status, 201);
 
     const otherPersonal = await tech2.client.post('/api/canned-responses', {
       title: uniq('Ajena'),
       body: 'No deberías ver esto',
       scope: 'PERSONAL',
     });
-    expect(otherPersonal.status).toBe(201);
+    assert.equal(otherPersonal.status, 201);
 
     const teamA = await makeTeam(uniq('Equipo A'), [techId]);
     const teamB = await makeTeam(uniq('Equipo B'), [tech2Id]);
@@ -155,26 +153,26 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
       scope: 'TEAM',
       team_id: teamB,
     });
-    expect(inTeamA.status).toBe(201);
-    expect(inTeamB.status).toBe(201);
+    assert.equal(inTeamA.status, 201);
+    assert.equal(inTeamB.status, 201);
 
     const res = await tech.get('/api/canned-responses?limit=100');
-    expect(res.status).toBe(200);
+    assert.equal(res.status, 200);
     const ids = res.body.data.map((t) => t.id);
-    expect(ids).toContain(global.body.template.id);
-    expect(ids).toContain(own.body.template.id);
-    expect(ids).toContain(inTeamA.body.template.id);
-    expect(ids).not.toContain(otherPersonal.body.template.id);
-    expect(ids).not.toContain(inTeamB.body.template.id);
+    assert.ok(ids.includes(global.body.template.id), 'debe ver la global');
+    assert.ok(ids.includes(own.body.template.id), 'debe ver la propia');
+    assert.ok(ids.includes(inTeamA.body.template.id), 'debe ver la de su equipo');
+    assert.ok(!ids.includes(otherPersonal.body.template.id), 'no debe ver la personal ajena');
+    assert.ok(!ids.includes(inTeamB.body.template.id), 'no debe ver la de otro equipo');
     // El total también viene filtrado: no revela la existencia de ajenas.
-    expect(res.body.total).toBe(ids.length);
+    assert.equal(res.body.total, ids.length);
 
     // El empleado no pertenece a ningún equipo: solo ve la global.
     const asEmp = await emp.get('/api/canned-responses?limit=100');
     const empIds = asEmp.body.data.map((t) => t.id);
-    expect(empIds).toContain(global.body.template.id);
-    expect(empIds).not.toContain(inTeamA.body.template.id);
-    expect(empIds).not.toContain(own.body.template.id);
+    assert.ok(empIds.includes(global.body.template.id));
+    assert.ok(!empIds.includes(inTeamA.body.template.id));
+    assert.ok(!empIds.includes(own.body.template.id));
   });
 
   it('al salir del equipo se pierde el acceso a sus plantillas', async () => {
@@ -185,20 +183,20 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
       scope: 'TEAM',
       team_id: teamId,
     });
-    expect(tpl.status).toBe(201);
+    assert.equal(tpl.status, 201);
     const id = tpl.body.template.id;
 
     let res = await tech2.client.get('/api/canned-responses?limit=100');
-    expect(res.body.data.map((t) => t.id)).toContain(id);
+    assert.ok(res.body.data.map((t) => t.id).includes(id));
 
     await admin.put(`/api/teams/${teamId}/members`, { user_ids: [] });
 
     res = await tech2.client.get('/api/canned-responses?limit=100');
-    expect(res.body.data.map((t) => t.id)).not.toContain(id);
-    expect((await tech2.client.get(`/api/canned-responses/${id}`)).status).toBe(404);
+    assert.ok(!res.body.data.map((t) => t.id).includes(id));
+    assert.equal((await tech2.client.get(`/api/canned-responses/${id}`)).status, 404);
   });
 
-  it('una plantilla desactivada desaparece del selector pero sigue siendo gestionable por su dueño', async () => {
+  it('una plantilla desactivada desaparece del selector pero sigue gestionable por su dueño', async () => {
     const created = await tech.post('/api/canned-responses', {
       title: uniq('Se desactiva'),
       body: 'Temporal',
@@ -207,30 +205,30 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
     const id = created.body.template.id;
 
     const off = await tech.patch(`/api/canned-responses/${id}`, { is_active: false });
-    expect(off.status).toBe(200);
-    expect(off.body.template.is_active).toBe(0);
+    assert.equal(off.status, 200);
+    assert.equal(off.body.template.is_active, 0);
 
     const list = await tech.get('/api/canned-responses?limit=100');
-    expect(list.body.data.map((t) => t.id)).not.toContain(id);
+    assert.ok(!list.body.data.map((t) => t.id).includes(id));
 
     const mine = await tech.get('/api/canned-responses/mine');
-    expect(mine.body.data.map((t) => t.id)).toContain(id);
+    assert.ok(mine.body.data.map((t) => t.id).includes(id));
 
     const on = await tech.patch(`/api/canned-responses/${id}`, { is_active: true });
-    expect(on.body.template.is_active).toBe(1);
+    assert.equal(on.body.template.is_active, 1);
   });
 });
 
 describe('permisos de administración por ámbito', () => {
   it('un técnico no puede crear plantillas globales ni de equipo', async () => {
-    expect((await tech.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'GLOBAL' })).status).toBe(403);
+    const global = await tech.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'GLOBAL' });
+    assert.equal(global.status, 403);
     const teamId = await makeTeam(uniq('Permisos'), [tech2Id]);
-    expect(
-      (await tech.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'TEAM', team_id: teamId })).status
-    ).toBe(403);
+    const team = await tech.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'TEAM', team_id: teamId });
+    assert.equal(team.status, 403);
   });
 
-  it('un técnico no puede editar la global ni la personal de otro (404, no 403)', async () => {
+  it('un técnico no puede editar la global ni la personal ajena (404, no 403)', async () => {
     const global = await admin.post('/api/canned-responses', {
       title: uniq('Global intocable'),
       body: 'Original',
@@ -242,9 +240,9 @@ describe('permisos de administración por ámbito', () => {
       scope: 'PERSONAL',
     });
 
-    expect((await tech.patch(`/api/canned-responses/${global.body.template.id}`, { body: 'hack' })).status).toBe(404);
-    expect((await tech.patch(`/api/canned-responses/${other.body.template.id}`, { body: 'hack' })).status).toBe(404);
-    expect((await tech.get(`/api/canned-responses/${other.body.template.id}`)).status).toBe(404);
+    assert.equal((await tech.patch(`/api/canned-responses/${global.body.template.id}`, { body: 'hack' })).status, 404);
+    assert.equal((await tech.patch(`/api/canned-responses/${other.body.template.id}`, { body: 'hack' })).status, 404);
+    assert.equal((await tech.get(`/api/canned-responses/${other.body.template.id}`)).status, 404);
   });
 
   it('nadie puede promover su plantilla personal a global sin settings.manage', async () => {
@@ -255,66 +253,66 @@ describe('permisos de administración por ámbito', () => {
     });
     const id = own.body.template.id;
 
-    expect((await tech.patch(`/api/canned-responses/${id}`, { scope: 'GLOBAL' })).status).toBe(403);
+    assert.equal((await tech.patch(`/api/canned-responses/${id}`, { scope: 'GLOBAL' })).status, 403);
 
     const asAdmin = await admin.patch(`/api/canned-responses/${id}`, { scope: 'GLOBAL' });
-    expect(asAdmin.status).toBe(200);
-    expect(asAdmin.body.template.scope).toBe('GLOBAL');
-    expect(asAdmin.body.template.owner_id).toBeNull();
+    assert.equal(asAdmin.status, 200);
+    assert.equal(asAdmin.body.template.scope, 'GLOBAL');
+    assert.equal(asAdmin.body.template.owner_id, null);
   });
 
   it('el listado de gestión exige settings.manage o team.manage', async () => {
-    expect((await tech.get('/api/canned-responses/manage')).status).toBe(403);
-    expect((await admin.get('/api/canned-responses/manage')).status).toBe(200);
+    assert.equal((await tech.get('/api/canned-responses/manage')).status, 403);
+    assert.equal((await admin.get('/api/canned-responses/manage')).status, 200);
   });
 
-  it('un usuario sin ticket.comment ni ticket.note no accede al selector ni puede crear', async () => {
-    const roleId = globalThis.__empRoleId;
-    const original = (await admin.get('/api/roles')).body.roles.find((r) => r.id === roleId).permissions;
+  it('sin ticket.comment ni ticket.note no hay acceso al selector ni creación', async () => {
+    const roles = (await admin.get('/api/roles')).body.roles;
+    const original = roles.find((r) => r.id === empRoleId).permissions;
     try {
-      const patch = await admin.patch(`/api/roles/${roleId}/permissions`, {
+      const patch = await admin.patch(`/api/roles/${empRoleId}/permissions`, {
         permissions: original.filter((c) => c !== 'ticket.comment'),
       });
-      expect(patch.status).toBe(200);
+      assert.equal(patch.status, 200);
 
-      // La sesión del empleado ya no tiene ticket.comment.
-      expect((await emp.get('/api/canned-responses')).status).toBe(403);
-      expect((await emp.get('/api/canned-responses/mine')).status).toBe(403);
-      expect(
-        (await emp.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'PERSONAL' })).status
-      ).toBe(403);
+      assert.equal((await emp.get('/api/canned-responses')).status, 403);
+      assert.equal((await emp.get('/api/canned-responses/mine')).status, 403);
+      const create = await emp.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'PERSONAL' });
+      assert.equal(create.status, 403);
     } finally {
-      await admin.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
+      await admin.patch(`/api/roles/${empRoleId}/permissions`, { permissions: original });
     }
-    expect((await emp.get('/api/canned-responses')).status).toBe(200);
+    assert.equal((await emp.get('/api/canned-responses')).status, 200);
   });
 });
 
 describe('validación de datos', () => {
   it('rechaza scope inválido, equipo inexistente y equipo en plantilla global', async () => {
-    expect((await admin.post('/api/canned-responses', { title: 'A', body: 'B', scope: 'OTRO' })).status).toBe(400);
-    expect(
-      (await admin.post('/api/canned-responses', { title: 'A', body: 'B', scope: 'TEAM', team_id: 999999 })).status
-    ).toBe(400);
-    expect(
-      (await admin.post('/api/canned-responses', { title: 'A', body: 'B', scope: 'GLOBAL', team_id: 1 })).status
-    ).toBe(400);
+    assert.equal((await admin.post('/api/canned-responses', { title: 'A', body: 'B', scope: 'OTRO' })).status, 400);
+    const badTeam = await admin.post('/api/canned-responses', { title: 'A', body: 'B', scope: 'TEAM', team_id: 999999 });
+    assert.equal(badTeam.status, 400);
+    const globalWithTeam = await admin.post('/api/canned-responses', {
+      title: 'A',
+      body: 'B',
+      scope: 'GLOBAL',
+      team_id: 1,
+    });
+    assert.equal(globalWithTeam.status, 400);
   });
 
   it('rechaza título o cuerpo vacíos y títulos duplicados en el mismo ámbito', async () => {
-    expect((await admin.post('/api/canned-responses', { title: '', body: 'B', scope: 'GLOBAL' })).status).toBe(400);
-    expect((await admin.post('/api/canned-responses', { title: 'A', body: '', scope: 'GLOBAL' })).status).toBe(400);
+    assert.equal((await admin.post('/api/canned-responses', { title: '', body: 'B', scope: 'GLOBAL' })).status, 400);
+    assert.equal((await admin.post('/api/canned-responses', { title: 'A', body: '', scope: 'GLOBAL' })).status, 400);
 
     const title = uniq('Única');
-    expect((await admin.post('/api/canned-responses', { title, body: 'B', scope: 'GLOBAL' })).status).toBe(201);
+    assert.equal((await admin.post('/api/canned-responses', { title, body: 'B', scope: 'GLOBAL' })).status, 201);
     const dup = await admin.post('/api/canned-responses', { title: title.toUpperCase(), body: 'C', scope: 'GLOBAL' });
-    expect(dup.status).toBe(409);
+    assert.equal(dup.status, 409);
 
     // Mismo título en otro ámbito sí se permite.
     const teamId = await makeTeam(uniq('Dup'), [tech2Id]);
-    expect(
-      (await admin.post('/api/canned-responses', { title, body: 'B', scope: 'TEAM', team_id: teamId })).status
-    ).toBe(201);
+    const inTeam = await admin.post('/api/canned-responses', { title, body: 'B', scope: 'TEAM', team_id: teamId });
+    assert.equal(inTeam.status, 201);
   });
 
   it('el owner_id y el use_count del cuerpo se ignoran siempre', async () => {
@@ -325,22 +323,22 @@ describe('validación de datos', () => {
       owner_id: 999999,
       use_count: 5000,
     });
-    expect(res.status).toBe(201);
-    expect(res.body.template.use_count).toBe(0);
+    assert.equal(res.status, 201);
+    assert.equal(res.body.template.use_count, 0);
 
     const me = await tech.get('/api/canned-responses/mine');
     const found = me.body.data.find((t) => t.id === res.body.template.id);
-    expect(found).toBeTruthy();
-    expect(found.owner_id).toBe(techId);
+    assert.ok(found);
+    assert.equal(found.owner_id, techId);
   });
 
   it('guarda el cuerpo verbatim: el escapado ocurre al renderizar, no al almacenar', async () => {
     const xss = '<img src=x onerror="alert(1)"> {{ticket_title}} {{unknown_var}}';
     const res = await admin.post('/api/canned-responses', { title: uniq('XSS'), body: xss, scope: 'GLOBAL' });
-    expect(res.status).toBe(201);
-    expect(res.body.template.body).toBe(xss);
+    assert.equal(res.status, 201);
+    assert.equal(res.body.template.body, xss);
     // El servidor nunca interpola: el placeholder desconocido queda intacto.
-    expect(res.body.template.body).toContain('{{unknown_var}}');
+    assert.ok(res.body.template.body.includes('{{unknown_var}}'));
   });
 
   it('búsqueda y paginación respetan el filtro de visibilidad', async () => {
@@ -349,14 +347,14 @@ describe('validación de datos', () => {
     await tech2.client.post('/api/canned-responses', { title: `Buscar ${marker}`, body: 'x', scope: 'PERSONAL' });
 
     const res = await tech.get(`/api/canned-responses?q=${marker}`);
-    expect(res.status).toBe(200);
-    expect(res.body.data.map((t) => t.id)).toEqual([mine.body.template.id]);
-    expect(res.body.total).toBe(1);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.data.map((t) => t.id), [mine.body.template.id]);
+    assert.equal(res.body.total, 1);
 
     const paged = await tech.get('/api/canned-responses?limit=1&page=1');
-    expect(paged.body.data).toHaveLength(1);
-    expect(paged.body.limit).toBe(1);
-    expect((await tech.get('/api/canned-responses?limit=500')).body.limit).toBe(100);
+    assert.equal(paged.body.data.length, 1);
+    assert.equal(paged.body.limit, 1);
+    assert.equal((await tech.get('/api/canned-responses?limit=500')).body.limit, 100);
   });
 
   it('no existe borrado físico ni incremento manual del contador', async () => {
@@ -367,12 +365,13 @@ describe('validación de datos', () => {
     });
     const id = created.body.template.id;
 
-    expect([404, 405]).toContain((await tech.del(`/api/canned-responses/${id}`)).status);
-    expect((await tech.post(`/api/canned-responses/${id}/use`, {})).status).toBe(404);
+    const del = await tech.del(`/api/canned-responses/${id}`);
+    assert.ok(del.status === 404 || del.status === 405, `borrado debe fallar, llegó ${del.status}`);
+    assert.equal((await tech.post(`/api/canned-responses/${id}/use`, {})).status, 404);
 
     const patched = await tech.patch(`/api/canned-responses/${id}`, { use_count: 99 });
-    expect(patched.status).toBe(200);
-    expect(patched.body.template.use_count).toBe(0);
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.template.use_count, 0);
   });
 });
 
@@ -389,22 +388,22 @@ describe('contador de uso al comentar', () => {
     // Un comentario sin el campo no toca el contador.
     await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, { message: 'Sin plantilla' });
     let mine = await tech.get('/api/canned-responses/mine');
-    expect(mine.body.data.find((t) => t.id === id).use_count).toBe(0);
+    assert.equal(mine.body.data.find((t) => t.id === id).use_count, 0);
 
     const res = await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, {
       message: 'Hola',
       canned_response_id: String(id),
     });
-    expect(res.status).toBe(201);
+    assert.equal(res.status, 201);
     mine = await tech.get('/api/canned-responses/mine');
-    expect(mine.body.data.find((t) => t.id === id).use_count).toBe(1);
+    assert.equal(mine.body.data.find((t) => t.id === id).use_count, 1);
 
     await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, {
       message: 'Otra vez',
       canned_response_id: String(id),
     });
     mine = await tech.get('/api/canned-responses/mine');
-    expect(mine.body.data.find((t) => t.id === id).use_count).toBe(2);
+    assert.equal(mine.body.data.find((t) => t.id === id).use_count, 2);
   });
 
   it('no cuenta una plantilla ajena ni una desactivada, y el comentario se guarda igual', async () => {
@@ -420,9 +419,9 @@ describe('contador de uso al comentar', () => {
       message: 'Intento',
       canned_response_id: String(ajenaId),
     });
-    expect(res.status).toBe(201);
+    assert.equal(res.status, 201);
     const asOwner = await tech2.client.get('/api/canned-responses/mine');
-    expect(asOwner.body.data.find((t) => t.id === ajenaId).use_count).toBe(0);
+    assert.equal(asOwner.body.data.find((t) => t.id === ajenaId).use_count, 0);
 
     const own = await tech2.client.post('/api/canned-responses', {
       title: uniq('Propia inactiva'),
@@ -434,9 +433,9 @@ describe('contador de uso al comentar', () => {
       message: 'Otro intento',
       canned_response_id: String(own.body.template.id),
     });
-    expect(off.status).toBe(201);
+    assert.equal(off.status, 201);
     const after = await tech2.client.get('/api/canned-responses/mine');
-    expect(after.body.data.find((t) => t.id === own.body.template.id).use_count).toBe(0);
+    assert.equal(after.body.data.find((t) => t.id === own.body.template.id).use_count, 0);
   });
 
   it('cuenta el uso en notas internas', async () => {
@@ -453,18 +452,16 @@ describe('contador de uso al comentar', () => {
       is_internal: '1',
       canned_response_id: String(id),
     });
-    expect(res.status).toBe(201);
+    assert.equal(res.status, 201);
     const mine = await tech.get('/api/canned-responses/mine');
-    expect(mine.body.data.find((t) => t.id === id).use_count).toBe(1);
+    assert.equal(mine.body.data.find((t) => t.id === id).use_count, 1);
   });
 
   it('el envío normal sigue validando el máximo de 4000 caracteres', async () => {
     const ticket = await makeTicket(emp);
-    expect((await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, { message: 'a'.repeat(4000) })).status).toBe(
-      201
-    );
-    expect(
-      (await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, { message: 'a'.repeat(4001) })).status
-    ).toBe(400);
+    const ok = await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, { message: 'a'.repeat(4000) });
+    assert.equal(ok.status, 201);
+    const tooLong = await tech.postMultipart(`/api/tickets/${ticket.id}/comments`, { message: 'a'.repeat(4001) });
+    assert.equal(tooLong.status, 400);
   });
 });
