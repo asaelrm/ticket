@@ -1,5 +1,11 @@
 // Rate limiting en memoria (ventana deslizante) por clave (IP o ruta).
 export function rateLimit({ windowMs = 60_000, max = 100, message = 'Demasiadas solicitudes' } = {}) {
+  // En pruebas el límite real volvería la suite dependiente del tiempo y del
+  // número de inicios de sesión del mismo proceso (el seed y varios casos de
+  // autorización comparten IP 127.0.0.1). El resto del código ya usa esta
+  // guarda para el trabajo programado (ver utils/jobs.js).
+  if (process.env.NODE_ENV === 'test') return function rateLimitDisabled(req, res, next) { next(); };
+
   const hits = new Map();
 
   return function rateLimitMw(req, res, next) {
