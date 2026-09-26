@@ -173,4 +173,47 @@ describe('Roles', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo actualizar el permiso');
   });
+
+  it('expone la base de conocimiento y la gestión de equipos', async () => {
+    renderWithProviders(<Roles />, { route: '/app/roles' });
+    await screen.findByText('Empleado');
+
+    expect(screen.getAllByText('Base de conocimiento').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Consultar artículos publicados de la base de conocimiento').length).toBe(2);
+    expect(screen.getAllByText('Crear y editar artículos propios').length).toBe(2);
+    expect(screen.getAllByText('Publicar y archivar artículos propios').length).toBe(2);
+    expect(screen.getAllByText('Administrar artículos y categorías de la base de conocimiento').length).toBe(2);
+    expect(screen.getAllByText('Administrar equipos de trabajo').length).toBe(2);
+  });
+
+  // La lista de permisos del backend y PERM_GROUPS están en archivos distintos:
+  // si el seed añade un permiso y nadie lo agrupa, la casilla deja de existir y
+  // ese permiso se vuelve inaccesible desde la UI sin avisar.
+  it('agrupa en algún grupo todos los permisos que devuelve el backend', async () => {
+    renderWithProviders(<Roles />, { route: '/app/roles' });
+    await screen.findByText('Administrador');
+
+    for (const perm of PERMS) {
+      expect(screen.getAllByText(perm.description).length, `falta ${perm.code}`).toBe(2);
+      // Si no estuviera en ningún grupo se pintaría el código en crudo.
+      expect(screen.queryByText(perm.code)).not.toBeInTheDocument();
+    }
+  });
+
+  it('activa y desactiva un permiso de conocimiento desde la interfaz', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Roles />, { route: '/app/roles' });
+    await screen.findByText('Empleado');
+
+    const employeeCard = cardFor('Empleado');
+    await user.click(
+      within(employeeCard).getByRole('checkbox', { name: 'Consultar artículos publicados de la base de conocimiento' })
+    );
+
+    await waitFor(() => {
+      const args = api.patch.mock.calls.find(([u]) => u === '/api/roles/2/permissions');
+      expect(args).toBeDefined();
+      expect(args[1].permissions).toContain('kb.view');
+    });
+  });
 });
