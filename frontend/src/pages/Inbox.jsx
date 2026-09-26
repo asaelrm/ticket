@@ -171,7 +171,10 @@ export default function Inbox() {
   const hasAnyFilter = Boolean(filters.search) || advancedCount > 0;
 
   const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) => setTicketStatus(t.id, status, body),
+    mutationFn: ({ t, status, body }) => {
+      const r = ticketStatusRequest(t.id, status, body);
+      return api[r.method](r.path, r.body);
+    },
     onMutate: () => {
       setBusy(true);
       setError('');
@@ -263,10 +266,17 @@ export default function Inbox() {
     });
   }
 
+  // Una única función para fila y lote: garantiza que ambas superficies usen
+  // exactamente el mismo contrato con el backend.
+  const callStatus = (id, status, payload) => {
+    const r = ticketStatusRequest(id, status, payload);
+    return api[r.method](r.path, r.body);
+  };
+
   const bulkAssignMe = () =>
     bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: user.id }) });
   const bulkStatus = (status) =>
-    bulkMutation.mutate({ ids: [...selected], fn: (id) => setTicketStatus(id, status) });
+    bulkMutation.mutate({ ids: [...selected], fn: (id) => callStatus(id, status) });
   const bulkCancel = (reason) =>
     bulkMutation.mutate({ ids: [...selected], fn: (id) => api.post(`/api/tickets/${id}/cancel`, { reason }) });
 
@@ -283,7 +293,7 @@ export default function Inbox() {
       statusMutation.mutate({ t: { id: ids[0] }, status: 'RESOLVED', body: { resolution } });
       return;
     }
-    bulkMutation.mutate({ ids, fn: (id) => setTicketStatus(id, 'RESOLVED', { resolution }) });
+    bulkMutation.mutate({ ids, fn: (id) => callStatus(id, 'RESOLVED', { resolution }) });
   }
 
   function openAssign() {
