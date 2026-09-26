@@ -94,9 +94,10 @@ describe('TicketTimeline', () => {
       />
     );
 
-    // Los ids internos no significan nada para quien lee: no se muestran en crudo.
+    // Los ids internos no significan nada para quien lee: no se pintan en crudo.
+    expect(container.querySelector('.line-through')).toBeNull();
+    expect(container.textContent).not.toContain('3 →');
     expect(container.textContent).not.toContain('3→5');
-    expect(container.textContent).not.toContain('5');
     expect(screen.getByText(/Asignado a Juan Pérez/)).toBeInTheDocument();
   });
 
@@ -183,6 +184,6 @@ describe('TicketTimeline', () => {
     // Una imagen se muestra como miniatura y un documento como enlace con su peso.
     expect(screen.getByAltText('captura.png')).toHaveAttribute('src', '/api/files/9');
     expect(screen.getByText(/informe\.pdf/)).toBeInTheDocument();
-    expect(screen.getByText('40 KB')).toBeInTheDocument();
+    expect(screen.getByText('40.0 KB')).toBeInTheDocument();
   });
 });
