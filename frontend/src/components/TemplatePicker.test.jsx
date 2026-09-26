@@ -229,6 +229,141 @@ describe('TemplatePicker', () => {
     await openPicker({ onManagePersonal: vi.fn(), onManageGlobal: vi.fn(), canManageGlobal: false });
     expect(screen.queryByRole('button', { name: 'Plantillas globales y de equipo' })).toBeNull();
   });
+
+  // --- Cobertura añadida en la verificación final ---
+
+  it('cierra el panel con Escape sin insertar nada', async () => {
+    const { user, onInsert } = await openPicker();
+    expect(screen.getByRole('dialog', { name: 'Respuestas rápidas' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Respuestas rápidas' })).toBeNull());
+    expect(screen.getByRole('button', { name: /Respuestas rápidas/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(onInsert).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('distingue "Sin resultados" de un selector sin plantillas', async () => {
+    api.get.mockImplementation((url) =>
+      String(url).includes('q=') && !String(url).endsWith('q=') ? listResponse([]) : listResponse(TEMPLATES)
+    );
+    const { user } = await openPicker();
+    expect(await screen.findByText('Saludo inicial')).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText('Buscar respuestas rápidas'), 'zzz');
+
+    expect(await screen.findByText('Sin resultados')).toBeInTheDocument();
+    expect(screen.queryByText('Sin respuestas rápidas')).toBeNull();
+  });
+
+  it('descarta los espacios de la búsqueda antes de consultar', async () => {
+    const { user } = await openPicker();
+    await user.type(screen.getByLabelText('Buscar respuestas rápidas'), '  red  ');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.map(([u]) => String(u));
+      expect(calls.some((u) => u.endsWith('q=red'))).toBe(true);
+    });
+    // Nunca envía el término con espaciosEDA.
+    const calls = api.get.mock.calls.map(([u]) => String(u));
+    expect(calls.every((u) => !u.includes('q=%20red'))).toBe(true);
+  });
+
+  it('no inserta nada al solo seleccionar con el ratón: hace falta una acción explícita', async () => {
+    const { user, onInsert } = await openPicker();
+
+    await user.click(screen.getByText('Diagnóstico de red'));
+
+    // Elegir la plantilla solo cambia la vista previa.
+    expect(onInsert).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Insertar' })).toBeInTheDocument();
+  });
+
+  it('Enter inserta una sola vez y por el cursor, sin enviar el comentario', async () => {
+    const { user, onInsert } = await openPicker();
+
+    await user.click(screen.getByText('Saludo inicial'));
+    await user.keyboard('{Enter}');
+
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(onInsert.mock.calls[0][0].mode).toBe('cursor');
+    expect(api.post).not.toHaveBeenCalled();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('navega con el teclado y el Enter inserta la plantilla resaltada', async () => {
+    const { user, onInsert } = await openPicker();
+
+    await user.click(screen.getByRole('button', { name: /Respuestas rápidas/ }));
+    await screen.findByRole('dialog', { name: 'Respuestas rápidas' });
+    await user.keyboard('{ArrowDown}{Enter}');
+
+    expect(onInsert).toHaveBeenCalledTimes(1);
+    expect(onInsert.mock.calls[0][0].template.title).toBe('Diagnóstico de red');
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('Copiar lleva el texto expandido al portapapeles y tampoco envía nada', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      const { user, onInsert } = await openPicker();
+      await user.click(screen.getByText('Saludo inicial'));
+      await user.click(screen.getByRole('button', { name: 'Copiar' }));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      expect(writeText.mock.calls[0][0]).toBe('Hola Ana Ruiz, su ticket TCK-000042 está en revisión.');
+      expect(onInsert).not.toHaveBeenCalled();
+      expect(api.post).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Respuestas rápidas' })).toBeNull());
+    } finally {
+      if (original) Object.defineProperty(navigator, 'clipboard', original);
+      else delete navigator.clipboard;
+    }
+  });
+
+  it('solo consulta el endpoint visible: nunca /manage ni /mine', async () => {
+    const { user } = await openPicker({ onManagePersonal: vi.fn(), onManageGlobal: vi.fn(), canManageGlobal: true });
+    await user.type(screen.getByLabelText('Buscar respuestas rápidas'), 'red');
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+
+    const urls = api.get.mock.calls.map(([u]) => String(u));
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) {
+      expect(url.startsWith('/api/canned-responses?')).toBe(true);
+      expect(url).not.toContain('/manage');
+      expect(url).not.toContain('/mine');
+    }
+  });
+
+  it('omite el enlace de administración personal cuando el padre no lo ofrece', async () => {
+    await openPicker({ onManageGlobal: vi.fn(), canManageGlobal: true });
+    expect(screen.getByRole('button', { name: 'Plantillas globales y de equipo' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Administrar mis plantillas' })).toBeNull();
+  });
+
+  it('se recupera de un error de red al reintentar la búsqueda', async () => {
+    let fail = true;
+    api.get.mockImplementation((url) => {
+      if (fail) return Promise.reject(new Error('Error de red'));
+      return String(url).includes('q=recupera')
+        ? listResponse([{ id: 12, title: 'Recuperada', body: 'Ya funciona', scope: 'GLOBAL', is_active: 1, use_count: 0 }])
+        : listResponse(TEMPLATES);
+    });
+
+    const { user } = await openPicker();
+    expect(await screen.findByText('Error de red')).toBeInTheDocument();
+
+    fail = false;
+    await user.type(screen.getByLabelText('Buscar respuestas rápidas'), 'recupera');
+
+    expect(await screen.findByText('Recuperada')).toBeInTheDocument();
+    expect(screen.queryByText('Error de red')).toBeNull();
+  });
 });
 
 // Reabre el panel en la misma instancia ya montada.
