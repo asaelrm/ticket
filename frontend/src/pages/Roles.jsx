@@ -18,7 +18,11 @@ const PERM_GROUPS = [
   },
   {
     label: 'Catálogos',
-    codes: ['category.manage', 'department.manage'],
+    codes: ['category.manage', 'department.manage', 'team.manage'],
+  },
+  {
+    label: 'Base de conocimiento',
+    codes: ['kb.view', 'kb.create', 'kb.publish', 'kb.manage'],
   },
   {
     label: 'Operación',
