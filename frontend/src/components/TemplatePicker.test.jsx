@@ -265,7 +265,7 @@ describe('TemplatePicker', () => {
       const calls = api.get.mock.calls.map(([u]) => String(u));
       expect(calls.some((u) => u.endsWith('q=red'))).toBe(true);
     });
-    // Nunca envía el término con espaciosEDA.
+    // Nunca envía el término con los espacios sin recortar.
     const calls = api.get.mock.calls.map(([u]) => String(u));
     expect(calls.every((u) => !u.includes('q=%20red'))).toBe(true);
   });
@@ -297,8 +297,6 @@ describe('TemplatePicker', () => {
   it('navega con el teclado y el Enter inserta la plantilla resaltada', async () => {
     const { user, onInsert } = await openPicker();
 
-    await user.click(screen.getByRole('button', { name: /Respuestas rápidas/ }));
-    await screen.findByRole('dialog', { name: 'Respuestas rápidas' });
     await user.keyboard('{ArrowDown}{Enter}');
 
     expect(onInsert).toHaveBeenCalledTimes(1);
@@ -307,11 +305,13 @@ describe('TemplatePicker', () => {
   });
 
   it('Copiar lleva el texto expandido al portapapeles y tampoco envía nada', async () => {
+    // userEvent.setup() instala su propio stub de portapapeles, así que el
+    // espía se define después de abrir el panel.
+    const { user, onInsert } = await openPicker();
     const writeText = vi.fn().mockResolvedValue(undefined);
     const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     try {
-      const { user, onInsert } = await openPicker();
       await user.click(screen.getByText('Saludo inicial'));
       await user.click(screen.getByRole('button', { name: 'Copiar' }));
 
