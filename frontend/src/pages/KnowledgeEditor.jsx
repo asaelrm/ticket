@@ -209,7 +209,7 @@ export default function KnowledgeEditor() {
     </div>
   );
 
-  const area = (name, label, rows) => (
+  const area = (name, label, rows, heightClass) => (
     <div>
       <label className="label" htmlFor={`kb-${name}`}>
         {label} *
@@ -217,7 +217,7 @@ export default function KnowledgeEditor() {
       <textarea
         id={`kb-${name}`}
         rows={rows}
-        className={`input min-h-[${rows * 1.6}rem] font-mono text-sm ${errors[name] ? '!border-red-400' : ''}`}
+        className={`input font-mono text-sm ${heightClass} ${errors[name] ? '!border-red-400' : ''}`}
         value={form[name]}
         onChange={(e) => set(name, e.target.value)}
         maxLength={LIMITS[name]}
@@ -275,9 +275,9 @@ export default function KnowledgeEditor() {
 
       <div className="card space-y-4 p-5">
         {field('title', 'Título')}
-        {field('summary', 'Resumen', undefined)}
-        {area('description', 'Descripción', 8)}
-        {area('solution', 'Solución', 10)}
+        {field('summary', 'Resumen')}
+        {area('description', 'Descripción', 8, 'min-h-[9rem]')}
+        {area('solution', 'Solución', 10, 'min-h-[12rem]')}
 
         <div>
           <label className="label" htmlFor="kb-keywords">
