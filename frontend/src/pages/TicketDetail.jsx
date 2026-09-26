@@ -664,7 +664,7 @@ export default function TicketDetail() {
                   <textarea
                     ref={textareaRef}
                     aria-label={internalMode ? 'Nota interna' : 'Comentario'}
-                    className="min-h-[110px] w-full resize-y border-0 bg-[#0b3046] px-3.5 py-3 text-sm text-slate-100 placeholder:text-slate-300/70 focus:outline-none"
+                    className="min-h-[110px] w-full resize-y border-0 bg-[#0b3046] px-3.5 py-3 text-sm text-slate-100 placeholder:text-slate-300 focus:outline-none"
                     value={message}
                     onChange={(e) => onMessageChange(e.target.value)}
                     placeholder={
@@ -1034,7 +1034,7 @@ function ToolbarButton({ label, onClick, children }) {
       title={label}
       aria-label={label}
       onClick={onClick}
-      className="grid h-8 w-8 place-items-center rounded-md text-sm text-slate-500 transition hover:bg-white hover:text-brand-700"
+      className="grid h-8 w-8 place-items-center rounded-md text-sm font-medium text-slate-200 transition hover:bg-white hover:text-brand-700"
     >
       {children}
     </button>
