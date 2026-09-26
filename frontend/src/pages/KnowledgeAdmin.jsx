@@ -14,6 +14,37 @@ import {
 
 const EMPTY_CATEGORY = { name: '', description: '', color: '#64748b' };
 
+// Diálogo de confirmación de una transición. El botón y el título usan la misma
+// etiqueta que la acción de la fila, para que no haya dos nombres distintos
+// para lo mismo.
+const TRANSITIONS = {
+  publish: {
+    label: 'Publicar',
+    danger: false,
+    message: 'quedará visible para todos los usuarios con permiso de consulta.',
+  },
+  unpublish: {
+    label: 'Despublicar',
+    danger: false,
+    message: 'dejará de aparecer en los listados públicos; seguirá siendo visible para su autor y los administradores.',
+  },
+  archive: {
+    label: 'Archivar',
+    danger: true,
+    message: 'dejará de aparecer en los listados públicos. Se conserva su historial y sus consultas.',
+  },
+};
+
+function ask(article, action) {
+  return {
+    id: article.id,
+    title: article.title,
+    action,
+    path: `/api/kb-articles/${article.id}/${action}`,
+    ...TRANSITIONS[action],
+  };
+}
+
 // Administración de la base de conocimiento. La ruta exige kb.manage, así que
 // quien llega aquí ya puede moderators artículos de cualquier autor y administrar
 // el catálogo de categorías. Aun así cada acción se muestra solo si el permiso
@@ -239,7 +270,7 @@ function ArticlesTab() {
                           type="button"
                           className="btn-secondary !px-2 !py-1 text-xs"
                           disabled={transition.isPending}
-                          onClick={() => setConfirm({ path: `/api/kb-articles/${a.id}/publish`, label: 'Publicar', id: a.id, title: a.title })}
+                          onClick={() => setConfirm(ask(a, 'publish'))}
                         >
                           Publicar
                         </button>
@@ -249,9 +280,7 @@ function ArticlesTab() {
                           type="button"
                           className="btn-secondary !px-2 !py-1 text-xs"
                           disabled={transition.isPending}
-                          onClick={() =>
-                            setConfirm({ path: `/api/kb-articles/${a.id}/unpublish`, label: 'Volver a borrador', id: a.id, title: a.title })
-                          }
+                          onClick={() => setConfirm(ask(a, 'unpublish'))}
                         >
                           Despublicar
                         </button>
@@ -261,7 +290,7 @@ function ArticlesTab() {
                           type="button"
                           className="btn-danger !px-2 !py-1 text-xs"
                           disabled={transition.isPending}
-                          onClick={() => setConfirm({ path: `/api/kb-articles/${a.id}/archive`, label: 'Archivar', id: a.id, title: a.title })}
+                          onClick={() => setConfirm(ask(a, 'archive'))}
                         >
                           Archivar
                         </button>
@@ -296,9 +325,9 @@ function ArticlesTab() {
         onClose={() => setConfirm(null)}
         onConfirm={() => transition.mutate(confirm.path)}
         title={confirm?.label || ''}
-        message={confirm ? `«${confirm.title}» — ${confirm.label.toLowerCase()}.` : ''}
+        message={confirm ? `«${confirm.title}» — ${confirm.message}` : ''}
         confirmLabel={confirm?.label}
-        danger={confirm?.label === 'Archivar'}
+        danger={confirm?.danger}
       />
     </div>
   );
