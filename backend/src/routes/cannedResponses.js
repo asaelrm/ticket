@@ -245,7 +245,7 @@ router.patch('/:id', (req, res) => {
     return res.status(400).json({ error: `El título no debe exceder ${MAX_TEMPLATE_TITLE} caracteres` });
   }
 
-  // Cambiar de ámbito exige.permission sobre el ámbito actual y el nuevo: nadie
+  // Cambiar de ámbito exige permiso sobre el ámbito actual y el nuevo: nadie
   // puede promover su plantilla personal a global sin settings.manage.
   if ((scope !== existing.scope || requestedTeamId !== existing.team_id) && !canManageScope(req.user, scope)) {
     return res.status(403).json({ error: 'No tiene permiso para mover la plantilla a ese ámbito' });
