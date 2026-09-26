@@ -220,6 +220,57 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
     const on = await tech.patch(`/api/canned-responses/${id}`, { is_active: true });
     assert.equal(on.body.template.is_active, 1);
   });
+
+  it('el listado de gestión nunca expone plantillas personales, ni siquiera sin filtro', async () => {
+    const personal = await tech.post('/api/canned-responses', {
+      title: uniq('Privada del técnico'),
+      body: 'Cuerpo privado que no pertenece al listado de gestión',
+      scope: 'PERSONAL',
+    });
+    assert.equal(personal.status, 201);
+    const id = personal.body.template.id;
+
+    // El listado administrativo es de globales y de equipo: las personales se
+    // gestionan desde /mine, solo por su dueño.
+    for (const query of ['', '?scope=GLOBAL', '?scope=TEAM']) {
+      const res = await admin.get(`/api/canned-responses/manage${query}`);
+      assert.equal(res.status, 200);
+      assert.ok(
+        !res.body.data.map((t) => t.id).includes(id),
+        `no debe listar la personal con "${query}"`
+      );
+    }
+  });
+
+  it('un usuario con team.manage no llega al cuerpo de las personales de otros', async () => {
+    const marker = `secreto${Date.now()}${seq++}`;
+    const personal = await tech.post('/api/canned-responses', {
+      title: uniq('Secreta'),
+      body: `Contenido ${marker} que no debe filtrarse`,
+      scope: 'PERSONAL',
+    });
+    assert.equal(personal.status, 201);
+
+    // team.manage abre /manage, pero settings.manage no: aun así no debe ver
+    // ninguna personal ajena, ni con el listado sin filtro de ámbito.
+    const roles = (await admin.get('/api/roles')).body.roles;
+    const original = roles.find((r) => r.id === techRoleId).permissions;
+    try {
+      const patch = await admin.patch(`/api/roles/${techRoleId}/permissions`, {
+        permissions: [...original, 'team.manage'],
+      });
+      assert.equal(patch.status, 200);
+
+      const res = await tech2.client.get('/api/canned-responses/manage');
+      assert.equal(res.status, 200);
+      assert.ok(
+        !JSON.stringify(res.body).includes(marker),
+        'el cuerpo de una personal ajena no puede aparecer en /manage'
+      );
+    } finally {
+      await admin.patch(`/api/roles/${techRoleId}/permissions`, { permissions: original });
+    }
+  });
 });
 
 describe('permisos de administración por ámbito', () => {
