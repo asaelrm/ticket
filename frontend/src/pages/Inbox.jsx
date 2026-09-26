@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import {
   api,
+  ticketStatusRequest,
   STATUSES,
   PRIORITIES,
   STATUS_LABEL,
@@ -13,6 +14,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
+import ResolveTicketsModal from '../components/ResolveTicketsModal';
 import { LoadingScreen, ErrorBox, Spinner, Modal } from '../components/ui';
 
 const TABS = [
@@ -67,6 +69,8 @@ export default function Inbox() {
   const [assignValue, setAssignValue] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolveIds, setResolveIds] = useState([]);
   const [savedFilters, setSavedFilters] = useState(loadSavedFilters);
   const [savedOpen, setSavedOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
@@ -159,14 +163,18 @@ export default function Inbox() {
 
   const canManage = user?.permissions?.includes('ticket.update.any');
   const canAssign = user?.permissions?.includes('ticket.assign');
+  // El backend exige el permiso específico de cada flujo, no solo update.any:
+  // /resolve exige ticket.resolve y /close exige ticket.close.
+  const canResolve = user?.permissions?.includes('ticket.resolve');
+  const canClose = user?.permissions?.includes('ticket.close');
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
   const hasAnyFilter = Boolean(filters.search) || advancedCount > 0;
 
   const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) =>
-      status === 'CANCELLED'
-        ? api.post(`/api/tickets/${t.id}/cancel`, body)
-        : api.patch(`/api/tickets/${t.id}`, { status }),
+    mutationFn: ({ t, status, body }) => {
+      const r = ticketStatusRequest(t.id, status, body);
+      return api[r.method](r.path, r.body);
+    },
     onMutate: () => {
       setBusy(true);
       setError('');
@@ -208,11 +216,17 @@ export default function Inbox() {
       setError('');
     },
     onSuccess: (results, { ids }) => {
-      const failed = results.filter((r) => r.status === 'rejected').length;
+      const rejected = results.filter((r) => r.status === 'rejected');
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
       queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
-      if (failed) setError(`${failed} de ${ids.length} ticket(s) no se pudieron actualizar.`);
+      if (rejected.length) {
+        // El backend ya explica el motivo (p. ej. "Debe registrar una resolución
+        // antes de cerrar el ticket"); se muestra el primero para que el usuario
+        // sepa qué corregir sin abrir cada ticket.
+        const first = rejected[0].reason?.message || 'Error desconocido';
+        setError(`${rejected.length} de ${ids.length} ticket(s) no se pudieron actualizar. ${first}`);
+      }
     },
     onSettled: () => {
       setBusy(false);
@@ -220,6 +234,11 @@ export default function Inbox() {
   });
 
   function changeStatus(t, status, body = {}) {
+    if (status === 'RESOLVED') {
+      setResolveIds([t.id]);
+      setResolveOpen(true);
+      return;
+    }
     statusMutation.mutate({ t, status, body });
   }
 
@@ -247,12 +266,35 @@ export default function Inbox() {
     });
   }
 
+  // Una única función para fila y lote: garantiza que ambas superficies usen
+  // exactamente el mismo contrato con el backend.
+  const callStatus = (id, status, payload) => {
+    const r = ticketStatusRequest(id, status, payload);
+    return api[r.method](r.path, r.body);
+  };
+
   const bulkAssignMe = () =>
     bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { assigned_to_id: user.id }) });
   const bulkStatus = (status) =>
-    bulkMutation.mutate({ ids: [...selected], fn: (id) => api.patch(`/api/tickets/${id}`, { status }) });
+    bulkMutation.mutate({ ids: [...selected], fn: (id) => callStatus(id, status) });
   const bulkCancel = (reason) =>
     bulkMutation.mutate({ ids: [...selected], fn: (id) => api.post(`/api/tickets/${id}/cancel`, { reason }) });
+
+  function openResolve(ids) {
+    setResolveIds(ids);
+    setResolveOpen(true);
+  }
+
+  function runResolve(resolution) {
+    const ids = resolveIds;
+    setResolveOpen(false);
+    if (ids.length === 1) {
+      // Hereda la invalidación del statusMutation de fila.
+      statusMutation.mutate({ t: { id: ids[0] }, status: 'RESOLVED', body: { resolution } });
+      return;
+    }
+    bulkMutation.mutate({ ids, fn: (id) => callStatus(id, 'RESOLVED', { resolution }) });
+  }
 
   function openAssign() {
     setAssignValue('');
@@ -484,12 +526,12 @@ export default function Inbox() {
                   En proceso
                 </button>
               )}
-              {canManage && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkStatus('RESOLVED')}>
+              {canResolve && (
+                <button type="button" className="btn-secondary" disabled={busy} onClick={() => openResolve([...selected])}>
                   Resuelto
                 </button>
               )}
-              {canManage && (
+              {canClose && (
                 <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulkStatus('CLOSED')}>
                   Cerrar
                 </button>
@@ -543,6 +585,14 @@ export default function Inbox() {
           </button>
         </div>
       </Modal>
+
+      <ResolveTicketsModal
+        open={resolveOpen}
+        onClose={() => setResolveOpen(false)}
+        count={resolveIds.length}
+        busy={busy}
+        onConfirm={runResolve}
+      />
 
       <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title={`Cancelar ${selected.size} ticket(s)`}>
         <p className="text-sm text-slate-600">Se cancelarán los tickets seleccionados. Esta acción no se puede deshacer.</p>

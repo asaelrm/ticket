@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, download, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
+import { api, download, ticketStatusRequest, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
+import ResolveTicketsModal from '../components/ResolveTicketsModal';
 import { LoadingScreen, ErrorBox, Spinner, Menu } from '../components/ui';
 
 const DEFAULTS = { sort: 'created_at', dir: 'desc', perPage: 15, page: 1 };
@@ -45,6 +46,7 @@ export default function Tickets() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [resolveTicket, setResolveTicket] = useState(null);
 
   const canExport = user?.permissions?.includes('ticket.export');
   const canAssign = user?.permissions?.includes('ticket.assign');
@@ -141,10 +143,10 @@ export default function Tickets() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) =>
-      status === 'CANCELLED'
-        ? api.post(`/api/tickets/${t.id}/cancel`, body)
-        : api.patch(`/api/tickets/${t.id}`, { status }),
+    mutationFn: ({ t, status, body }) => {
+      const r = ticketStatusRequest(t.id, status, body);
+      return api[r.method](r.path, r.body);
+    },
     onMutate: () => {
       setBusy(true);
       setError('');
@@ -166,6 +168,11 @@ export default function Tickets() {
   }
 
   function changeStatus(t, status, body = {}) {
+    // /resolve exige la solución: se pide antes de llamar al backend.
+    if (status === 'RESOLVED') {
+      setResolveTicket(t);
+      return;
+    }
     statusMutation.mutate({ t, status, body });
   }
 
@@ -333,6 +340,18 @@ export default function Tickets() {
         filters={filters}
         onApply={(form) => update({ ...form, view: '', closed_period: '' })}
         onClear={() => update(Object.fromEntries(ADVANCED_KEYS.map((k) => [k, ''])))}
+      />
+
+      <ResolveTicketsModal
+        open={!!resolveTicket}
+        onClose={() => setResolveTicket(null)}
+        count={1}
+        busy={busy}
+        onConfirm={(resolution) => {
+          const t = resolveTicket;
+          setResolveTicket(null);
+          statusMutation.mutate({ t, status: 'RESOLVED', body: { resolution } });
+        }}
       />
     </div>
   );
