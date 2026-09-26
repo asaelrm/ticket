@@ -91,21 +91,21 @@ function ArticlesTab() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
-  const [extra, setExtra] = useState({ status: '', author: '' });
+  const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState(null);
 
-  // Los filtros de administración añaden status y author a los del listado
-  // público, así que la consulta se construye aparte de toQuery().
+  // El filtro de estado solo existe en /manage: el listado público fuerza
+  // PUBLISHED en el servidor y aceptarlo allí sería engañoso.
   const query = useMemo(() => {
     const base = toQuery(filters);
     const sp = new URLSearchParams(base);
-    if (extra.status) sp.set('status', extra.status);
+    if (status) sp.set('status', status);
     return sp.toString();
-  }, [filters, extra]);
+  }, [filters, status]);
 
   const { data: list, isLoading, error: queryError } = useQuery({
-    queryKey: ['kb-manage', query, extra.status],
+    queryKey: ['kb-manage', query],
     queryFn: () => api.get(`/api/kb-articles/manage?${query}`),
   });
 
@@ -174,9 +174,9 @@ function ArticlesTab() {
           </div>
           <select
             className="input sm:w-48"
-            value={extra.status}
+            value={status}
             onChange={(e) => {
-              setExtra((s) => ({ ...s, status: e.target.value }));
+              setStatus(e.target.value);
               update({ page: 1 });
             }}
             aria-label="Filtrar por estado"
