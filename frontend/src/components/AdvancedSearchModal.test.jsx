@@ -70,7 +70,9 @@ describe('AdvancedSearchModal · directorios según la función', () => {
     expect(screen.getByLabelText('Técnico asignado')).toBeInTheDocument();
     expect(screen.getByLabelText('Equipo asignado')).toBeInTheDocument();
     // Y sus opciones llegan a poblarse.
-    await waitFor(() => expect(screen.getByRole('option', { name: 'Beto Gómez' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(screen.getByLabelText('Solicitante')).getByRole('option', { name: 'Beto Gómez' })).toBeInTheDocument()
+    );
     await waitFor(() => expect(screen.getByRole('option', { name: 'Soporte (3)' })).toBeInTheDocument());
   });
 
