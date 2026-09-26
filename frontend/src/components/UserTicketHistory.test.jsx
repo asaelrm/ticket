@@ -64,11 +64,12 @@ describe('UserTicketHistory', () => {
     expect(screen.getByRole('button', { name: 'Reportados' })).toBeInTheDocument();
   });
 
-  it('no consulta nada si no recibe userId y queda en estado de carga', async () => {
+  it('no consulta nada si no recibe userId y muestra el estado vacío', async () => {
     renderWithProviders(<UserTicketHistory />, { route: '/app/users' });
 
+    expect(await screen.findByText('Sin tickets')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(screen.queryByText('Sin tickets')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
   });
 
