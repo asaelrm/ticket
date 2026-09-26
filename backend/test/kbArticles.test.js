@@ -670,11 +670,35 @@ describe('relación con tickets', () => {
     assert.equal((await tech.get(`/api/kb-articles/${article.id}/tickets`)).body.total, 0);
   });
 
+  it('enlazar exige kb.create: un empleado de solo lectura no puede modificar el ticket', async () => {
+    const article = await createDraft(tech, { title: uniq('Enlazable') });
+    await publish(tech, article.id);
+    const ticket = await makeTicket(tech);
+    await tech.post(`/api/kb-articles/${article.id}/tickets/${ticket.id}`);
+
+    const link = await emp.post(`/api/kb-articles/${article.id}/tickets/${ticket.id}`);
+    assert.equal(link.status, 403);
+    const unlink = await emp.del(`/api/kb-articles/${article.id}/tickets/${ticket.id}`);
+    assert.equal(unlink.status, 403);
+    // El enlace sigue intacto.
+    assert.equal((await tech.get(`/api/kb-articles/${article.id}/tickets`)).body.total, 1);
+  });
+
   it('no enlaza con un ticket que el usuario no puede ver', async () => {
     const article = await createDraft(tech, { title: uniq('Enlace ajeno') });
     await publish(tech, article.id);
     const ticket = await makeTicket(tech2.client);
-    assert.equal((await emp.post(`/api/kb-articles/${article.id}/tickets/${ticket.id}`)).status, 404);
+
+    // Con kb.create pero sin ticket.view.all: alcanza la ruta y el ticket no
+    // existe para él, así que 404 (no 403) para no confirmar su existencia.
+    await withRolePermissions(
+      empRoleId,
+      ['ticket.create', 'ticket.view.own', 'ticket.comment', 'kb.view', 'kb.create'],
+      async () => {
+        assert.equal((await emp.post(`/api/kb-articles/${article.id}/tickets/${ticket.id}`)).status, 404);
+        assert.equal((await emp.get(`/api/tickets/${ticket.id}/articles`)).status, 404);
+      }
+    );
   });
 
   it('el listado de artículos de un ticket ajeno responde 404', async () => {
