@@ -46,11 +46,25 @@ export function PriorityDot({ priority }) {
   return <span className={`inline-block h-2 w-2 rounded-full ${map[priority] || map.MEDIUM}`} aria-hidden="true" />;
 }
 
-export function ErrorBox({ message }) {
+// `details` desglosa el motivo de un fallo parcial (p. ej. qué ticket de un
+// lote no se pudo actualizar). Es opcional: sin él el aviso se comporta igual
+// que antes.
+export function ErrorBox({ message, details }) {
   if (!message) return null;
+  const list = details || [];
   return (
     <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
       {message}
+      {list.length > 0 && (
+        <ul className="mt-2 space-y-1 border-t border-red-200 pt-2">
+          {list.map((line) => (
+            <li key={line} className="flex gap-1.5">
+              <span aria-hidden="true">•</span>
+              <span className="min-w-0 break-words">{line}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
