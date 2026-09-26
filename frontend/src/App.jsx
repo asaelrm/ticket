@@ -80,9 +80,9 @@ export default function App() {
         <Route
           path="templates"
           element={
-            <Protected permission="ticket.comment">
+            <ProtectedAny permissions={['settings.manage', 'team.manage']}>
               <TemplatesAdmin />
-            </Protected>
+            </ProtectedAny>
           }
         />
         <Route path="roles" element={<Protected permission="role.manage"><Roles /></Protected>} />
