@@ -283,15 +283,18 @@ describe('permisos por rol', () => {
     const article = await createDraft(tech, { title: uniq('Sin publicar') });
     await withRolePermissions(techRoleId, ['kb.view', 'kb.create'], async () => {
       const res = await tech.post(`/api/kb-articles/${article.id}/publish`);
-      assert.equal(res.status, 404);
+      assert.equal(res.status, 403);
     });
+    // Ni siquiera su propio borrador cambia de estado.
+    assert.equal((await tech.get(`/api/kb-articles/${article.id}`)).body.article.status, 'DRAFT');
   });
 
-  it('un kb.publish sin kb.create tampoco llega a la ruta de publicación', async () => {
+  it('un kb.publish sin kb.create no publica artículos ajenos', async () => {
     const article = await createDraft(tech, { title: uniq('Sin crear') });
     await withRolePermissions(techRoleId, ['kb.view', 'kb.publish'], async () => {
-      const res = await tech.post(`/api/kb-articles/${article.id}/publish`);
-      assert.equal(res.status, 403);
+      // Alcanza la ruta (tiene kb.publish) pero no es el autor: 404, no 403.
+      const res = await tech2.client.post(`/api/kb-articles/${article.id}/publish`);
+      assert.equal(res.status, 404);
     });
   });
 });
@@ -485,7 +488,7 @@ describe('búsqueda, filtros y paginación', () => {
   });
 
   it('es insensible a mayúsculas y tolera espacios sobrantes', async () => {
-    const article = await createDraft(tech, { title: uniq('Mayúsculas'), summary: 'NEEEDLEupper' });
+    const article = await createDraft(tech, { title: uniq('Mayúsculas'), summary: '  NeedleUpper  ' });
     await publish(tech, article.id);
     const res = await emp.get('/api/kb-articles?q=needleupper&perPage=100');
     assert.ok(res.body.data.map((a) => a.id).includes(article.id));
