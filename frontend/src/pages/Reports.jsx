@@ -543,12 +543,7 @@ function Kpi({ label, value, color = 'text-slate-800' }) {
   );
 }
 
-// Un número que el backend no pudo calcular se muestra como texto, nunca como 0.
-function valorONo(valor, sufijo = '', decimals = 1) {
-  if (valor == null) return 'Sin datos';
-  return `${Number(valor).toFixed(decimals).replace(/\.0+$/, '')}${sufijo}`;
-}
-
+// Una métrica que el backend no pudo calcular se muestra como texto, nunca como 0.
 function horasONo(horas) {
   if (horas == null) return 'Sin datos';
   return horas >= 24 ? `${(horas / 24).toFixed(1)} días` : `${horas} h`;
@@ -572,6 +567,38 @@ function ChartCard({ title, children, bodyClass = '' }) {
     <div className="card p-5">
       <h3 className="mb-4 text-sm font-semibold text-slate-700">{title}</h3>
       <ul className={`space-y-3 ${bodyClass}`}>{children}</ul>
+    </div>
+  );
+}
+
+function CsatTable({ title, rows }) {
+  return (
+    <div className="card p-5">
+      <h3 className="mb-4 text-sm font-semibold text-slate-700">{title}</h3>
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-400">Sin datos</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="th">Filtro</th>
+                <th className="th">Respuestas</th>
+                <th className="th">Media</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {rows.map((r) => (
+                <tr key={r.label} className="hover:bg-slate-50">
+                  <td className="td font-medium text-slate-800">{r.label}</td>
+                  <td className="td">{r.responses}</td>
+                  <td className="td">{r.average == null ? 'Sin datos' : `${r.average} / 5`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
