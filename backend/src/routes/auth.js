@@ -21,6 +21,10 @@ const FIND_USER = `
   WHERE LOWER(u.username) = LOWER(?) OR LOWER(u.email) = LOWER(?)
 `;
 
+// Hash señuelo de un bcrypt real (coste 12) contra una contraseña que nadie
+// conoce. Solo sirve para gastar el mismo tiempo que un usuario existente.
+const DUMMY_HASH = hashPassword('contraseña-inexistente-para-igualar-coste');
+
 router.post('/login', authRateLimit(), (req, res) => {
   const account = safeStr(req.body.account);
   const password = String(req.body.password || '');
@@ -32,7 +36,12 @@ router.post('/login', authRateLimit(), (req, res) => {
   });
 
   const user = db.prepare(FIND_USER).get(account, account);
-  if (!user || !verifyPassword(password, user.password_hash)) {
+  // Si el usuario no existe hay que calcular un bcrypt igualmente. Con
+  // `!user || !verify(...)` el cortocircuito evitaba el bcrypt y la respuesta
+  // llegaba ~80 veces más rápida: bastaba medir el tiempo para enumerar qué
+  // cuentas existen y luego atacarlas por diccionario.
+  const passwordOk = verifyPassword(password, user ? user.password_hash : DUMMY_HASH);
+  if (!user || !passwordOk) {
     return res.status(401).json({ error: 'Credenciales incorrectas' });
   }
   if (!user.active) {
