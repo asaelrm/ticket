@@ -113,3 +113,117 @@ describe('Permisos', () => {
     assert.ok(!res.body.token, 'No debe devolver token para cuenta inexistente');
   });
 });
+
+describe('Autorización de los directorios asignables', () => {
+  const ASSIGNABLE = ['/api/users/assignable', '/api/teams/assignable'];
+
+  it('admin (todos los permisos) puede consultar usuarios y equipos asignables', async () => {
+    const c = createClient();
+    await c.login('admin', '123456');
+
+    const users = await c.get('/api/users/assignable');
+    assert.equal(users.status, 200);
+    assert.ok(Array.isArray(users.body.data));
+    assert.ok(users.body.data.length > 0, 'El directorio de usuarios no debería venir vacío');
+    assert.ok(
+      users.body.data.every((u) => u.name && u.last_name),
+      'Cada usuario debe traer nombre y apellidos para el selector'
+    );
+    // El directorio no debe filtrar datos sensibles del usuario.
+    for (const u of users.body.data) {
+      assert.equal(u.email, undefined, 'assignable no debe exponer email');
+      assert.equal(u.username, undefined, 'assignable no debe exponer username');
+      assert.equal(u.password_hash, undefined, 'assignable no debe exponer hash');
+    }
+
+    const teams = await c.get('/api/teams/assignable');
+    assert.equal(teams.status, 200);
+    assert.ok(Array.isArray(teams.body.data));
+  });
+
+  it('técnico puede consultar los asignables por ticket.assign y ticket.view.all', async () => {
+    const c = createClient();
+    await c.login('tecnico', 'Tecnico1234!');
+
+    for (const url of ASSIGNABLE) {
+      const res = await c.get(url);
+      assert.equal(res.status, 200, `${url} debería devolver 200 para técnico`);
+      assert.ok(Array.isArray(res.body.data));
+    }
+  });
+
+  it('empleado NO puede consultar los directorios asignables', async () => {
+    const c = createClient();
+    await c.login('empleado', 'Empleado1234!');
+
+    for (const url of ASSIGNABLE) {
+      const res = await c.get(url);
+      assert.equal(res.status, 403, `${url} debería devolver 403 para empleado`);
+      assert.equal(res.body.error, 'No tiene permiso para realizar esta acción');
+      assert.equal(res.body.data, undefined, 'No debe devolver datos sin permiso');
+    }
+  });
+
+  it('sin sesión los directorios asignables responden 401', async () => {
+    for (const url of ASSIGNABLE) {
+      const c = createClient();
+      const res = await c.get(url);
+      assert.equal(res.status, 401, `${url} debería devolver 401 sin autenticación`);
+      assert.equal(res.body.error, 'No autenticado');
+    }
+  });
+
+  it('un rol con ticket.assign (sin ver todos) sí accede a los asignables', async () => {
+    // ticket.assign es el permiso que habilita los selectores de la bandeja y
+    // del detalle; no debe exigir ticket.view.all para funcionar.
+    const admin = createClient();
+    await admin.login('admin', '123456');
+
+    const roles = await admin.get('/api/roles');
+    assert.equal(roles.status, 200);
+    const tecnico = roles.body.data.find((r) => r.code === 'TECHNICIAN');
+    assert.ok(tecnico, 'Debe existir el rol TECHNICIAN');
+
+    const soloAssign = await admin.patch(`/api/roles/${tecnico.id}/permissions`, {
+      permissions: ['ticket.create', 'ticket.comment', 'ticket.assign', 'ticket.resolve', 'ticket.close'],
+    });
+    assert.equal(soloAssign.status, 200);
+
+    try {
+      const c = createClient();
+      await c.login('tecnico', 'Tecnico1234!');
+      for (const url of ASSIGNABLE) {
+        const res = await c.get(url);
+        assert.equal(res.status, 200, `${url} debería devolver 200 con solo ticket.assign`);
+      }
+    } finally {
+      // Restaura la matriz sembrada para no afectar a los tests siguientes.
+      const original = roles.body.data.find((r) => r.code === 'TECHNICIAN').permissions;
+      await admin.patch(`/api/roles/${tecnico.id}/permissions`, { permissions: original });
+    }
+  });
+
+  it('un rol sin ninguno de los tres permisos no accede a los asignables', async () => {
+    const admin = createClient();
+    await admin.login('admin', '123456');
+    const roles = await admin.get('/api/roles');
+    const tecnico = roles.body.data.find((r) => r.code === 'TECHNICIAN');
+    const original = tecnico.permissions;
+
+    const stripped = await admin.patch(`/api/roles/${tecnico.id}/permissions`, {
+      permissions: ['ticket.create', 'ticket.comment'],
+    });
+    assert.equal(stripped.status, 200);
+
+    try {
+      const c = createClient();
+      await c.login('tecnico', 'Tecnico1234!');
+      for (const url of ASSIGNABLE) {
+        const res = await c.get(url);
+        assert.equal(res.status, 403, `${url} debería devolver 403 sin permisos de directorio`);
+      }
+    } finally {
+      await admin.patch(`/api/roles/${tecnico.id}/permissions`, { permissions: original });
+    }
+  });
+});
