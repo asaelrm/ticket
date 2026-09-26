@@ -636,10 +636,11 @@ describe('Tickets · acciones masivas', () => {
     await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
     await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
 
-    expect(await screen.findByText('2 de 3 ticket(s) no se pudieron actualizar.')).toBeInTheDocument();
-    expect(screen.getByText(/TCK-000001 — El ticket ya está cerrado/)).toBeInTheDocument();
-    expect(screen.getByText(/TCK-000002 — No tiene permiso para cambiar el estado/)).toBeInTheDocument();
+    const alert = await screen.findByRole('alert');
+    expect(within(alert).getByText('2 de 3 ticket(s) no se pudieron actualizar.')).toBeInTheDocument();
+    expect(within(alert).getByText(/TCK-000001 — El ticket ya está cerrado/)).toBeInTheDocument();
+    expect(within(alert).getByText(/TCK-000002 — No tiene permiso para cambiar el estado/)).toBeInTheDocument();
     // El que sí se pudo cerrar no aparece entre los fallos.
-    expect(screen.queryByText(/TCK-000003/)).not.toBeInTheDocument();
+    expect(within(alert).queryByText(/TCK-000003/)).not.toBeInTheDocument();
   });
 });
