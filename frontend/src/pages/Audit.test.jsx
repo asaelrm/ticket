@@ -248,13 +248,13 @@ describe('Audit', () => {
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
-    expect(screen.getByText('1–10 de 90 · Página 1 de 3')).toBeInTheDocument();
+    expect(screen.getByText('1-10 de 90 · Página 1 de 3')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '← Anterior' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeEnabled();
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=10'));
-    expect(await screen.findByText('11–20 de 90 · Página 2 de 3')).toBeInTheDocument();
+    expect(await screen.findByText('11-20 de 90 · Página 2 de 3')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '← Anterior' }));
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=10'));
@@ -266,9 +266,9 @@ describe('Audit', () => {
     await screen.findByText('TCK-000011');
 
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await screen.findByText('11–20 de 90 · Página 2 de 3');
+    await screen.findByText('11-20 de 90 · Página 2 de 3');
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
-    await screen.findByText('21–30 de 90 · Página 3 de 3');
+    await screen.findByText('21-30 de 90 · Página 3 de 3');
 
     expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeDisabled();
     expect(lastAuditUrl()).toBe('/api/audit?page=3&perPage=10');
