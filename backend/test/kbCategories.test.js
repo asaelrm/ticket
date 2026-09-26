@@ -31,8 +31,17 @@ describe('catálogo de categorías de conocimiento', () => {
     const res = await tech.get('/api/kb-categories');
     assert.equal(res.status, 200);
     const names = res.body.data.map((c) => c.name);
-    for (const expected of ['Hardware', 'Software', 'Redes', 'Accesos', 'Correo', 'Telefonía', 'Impresoras']) {
-      assert.ok(names.includes(expected), `falta ${expected}`);
+    const expected = [
+      'Hardware y equipos',
+      'Redes y conectividad',
+      'Sistemas y software',
+      'Cuentas y accesos',
+      'Correo y comunicación',
+      'Procedimientos',
+      'General',
+    ];
+    for (const name of expected) {
+      assert.ok(names.includes(name), `falta ${name}`);
     }
   });
 
