@@ -12,7 +12,7 @@ const STATUS_LABEL = {
   RESOLVED: 'Resuelto', CLOSED: 'Cerrado', CANCELLED: 'Cancelado',
 };
 const PRIORITY_LABEL = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRITICAL: 'Crítica' };
-const EXPORT_SECTIONS = new Set(['summary', 'status', 'priority', 'category', 'department', 'reporters', 'resolved', 'details']);
+const EXPORT_SECTIONS = new Set(['summary', 'status', 'priority', 'category', 'department', 'reporters', 'resolved', 'technicians', 'teams', 'csat', 'details']);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -187,7 +187,7 @@ function slaResult(total, within) {
 // sin respuestas la media y la tasa se devuelven como null.
 
 function csatData(req) {
-  const { df, base } = ctx(req);
+  const { df, base, combine } = ctx(req);
 
   const totals = db
     .prepare(
@@ -201,7 +201,6 @@ function csatData(req) {
   const responses = totals.responses || 0;
   const eligible = totals.eligible || 0;
 
-  const { combine } = ctx(req);
   const wAnswered = combine(['t.csat_rating IS NOT NULL']);
   const counts = db
     .prepare(`SELECT t.csat_rating AS rating, COUNT(*) AS n FROM tickets t ${wAnswered.sql} GROUP BY t.csat_rating`)
@@ -400,7 +399,16 @@ router.get('/by-department', (req, res) => {
 });
 
 router.get('/performance', (req, res) => {
-  res.json({ by_day: byDayData(req), by_user: byUserData(req) });
+  res.json({
+    by_day: byDayData(req),
+    by_user: byUserData(req),
+    by_technician: technicianData(req),
+    by_team: teamData(req),
+  });
+});
+
+router.get('/csat', (req, res) => {
+  res.json(csatData(req));
 });
 
 // Reporte completo en una sola petición (evita 6 llamadas desde el frontend).
