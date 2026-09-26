@@ -187,7 +187,3 @@ describe('catálogo de categorías de conocimiento', () => {
     assert.equal(res.body.data.map((a) => a.id).includes(article.body.article.id), true);
   });
 });
-
-function catIdPlaceholder() {
-  return 1;
-}
