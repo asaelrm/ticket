@@ -31,9 +31,14 @@ const PERMS = [
   { code: 'role.manage', description: 'Gestionar roles' },
   { code: 'category.manage', description: 'Gestionar categorías' },
   { code: 'department.manage', description: 'Gestionar departamentos' },
+  { code: 'team.manage', description: 'Administrar equipos de trabajo' },
   { code: 'dashboard.view', description: 'Ver dashboard' },
   { code: 'report.view', description: 'Ver reportes' },
   { code: 'settings.manage', description: 'Gestionar ajustes' },
+  { code: 'kb.view', description: 'Consultar artículos publicados de la base de conocimiento' },
+  { code: 'kb.create', description: 'Crear y editar artículos propios' },
+  { code: 'kb.publish', description: 'Publicar y archivar artículos propios' },
+  { code: 'kb.manage', description: 'Administrar artículos y categorías de la base de conocimiento' },
 ];
 
 const ALL_CODES = PERMS.map((p) => p.code);
