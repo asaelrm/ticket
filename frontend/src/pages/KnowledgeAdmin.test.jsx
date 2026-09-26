@@ -128,9 +128,7 @@ describe('KnowledgeAdmin · moderación de artículos', () => {
     ]);
 
     await user.selectOptions(select, '2');
-    await waitFor(() =>
-      expect(api.get).toHaveBeenCalledWith('/api/kb-articles/manage?category=2&perPage=10')
-    );
+    await waitFor(() => expect(lastManageQuery()).toEqual({ perPage: '10', category: '2' }));
   });
 
   it('confirma y despublica un artículo publicado', async () => {
@@ -140,6 +138,7 @@ describe('KnowledgeAdmin · moderación de artículos', () => {
 
     await user.click(within(rowFor('Restablecer la contraseña de Outlook')).getByRole('button', { name: 'Despublicar' }));
     const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/dejará de aparecer en los listados públicos/)).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Despublicar' }));
@@ -231,9 +230,8 @@ describe('KnowledgeAdmin · categorías', () => {
 
     expect(await screen.findByText('Correo')).toBeInTheDocument();
     expect(screen.getByText('3 artículos publicados')).toBeInTheDocument();
-    expect(screen.getByText('0 artículos publicados')).toBeInTheDocument();
+    expect(screen.getByText('0 artículos publicados · inactiva')).toBeInTheDocument();
     expect(screen.getByText('Legacy')).toBeInTheDocument();
-    expect(screen.getByText(/inactiva/)).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith(CATEGORIES_URL);
   });
 
