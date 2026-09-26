@@ -52,6 +52,7 @@ async function makeTicket(client, over = {}) {
   const res = await client.post('/api/tickets', {
     title: 'Impresora sin papel',
     description: 'La impresora no imprime',
+    category_id: 1,
     priority: 'HIGH',
     ...over,
   });
