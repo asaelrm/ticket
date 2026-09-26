@@ -174,7 +174,14 @@ describe('creación de artículos', () => {
   });
 
   it('toma el autor de la sesión e ignora el que venga en el cuerpo', async () => {
-    const article = await createDraft(tech, { author_id: empId, status: 'PUBLISHED', view_count: 999, published_at: '2020-01-01T00:00:00.000Z', is_featured: 1 });
+    const article = await createDraft(tech, {
+      title: uniq('Inyección de campos'),
+      author_id: empId,
+      status: 'PUBLISHED',
+      view_count: 999,
+      published_at: '2020-01-01T00:00:00.000Z',
+      is_featured: 1,
+    });
     assert.equal(article.author_id, techId);
     assert.equal(article.status, 'DRAFT');
     assert.equal(article.view_count, 0);
@@ -231,13 +238,19 @@ describe('permisos por rol', () => {
     assert.equal(res.status, 403);
   });
 
-  it('un empleado no puede editar ni publicar nada', async () => {
+  it('un empleado ni siquiera alcanza la ruta: 403 y el artículo queda intacto', async () => {
     const article = await createDraft(tech, { title: uniq('Privado') });
-    const patch = await emp.patch(`/api/kb-articles/${article.id}`, { title: 'Secuestrado' });
-    assert.equal(patch.status, 404);
+    const patch = await emp.patch(`/api/kb-articles/${article.id}`, { summary: 'Secuestrado' });
+    assert.equal(patch.status, 403);
     const pub = await emp.post(`/api/kb-articles/${article.id}/publish`);
-    assert.equal(patch.status, 404);
-    assert.equal(pub.status, 404);
+    assert.equal(pub.status, 403);
+    const feature = await emp.post(`/api/kb-articles/${article.id}/feature`);
+    assert.equal(feature.status, 403);
+
+    const fresh = await tech.get(`/api/kb-articles/${article.id}`);
+    assert.equal(fresh.body.article.summary, VALID.summary);
+    assert.equal(fresh.body.article.status, 'DRAFT');
+    assert.equal(fresh.body.article.is_featured, 0);
   });
 
   it('un usuario sin ningún permiso de kb recibe 403 en el listado', async () => {
