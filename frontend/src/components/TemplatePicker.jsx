@@ -256,11 +256,13 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
             )}
 
             <div className="flex flex-wrap justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2 text-xs">
-              <button type="button" className="text-brand-600 hover:underline" onClick={onManagePersonal}>
-                Administrar mis plantillas
-              </button>
-              {canManageGlobal && (
-                <button type="button" className="text-brand-600 hover:underline" onClick={onManageGlobal}>
+              {onManagePersonal && (
+                <button type="button" className="text-brand-600 hover:underline" onClick={() => { close(); onManagePersonal(); }}>
+                  Administrar mis plantillas
+                </button>
+              )}
+              {canManageGlobal && onManageGlobal && (
+                <button type="button" className="text-brand-600 hover:underline" onClick={() => { close(); onManageGlobal(); }}>
                   Plantillas globales y de equipo
                 </button>
               )}
