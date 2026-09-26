@@ -374,6 +374,9 @@ function reportData(req) {
     by_department: byDepartmentData(req),
     by_day: byDayData(req),
     by_user: byUserData(req),
+    by_technician: technicianData(req),
+    by_team: teamData(req),
+    csat: csatData(req),
     details: ticketDetailsData(req),
   };
 }
@@ -423,6 +426,9 @@ router.get('/full', (req, res) => {
     byDepartment: r.by_department,
     byDay: r.by_day,
     byUser: r.by_user,
+    byTechnician: r.by_technician,
+    byTeam: r.by_team,
+    csat: r.csat,
     details: r.details,
   });
 });
