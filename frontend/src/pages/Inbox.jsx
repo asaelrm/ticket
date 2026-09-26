@@ -163,14 +163,15 @@ export default function Inbox() {
 
   const canManage = user?.permissions?.includes('ticket.update.any');
   const canAssign = user?.permissions?.includes('ticket.assign');
+  // El backend exige el permiso específico de cada flujo, no solo update.any:
+  // /resolve exige ticket.resolve y /close exige ticket.close.
+  const canResolve = user?.permissions?.includes('ticket.resolve');
+  const canClose = user?.permissions?.includes('ticket.close');
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
   const hasAnyFilter = Boolean(filters.search) || advancedCount > 0;
 
   const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) =>
-      status === 'CANCELLED'
-        ? api.post(`/api/tickets/${t.id}/cancel`, body)
-        : api.patch(`/api/tickets/${t.id}`, { status }),
+    mutationFn: ({ t, status, body }) => setTicketStatus(t.id, status, body),
     onMutate: () => {
       setBusy(true);
       setError('');
@@ -212,11 +213,17 @@ export default function Inbox() {
       setError('');
     },
     onSuccess: (results, { ids }) => {
-      const failed = results.filter((r) => r.status === 'rejected').length;
+      const rejected = results.filter((r) => r.status === 'rejected');
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
       queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
-      if (failed) setError(`${failed} de ${ids.length} ticket(s) no se pudieron actualizar.`);
+      if (rejected.length) {
+        // El backend ya explica el motivo (p. ej. "Debe registrar una resolución
+        // antes de cerrar el ticket"); se muestra el primero para que el usuario
+        // sepa qué corregir sin abrir cada ticket.
+        const first = rejected[0].reason?.message || 'Error desconocido';
+        setError(`${rejected.length} de ${ids.length} ticket(s) no se pudieron actualizar. ${first}`);
+      }
     },
     onSettled: () => {
       setBusy(false);
@@ -224,6 +231,11 @@ export default function Inbox() {
   });
 
   function changeStatus(t, status, body = {}) {
+    if (status === 'RESOLVED') {
+      setResolveIds([t.id]);
+      setResolveOpen(true);
+      return;
+    }
     statusMutation.mutate({ t, status, body });
   }
 
