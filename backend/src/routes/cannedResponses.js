@@ -142,7 +142,7 @@ router.get('/manage', requireAnyPermission(['settings.manage', 'team.manage']), 
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const order = SORTS[req.query.sort] || SORTS.usage;
+  const order = sortClause(req.query.sort);
   const total = db.prepare(`SELECT COUNT(*) AS n FROM canned_responses c ${where}`).get(...params).n;
   const rows = db
     .prepare(`${LIST_SELECT} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
@@ -181,7 +181,7 @@ router.get('/', (req, res) => {
   }
 
   const where = `WHERE ${clauses.join(' AND ')}`;
-  const order = SORTS[req.query.sort] || SORTS.usage;
+  const order = sortClause(req.query.sort);
   const limit = Math.min(Math.max(parseIntSafe(req.query.limit) || 25, 1), 100);
   const page = Math.max(parseIntSafe(req.query.page) || 1, 1);
 

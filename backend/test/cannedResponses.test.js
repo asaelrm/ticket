@@ -498,14 +498,22 @@ describe('permisos de administración por ámbito', () => {
       assert.equal(ok.status, 200);
     });
 
-    // Ni la de equipo ni la global quedaron alteradas por lo anterior.
-    const equipo = await admin.get(`/api/canned-responses/${id}`);
-    assert.equal(equipo.body.template.body, 'Original de equipo');
-    assert.equal(equipo.body.template.is_active, 1);
-    assert.equal(equipo.body.template.scope, 'TEAM');
-    const global2 = await admin.get(`/api/canned-responses/${global.body.template.id}`);
-    assert.equal(global2.body.template.scope, 'GLOBAL');
-    assert.equal(global2.body.template.team_id, null);
+    // Ni la de equipo ni la global quedaron alteradas por lo anterior. La
+    // lectura por id exige pertenencia al equipo, así que se comprueba desde el
+    // listado administrativo.
+    const manage = await admin.get(`/api/canned-responses/manage?q=${deEquipo.body.template.title}`);
+    assert.equal(manage.status, 200);
+    const equipo = manage.body.data.find((t) => t.id === id);
+    assert.ok(equipo, 'la plantilla de equipo debe seguir existiendo');
+    assert.equal(equipo.body, 'Original de equipo');
+    assert.equal(equipo.is_active, 1);
+    assert.equal(equipo.scope, 'TEAM');
+    assert.equal(equipo.team_id, teamId);
+    const globalRow = (await admin.get(`/api/canned-responses/manage?q=${global.body.template.title}`)).body.data.find(
+      (t) => t.id === global.body.template.id
+    );
+    assert.equal(globalRow.scope, 'GLOBAL');
+    assert.equal(globalRow.team_id, null);
   });
 });
 
