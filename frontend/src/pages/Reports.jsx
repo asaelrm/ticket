@@ -372,6 +372,145 @@ export default function Reports() {
       </div>
 
       <div className="card p-5">
+        <h3 className="mb-1 text-sm font-semibold text-slate-700">Rendimiento por técnico</h3>
+        <p className="mb-4 text-xs text-slate-400">
+          Asignados y abiertos son la carga actual del técnico; resueltos, cerrados y el tiempo
+          dedicado se le atribuyen a quien completó el ticket.
+        </p>
+        {data.byTechnician.length === 0 ? (
+          <p className="text-sm text-slate-400">Sin datos</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="th">Técnico</th>
+                  <th className="th">Asignados</th>
+                  <th className="th">Abiertos</th>
+                  <th className="th">Resueltos</th>
+                  <th className="th">Cerrados</th>
+                  <th className="th">Tiempo total</th>
+                  <th className="th">Tiempo medio</th>
+                  <th className="th">Resolución media</th>
+                  <th className="th">Incumpl. SLA</th>
+                  <th className="th">Cumplimiento SLA</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.byTechnician.map((t) => (
+                  <tr key={t.id} className="hover:bg-slate-50">
+                    <td className="td font-medium text-slate-800">{t.technician}</td>
+                    <td className="td">{t.assigned}</td>
+                    <td className="td">{t.open}</td>
+                    <td className="td">{t.resolved}</td>
+                    <td className="td">{t.closed}</td>
+                    <td className="td whitespace-nowrap">{minutosONo(t.total_time_minutes)}</td>
+                    <td className="td whitespace-nowrap">{minutosONo(t.avg_time_minutes)}</td>
+                    <td className="td whitespace-nowrap">{horasONo(t.avg_resolution_hours)}</td>
+                    <td className="td">{t.sla_breached}</td>
+                    <td className="td">{slaCelda(t.sla_pct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card p-5">
+        <h3 className="mb-1 text-sm font-semibold text-slate-700">Rendimiento por equipo</h3>
+        <p className="mb-4 text-xs text-slate-400">{data.byTeam.note}</p>
+        {data.byTeam.data.length === 0 ? (
+          <p className="text-sm text-slate-400">Sin datos</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="th">Equipo</th>
+                  <th className="th">Asignados</th>
+                  <th className="th">Abiertos</th>
+                  <th className="th">Completados</th>
+                  <th className="th">Resolución media</th>
+                  <th className="th">Incumpl. SLA</th>
+                  <th className="th">Cumplimiento SLA</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.byTeam.data.map((t) => (
+                  <tr key={t.id} className="hover:bg-slate-50">
+                    <td className="td font-medium text-slate-800">{t.team}</td>
+                    <td className="td">{t.assigned}</td>
+                    <td className="td">{t.open}</td>
+                    <td className="td">{t.completed}</td>
+                    <td className="td whitespace-nowrap">{horasONo(t.avg_resolution_hours)}</td>
+                    <td className="td">{t.sla_breached}</td>
+                    <td className="td">{slaCelda(t.sla_pct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {data.csat && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Kpi
+              label="Valoración media"
+              value={data.csat.average == null ? 'Sin respuestas' : `${data.csat.average} / 5`}
+              color={data.csat.average == null ? 'text-slate-400' : 'text-brand-600'}
+            />
+            <Kpi label="Respuestas recibidas" value={data.csat.responses} />
+            <Kpi
+              label="Tickets resueltos o cerrados"
+              value={data.csat.eligible}
+              color="text-slate-800"
+            />
+            <Kpi
+              label="Tasa de respuesta"
+              value={data.csat.response_rate == null ? 'Sin base comparable' : `${data.csat.response_rate}%`}
+              color={data.csat.response_rate == null ? 'text-slate-400' : 'text-emerald-600'}
+            />
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ChartCard title="Distribución de respuestas">
+              {data.csat.distribution.map((d) => (
+                <Bar
+                  key={d.rating}
+                  label={`${'★'.repeat(d.rating)} ${d.rating}`}
+                  n={d.n}
+                  pct={data.csat.responses ? (d.n / data.csat.responses) * 100 : 0}
+                  color={d.rating >= 4 ? '#22c77a' : d.rating === 3 ? '#f59e0b' : '#ef4444'}
+                />
+              ))}
+            </ChartCard>
+
+            <ChartCard title="Evolución mensual">
+              {data.csat.by_month.length === 0 && <p className="text-sm text-slate-400">Sin datos</p>}
+              {data.csat.by_month.map((m) => (
+                <li key={m.month} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">{m.month}</span>
+                  <span className="text-xs text-slate-400">{m.responses} respuesta(s)</span>
+                  <span className="font-semibold text-slate-800">
+                    {m.average == null ? 'Sin datos' : `${m.average} / 5`}
+                  </span>
+                </li>
+              ))}
+            </ChartCard>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            <CsatTable title="CSAT por técnico" rows={data.csat.by_technician} />
+            <CsatTable title="CSAT por departamento" rows={data.csat.by_department} />
+            <CsatTable title="CSAT por categoría" rows={data.csat.by_category} />
+          </div>
+        </div>
+      )}
+
+      <div className="card p-5">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold text-slate-700">Detalle de tickets</h3>
           <span className="text-xs text-slate-400">{data.details.length} registro(s), máximo 500 en exportación</span>
