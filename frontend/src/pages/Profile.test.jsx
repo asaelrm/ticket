@@ -46,11 +46,19 @@ const HISTORY = {
 
 const HISTORY_URL = '/api/users/7/tickets?scope=reported&page=1&perPage=8';
 
+// El perfil incluye la sección "Mis respuestas rápidas" (ámbito PERSONAL). Sin
+// este stub el mock rechaza la llamada, MyTemplates pinta un ErrorBox con
+// role="alert" y las aserciones que buscan un único alert del formulario de
+// contraseña fallarían por encontrar dos.
+const TEMPLATES_URL = '/api/canned-responses/mine';
+const NO_TEMPLATES = { data: [] };
+
 beforeEach(() => {
   vi.resetAllMocks();
   authState.user = ME;
   api.get.mockImplementation((url) => {
     if (url === HISTORY_URL) return Promise.resolve(HISTORY);
+    if (url === TEMPLATES_URL) return Promise.resolve(NO_TEMPLATES);
     return Promise.reject(new Error(`404 ${url}`));
   });
   api.post.mockResolvedValue({ ok: true });

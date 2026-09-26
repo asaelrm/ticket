@@ -138,7 +138,6 @@ export default function Layout() {
     system.push({ to: '/app/templates', label: 'Respuestas rápidas', icon: ICONS.templates });
   }
   if (can(user, 'settings.manage')) system.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });
-  if (can(user, 'settings.manage')) system.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });
   if (can(user, 'settings.manage')) system.push({ to: '/app/audit', label: 'Auditoría', icon: ICONS.audit });
 
   const sections = [
