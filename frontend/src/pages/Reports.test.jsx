@@ -36,6 +36,59 @@ function report(overrides = {}) {
     byDepartment: [{ name: 'TI', n: 5, open: 2 }],
     byDay: [{ day: '2026-09-20', n: 3 }],
     byUser: [{ reporter: 'Ana Díaz', total: 4, open: 1 }],
+    byTechnician: [
+      {
+        id: 3,
+        technician: 'Juan Pérez',
+        assigned: 6,
+        open: 2,
+        resolved: 4,
+        closed: 3,
+        total_time_minutes: 300,
+        avg_time_minutes: 75,
+        avg_resolution_hours: 6.5,
+        sla_comparable: 4,
+        sla_within: 3,
+        sla_breached: 1,
+        sla_pct: 75,
+      },
+    ],
+    byTeam: {
+      basis: 'current_assignment',
+      note: 'Los tickets completados se atribuyen al equipo asignado actualmente; el modelo no guarda el equipo que los resolvió en su momento.',
+      data: [
+        {
+          id: 1,
+          team: 'Soporte Norte',
+          assigned: 7,
+          open: 3,
+          completed: 5,
+          avg_resolution_hours: 8,
+          sla_comparable: 5,
+          sla_within: 4,
+          sla_breached: 1,
+          sla_pct: 80,
+        },
+      ],
+    },
+    csat: {
+      responses: 4,
+      eligible: 5,
+      response_rate: 80,
+      average: 4.25,
+      has_data: true,
+      distribution: [
+        { rating: 1, n: 0 },
+        { rating: 2, n: 1 },
+        { rating: 3, n: 0 },
+        { rating: 4, n: 1 },
+        { rating: 5, n: 2 },
+      ],
+      by_technician: [{ label: 'Juan Pérez', responses: 4, average: 4.25 }],
+      by_department: [{ label: 'TI', responses: 3, average: 4.5 }],
+      by_category: [{ label: 'Hardware', responses: 2, average: 5 }],
+      by_month: [{ month: '2026-09', responses: 4, average: 4.25 }],
+    },
     details: [
       { ticket_number: 'TCK-000012', title: 'Monitor falla', status: 'OPEN', priority: 'HIGH', reporter: 'Ana Díaz', assigned_to: 'Juan', department: 'TI', category: 'Hardware', created_at: '2026-09-01T08:00:00Z', resolved_at: null, closed_at: null },
     ],
@@ -223,7 +276,7 @@ describe('Reports', () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
     await screen.findByText('Total tickets');
 
-    for (const label of ['Resumen', 'Estados', 'Prioridades', 'Categorías', 'Departamentos', 'Reporteros', 'Resueltos por día', 'Detalle de tickets']) {
+    for (const label of ['Resumen', 'Estados', 'Prioridades', 'Categorías', 'Departamentos', 'Reporteros', 'Resueltos por día', 'Rendimiento por técnico', 'Rendimiento por equipo', 'Satisfacción (CSAT)', 'Detalle de tickets']) {
       await user.click(screen.getByLabelText(label));
     }
 
