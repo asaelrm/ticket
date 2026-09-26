@@ -135,9 +135,8 @@ describe('availableTransitions', () => {
   });
 
   it('construye las rutas sobre /api/kb-articles/:id', () => {
-    expect(availableTransitions(author, article()).map((t) => t.path)).toEqual([
+    expect(availableTransitions(author, article({ status: 'DRAFT' })).map((t) => t.path)).toEqual([
       '/api/kb-articles/10/publish',
-      '/api/kb-articles/10/unpublish',
       '/api/kb-articles/10/archive',
       '/api/kb-articles/10/feature',
     ]);
