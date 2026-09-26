@@ -3,7 +3,7 @@ import express from 'express';
 import db, { nowIso } from '../db.js';
 import { hashPassword } from '../utils/password.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
-import { requireAuth, requirePermission, publicUser } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireAnyPermission, publicUser } from '../middleware/auth.js';
 import { saveDirectorySnapshot } from '../directorySync.js';
 
 const router = express.Router();

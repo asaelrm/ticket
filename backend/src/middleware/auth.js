@@ -69,6 +69,22 @@ export function requirePermission(permission) {
   };
 }
 
+// Requiere al menos uno de los permisos indicados. Se usa cuando un mismo
+// recurso legitimately lo consumen varias pantallas con permisos distintos
+// (p. ej. selector de técnicos: asignar tickets, filtrar la vista general o
+// administrar equipos). Reutiliza los códigos ya sembrados y devuelve la
+// misma respuesta 403 que requirePermission para no abrir otro canal de error.
+export function requireAnyPermission(permissions) {
+  const codes = Array.isArray(permissions) ? permissions : [permissions];
+  return function requireAnyPermissionMw(req, res, next) {
+    if (!req.user) return res.status(401).json({ error: 'No autenticado' });
+    if (!codes.some((code) => req.user.permissions.includes(code))) {
+      return res.status(403).json({ error: 'No tiene permiso para realizar esta acción' });
+    }
+    next();
+  };
+}
+
 export function touchLastLogin(userId) {
   db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(nowIso(), userId);
 }
