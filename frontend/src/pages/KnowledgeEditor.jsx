@@ -91,6 +91,23 @@ export default function KnowledgeEditor() {
     queryFn: () => api.get('/api/kb-categories').then((r) => r.data),
   });
 
+  // Si la categoría del artículo fue desactivada, ya no viene en el catálogo
+  // activo. Sin añadirla a mano el <select> quedaría sin opción seleccionada y al
+  // guardar se enviaría su id, que el servidor rechaza con 400.
+  const categoryOptions = useMemo(() => {
+    const list = categories || [];
+    if (!article?.category_id || list.some((c) => c.id === article.category_id)) return list;
+    return [
+      ...list,
+      {
+        id: article.category_id,
+        name: article.category_name || `Categoría ${article.category_id}`,
+        color: article.category_color,
+        active: 0,
+      },
+    ];
+  }, [categories, article]);
+
   useEffect(() => {
     if (!article) return;
     setForm({

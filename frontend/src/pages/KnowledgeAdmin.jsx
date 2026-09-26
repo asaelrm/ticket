@@ -285,6 +285,7 @@ function ArticlesTab() {
             pages={list.pages}
             total={list.total}
             perPage={list.perPage}
+            onPerPage={(n) => update({ perPage: n })}
             onChange={(p) => update({ page: p })}
           />
         </div>

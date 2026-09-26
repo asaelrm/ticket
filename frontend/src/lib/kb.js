@@ -114,15 +114,23 @@ export function toQuery(filters = {}) {
   return sp.toString();
 }
 
+/** Valores que ofrece el selector de "Mostrar" de Pagination. */
+export const KB_PERPAGE_CHOICES = [10, 25, 50, 100];
+
 /** Lee los filtros desde la URL aplicando los valores por defecto. */
 export function parseFilters(params) {
   const get = (k) => params.get(k) || '';
+  // Un perPage escrito a mano se ajusta al valor por defecto si no es uno de los
+  // que ofrece el selector: el servidor lo limitaría a 100 y el `<select>` se
+  // quedaría sin opción coincidente.
+  const asked = Number(get('perPage'));
+  const perPage = KB_PERPAGE_CHOICES.includes(asked) ? asked : DEFAULT_KB_PERPAGE;
   return {
     q: get('q'),
     category: get('category'),
     sort: get('sort') || 'recent',
     page: Math.max(Number(get('page')) || 1, 1),
-    perPage: Number(get('perPage')) || DEFAULT_KB_PERPAGE,
+    perPage,
   };
 }
 
