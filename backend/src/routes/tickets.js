@@ -1119,8 +1119,6 @@ function processComment(req, res, attachOnly) {
       }
     }
   }
-    }
-  }
 
   const comment = db.prepare(
     `SELECT tc.*, u.name || ' ' || u.last_name AS user_name,
