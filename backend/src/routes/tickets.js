@@ -892,6 +892,12 @@ router.patch('/:id', (req, res) => {
         sets.push({ col: 'closed_at = ?', val: null });
         sets.push({ col: 'pending_reason = ?', val: null });
         sets.push({ col: 'sla_due_at = ?', val: computeSlaDue(ticket.priority) });
+        // La encuesta CSAT mide la satisfacción con la resolución anterior. Al reabrir
+        // el ticket esa valoración deja de ser válida y se reinicia, para que
+        // el reporte no mezcle una nota con un servicio que aún no ha ocurrido.
+        sets.push({ col: 'csat_rating = ?', val: null });
+        sets.push({ col: 'csat_comment = ?', val: null });
+        sets.push({ col: 'csat_answered_at = ?', val: null });
       } else if (body.status === 'RESOLVED') {
         sets.push({ col: 'resolved_at = ?', val: nowIso() });
         sets.push({ col: 'resolved_by = ?', val: req.user.id });
