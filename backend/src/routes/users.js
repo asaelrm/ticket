@@ -122,14 +122,23 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
   res.status(201).json({ user: publicUser(row) });
 });
 
-router.get('/assignable', (req, res) => {
-  const rows = db
-    .prepare(`SELECT u.id, u.name, u.last_name, u.position, d.name AS department_name FROM users u
+// Directorio de técnicos que se puede asignar. Lo consumen tres pantallas con
+// permisos distintos del RBAC existente: la asignación de tickets
+// (ticket.assign), el filtro por técnico de la búsqueda avanzada
+// (ticket.view.all) y la gestión de miembros de equipo (team.manage). El
+// empleado solo tiene create/view.own/comment y no necesita esta información.
+router.get(
+  '/assignable',
+  requireAnyPermission(['ticket.assign', 'ticket.view.all', 'team.manage']),
+  (req, res) => {
+    const rows = db
+      .prepare(`SELECT u.id, u.name, u.last_name, u.position, d.name AS department_name FROM users u
               LEFT JOIN departments d ON d.id = u.department_id
               WHERE u.active = 1 ORDER BY u.name, u.last_name`)
-    .all();
-  res.json({ data: rows });
-});
+      .all();
+    res.json({ data: rows });
+  }
+);
 
 router.get('/:id/tickets', (req, res) => {
   const id = parseIntSafe(req.params.id);

@@ -1,7 +1,7 @@
 import express from 'express';
 import db, { nowIso } from '../db.js';
 import { safeStr, parseIntSafe } from '../utils/validation.js';
-import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js';
 
 const router = express.Router();
 router.use(requireAuth);
