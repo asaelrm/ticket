@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -163,10 +163,10 @@ export default function KnowledgeEditor() {
     );
   }
 
-  // 404 también es la respuesta cuando el artículo es de otro autor: la ruta
-  // exige kb.create y el servidor comprueba la propiedad antes de nada.
-  const forbidden = !isNew && article && article.author_id !== user?.id && !user?.permissions?.includes('kb.manage');
-  if (forbidden) {
+  // El backend responde 404 a un artículo de otro autor sin kb.manage, así que
+  // esta comprobación solo evita pintar un formulario que el servidor va a
+  // rechazar. La barrera real está en PATCH /:id.
+  if (!isNew && article && !canEditArticle(user, article)) {
     return (
       <div className="space-y-4">
         <ErrorBox message="No tiene permiso para editar este artículo" />
@@ -331,9 +331,10 @@ export default function KnowledgeEditor() {
             onChange={(e) => set('category_id', e.target.value)}
           >
             <option value="">Sin categoría</option>
-            {(categories || []).map((c) => (
+            {categoryOptions.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
+                {c.active === 0 ? ' (desactivada)' : ''}
               </option>
             ))}
           </select>
