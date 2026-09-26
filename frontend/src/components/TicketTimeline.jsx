@@ -1,4 +1,4 @@
-import { fileUrl, isImage, formatSize, formatDateTime, formatRelative } from '../lib/api';
+import { fileUrl, isImage, formatSize, formatDateTime, formatRelative, STATUS_LABEL, PRIORITY_LABEL } from '../lib/api';
 import { renderMessage } from '../lib/markdown';
 
 const EVENT_META = {
@@ -13,10 +13,34 @@ const EVENT_META = {
   COMMENT_ADDED: { icon: '💬', tint: 'bg-brand-50 text-brand-600' },
   NOTE_ADDED: { icon: '🔒', tint: 'bg-amber-100 text-amber-700' },
   ATTACHMENT_ADDED: { icon: '📎', tint: 'bg-slate-100 text-slate-600' },
+  NOTE_ATTACHMENT_ADDED: { icon: '🔒', tint: 'bg-amber-100 text-amber-700' },
   RESOLVED: { icon: '✅', tint: 'bg-emerald-50 text-emerald-600' },
   CLOSED: { icon: '📁', tint: 'bg-slate-100 text-slate-600' },
+  CANCELLED: { icon: '⛔', tint: 'bg-red-50 text-red-600' },
+  CSAT_RATED: { icon: '⭐', tint: 'bg-amber-50 text-amber-600' },
+  ESCALATED: { icon: '🚨', tint: 'bg-red-50 text-red-600' },
   PENDING_REASON_SET: { icon: '⏸', tint: 'bg-purple-50 text-purple-600' },
 };
+
+// Acciones cuyo old_value/new_value es un código de dominio: se puede mostrar el
+// antes y el después con su etiqueta real. En el resto (asignación, equipo,
+// categoría) el id guardado no significa nada para quien lo lee y la descripción
+// del evento ya trae los nombres, así que no se muestra un id crudo.
+const VALUE_LABELS = {
+  STATUS_CHANGED: STATUS_LABEL,
+  REOPENED: STATUS_LABEL,
+  RESOLVED: STATUS_LABEL,
+  CLOSED: STATUS_LABEL,
+  CANCELLED: STATUS_LABEL,
+  PRIORITY_CHANGED: PRIORITY_LABEL,
+};
+
+function valueChange(h) {
+  const labels = VALUE_LABELS[h.action];
+  if (!labels) return null;
+  if (h.old_value == null || h.new_value == null || h.old_value === h.new_value) return null;
+  return { from: labels[h.old_value] || h.old_value, to: labels[h.new_value] || h.new_value };
+}
 
 export default function TicketTimeline({ history = [], comments = [] }) {
   const items = [
@@ -67,12 +91,24 @@ export default function TicketTimeline({ history = [], comments = [] }) {
 }
 
 function EventRow({ h }) {
+  const change = valueChange(h);
   return (
     <div className="pt-1.5">
       <p className="text-sm leading-snug text-slate-600">
         <span className="font-semibold text-slate-800">{h.user_name || 'Sistema'}</span>{' '}
         {h.description || h.action}
       </p>
+      {change && (
+        <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-500 line-through decoration-slate-400">
+            {change.from}
+          </span>
+          <span aria-hidden="true" className="text-slate-400">→</span>
+          <span className="rounded-md bg-brand-50 px-1.5 py-0.5 font-semibold text-brand-700">
+            {change.to}
+          </span>
+        </p>
+      )}
       <p className="mt-0.5 text-xs text-slate-400" title={formatDateTime(h.created_at)}>
         {formatRelative(h.created_at)} · {formatDateTime(h.created_at)}
       </p>
