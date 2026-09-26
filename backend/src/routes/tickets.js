@@ -1178,8 +1178,28 @@ function processComment(req, res, attachOnly) {
   });
 }
 
+/**
+ * Comprobaciones que NO dependen del cuerpo, para ejecutarlas ANTES de multer.
+ * Sin esto, multer leía y guardaba en memoria la petición completa (archivos
+ * incluidos) de cualquier usuario con una sesión válida, y solo después
+ * processComment decidía si tenía permiso. Se mantiene la distinción
+ * público/interna, que sí necesita el cuerpo, para más abajo.
+ */
+function requireTicketWriteAccess(req, res, next) {
+  const id = parseIntSafe(req.params.id);
+  const ticket = getTicket(id);
+  if (!ticket || !canViewTicket(req.user, ticket)) {
+    return res.status(404).json({ error: 'Ticket no encontrado' });
+  }
+  if (!hasPerm(req.user, 'ticket.comment') && !hasPerm(req.user, 'ticket.note')) {
+    return res.status(403).json({ error: 'No tiene permiso para comentar en este ticket' });
+  }
+  return next();
+}
+
 router.post(
   '/:id/comments',
+  requireTicketWriteAccess,
   uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
   (req, res) => processComment(req, res, false)
@@ -1187,6 +1207,7 @@ router.post(
 
 router.post(
   '/:id/attachments',
+  requireTicketWriteAccess,
   uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
   (req, res) => processComment(req, res, true)
