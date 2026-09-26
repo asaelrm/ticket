@@ -86,6 +86,7 @@ const TITLES = {
   '/app/teams': 'Equipos de trabajo',
   '/app/roles': 'Roles',
   '/app/reports': 'Reportes',
+  '/app/templates': 'Respuestas rápidas',
   '/app/settings': 'Configuración',
   '/app/profile': 'Mi cuenta',
   '/app/inbox': 'Bandeja',
