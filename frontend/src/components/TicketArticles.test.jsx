@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -192,7 +192,7 @@ describe('TicketArticles · búsqueda y vínculos', () => {
     await user.type(screen.getByLabelText('Buscar artículos publicados'), 'outlook');
 
     expect(await screen.findByText('Recrear el perfil de Outlook')).toBeInTheDocument();
-    const [url] = api.get.mock.calls.find(([u]) => u.startsWith('/api/kb-articles?'));
+    const [url] = api.get.mock.calls.filter(([u]) => u.startsWith('/api/kb-articles?')).pop();
     expect(url).toContain('q=outlook');
     expect(url).toContain('perPage=5');
     // Ni status=DRAFT ni otra vía para leer artículos no publicados.
@@ -286,9 +286,9 @@ describe('TicketArticles · borrador desde el ticket', () => {
     await user.click(await screen.findByRole('button', { name: /Crear borrador desde el ticket/ }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByLabelText('Título')).toHaveValue('El correo no sincroniza');
-    expect(within(dialog).getByLabelText('Descripción')).toHaveValue('Outlook se queda sin descargar desde ayer.');
-    expect(within(dialog).getByLabelText('Solución')).toHaveValue('Se recreó el perfil en el servidor de Exchange.');
-    expect(within(dialog).getByLabelText('Resumen')).toHaveValue('');
+    expect(within(dialog).getByLabelText(/^Descripción/)).toHaveValue('Outlook se queda sin descargar desde ayer.');
+    expect(within(dialog).getByLabelText(/^Solución/)).toHaveValue('Se recreó el perfil en el servidor de Exchange.');
+    expect(within(dialog).getByLabelText(/^Resumen/)).toHaveValue('');
     expect(within(dialog).getByText(/Configuración/)).toBeInTheDocument();
     expect(within(dialog).getByText(/Perfil corrupto/)).toBeInTheDocument();
 
@@ -306,7 +306,7 @@ describe('TicketArticles · borrador desde el ticket', () => {
     render();
     await user.click(await screen.findByRole('button', { name: /Crear borrador desde el ticket/ }));
     const dialog = await screen.findByRole('dialog');
-    await user.type(within(dialog).getByLabelText('Resumen'), 'Recrear el perfil de Exchange.');
+    await user.type(within(dialog).getByLabelText(/^Resumen/), 'Recrear el perfil de Exchange.');
     await user.type(within(dialog).getByLabelText('Palabras clave'), 'outlook, exchange');
     await user.selectOptions(within(dialog).getByLabelText('Categoría de conocimiento'), '4');
     await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
@@ -365,7 +365,7 @@ describe('TicketArticles · borrador desde el ticket', () => {
     await user.click(await screen.findByRole('button', { name: /Crear borrador desde el ticket/ }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/No se publica nada automáticamente/)).toBeInTheDocument();
-    await user.type(within(dialog).getByLabelText('Resumen'), 'Recrear el perfil de Exchange.');
+    await user.type(within(dialog).getByLabelText(/^Resumen/), 'Recrear el perfil de Exchange.');
     await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
@@ -416,12 +416,12 @@ describe('TicketArticles · borrador desde el ticket', () => {
     render();
     await user.click(await screen.findByRole('button', { name: /Crear borrador desde el ticket/ }));
     const dialog = await screen.findByRole('dialog');
-    await user.type(within(dialog).getByLabelText('Resumen'), 'Resumen provisional.');
+    await user.type(within(dialog).getByLabelText(/^Resumen/), 'Resumen provisional.');
     await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
 
     await waitFor(() => expect(within(dialog).getAllByText(/Ya existe un artículo/).length).toBeGreaterThan(0));
     expect(within(dialog).getByLabelText('Título')).toHaveAttribute('aria-invalid', 'true');
     // El formulario se conserva para corregir sin perder lo escrito.
-    expect(within(dialog).getByLabelText('Resumen')).toHaveValue('Resumen provisional.');
+    expect(within(dialog).getByLabelText(/^Resumen/)).toHaveValue('Resumen provisional.');
   });
 });
