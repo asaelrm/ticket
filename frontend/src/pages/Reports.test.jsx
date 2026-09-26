@@ -360,7 +360,7 @@ describe('Reports: satisfacción del cliente', () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
     expect(await screen.findByText('Valoración media')).toBeInTheDocument();
-    expect(screen.getByText('4.25 / 5')).toBeInTheDocument();
+    expect(screen.getByText('Valoración media').parentElement).toHaveTextContent('4.25 / 5');
     expect(screen.getByText('Respuestas recibidas').parentElement).toHaveTextContent('4');
     expect(screen.getByText('Tasa de respuesta').parentElement).toHaveTextContent('80%');
   });
