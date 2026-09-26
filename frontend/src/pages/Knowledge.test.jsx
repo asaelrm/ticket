@@ -87,11 +87,12 @@ describe('Knowledge · listado', () => {
   it('lista los artículos publicados con su categoría, autor y consultas', async () => {
     renderWithProviders(<Knowledge />, { route: '/app/knowledge' });
 
-    expect(await screen.findByText('Restablecer la contraseña de Outlook')).toBeInTheDocument();
-    expect(screen.getByText('Pasos para recuperar el acceso al correo corporativo.')).toBeInTheDocument();
-    expect(screen.getByText('Correo')).toBeInTheDocument();
-    expect(screen.getByText('Ana Díaz')).toBeInTheDocument();
-    expect(screen.getByText('12 consultas')).toBeInTheDocument();
+    const card = await screen.findByRole('link', { name: /Restablecer la contraseña de Outlook/ });
+    expect(within(card).getByText('Pasos para recuperar el acceso al correo corporativo.')).toBeInTheDocument();
+    // 'Correo' también es una opción del filtro, así que se busca dentro de la tarjeta.
+    expect(within(card).getByText('Correo')).toBeInTheDocument();
+    expect(within(card).getByText('Ana Díaz')).toBeInTheDocument();
+    expect(within(card).getByText('12 consultas')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith(LIST_URL);
   });
 
