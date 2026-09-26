@@ -356,6 +356,102 @@ describe('permisos de administración por ámbito', () => {
     }
     assert.equal((await emp.get('/api/canned-responses')).status, 200);
   });
+
+  it('con solo team.manage no lee ni modifica una personal ajena por su id', async () => {
+    const marker = `secreto${Date.now()}${seq++}`;
+    const ajena = await tech.post('/api/canned-responses', {
+      title: uniq('Personal ajena'),
+      body: `Contenido ${marker}`,
+      scope: 'PERSONAL',
+    });
+    const id = ajena.body.template.id;
+
+    // Red de seguridad: ni activa ni desactivada, por id y por búsqueda.
+    await tech.patch(`/api/canned-responses/${id}`, { is_active: false });
+
+    const roles = (await admin.get('/api/roles')).body.roles;
+    const base = roles.find((r) => r.id === techRoleId).permissions;
+    assert.ok(!base.includes('settings.manage'), 'el rol base no debe traer settings.manage');
+
+    await withRolePermissions(techRoleId, [...base, 'team.manage'], async () => {
+      const read = await tech2.client.get(`/api/canned-responses/${id}`);
+      assert.equal(read.status, 404, 'ni desactivada puede leer una personal ajena por id');
+      assert.ok(!JSON.stringify(read.body).includes(marker));
+
+      const write = await tech2.client.patch(`/api/canned-responses/${id}`, { body: 'hack', is_active: true });
+      assert.equal(write.status, 404, 'no puede modificar una personal ajena');
+
+      const search = await tech2.client.get(`/api/canned-responses?q=${marker}`);
+      assert.equal(search.status, 200);
+      assert.ok(!JSON.stringify(search.body).includes(marker), 'la búsqueda tampoco la expone');
+
+      const mine = await tech2.client.get('/api/canned-responses/mine');
+      assert.ok(!mine.body.data.map((t) => t.id).includes(id), 'no aparece en su /mine');
+    });
+
+    // El contenido original sigue intacto tras todos los intentos.
+    const owner = await tech.get(`/api/canned-responses/${id}`);
+    assert.equal(owner.status, 200);
+    assert.equal(owner.body.template.body, `Contenido ${marker}`);
+    assert.equal(owner.body.template.is_active, 0);
+  });
+
+  it('con solo settings.manage no administra plantillas de equipo', async () => {
+    const teamId = await makeTeam(uniq('Solo settings'), [techId]);
+    const deEquipo = await admin.post('/api/canned-responses', {
+      title: uniq('De equipo intocable'),
+      body: 'Original de equipo',
+      scope: 'TEAM',
+      team_id: teamId,
+    });
+    assert.equal(deEquipo.status, 201);
+    const id = deEquipo.body.template.id;
+
+    const global = await admin.post('/api/canned-responses', {
+      title: uniq('Global no promocionable'),
+      body: 'Global',
+      scope: 'GLOBAL',
+    });
+
+    const roles = (await admin.get('/api/roles')).body.roles;
+    const base = roles.find((r) => r.id === techRoleId).permissions;
+    assert.ok(!base.includes('team.manage'), 'el rol base no debe traer team.manage');
+
+    await withRolePermissions(techRoleId, [...base, 'settings.manage'], async () => {
+      const create = await tech2.client.post('/api/canned-responses', {
+        title: 'Intrusa',
+        body: 'No debería existir',
+        scope: 'TEAM',
+        team_id: teamId,
+      });
+      assert.equal(create.status, 403, 'no puede crear plantillas de equipo');
+
+      const edit = await tech2.client.patch(`/api/canned-responses/${id}`, { body: 'hack' });
+      assert.equal(edit.status, 404, 'no puede editar una plantilla de equipo');
+
+      const toggle = await tech2.client.patch(`/api/canned-responses/${id}`, { is_active: false });
+      assert.equal(toggle.status, 404, 'no puede desactivar una plantilla de equipo');
+
+      const move = await tech2.client.patch(`/api/canned-responses/${global.body.template.id}`, {
+        scope: 'TEAM',
+        team_id: teamId,
+      });
+      assert.equal(move.status, 403, 'no puede mover una global a un equipo');
+
+      // La excepción administrativa documentada sigue siendo la global.
+      const ok = await tech2.client.patch(`/api/canned-responses/${global.body.template.id}`, { body: 'Corregida' });
+      assert.equal(ok.status, 200);
+    });
+
+    // Ni la de equipo ni la global quedaron alteradas por lo anterior.
+    const equipo = await admin.get(`/api/canned-responses/${id}`);
+    assert.equal(equipo.body.template.body, 'Original de equipo');
+    assert.equal(equipo.body.template.is_active, 1);
+    assert.equal(equipo.body.template.scope, 'TEAM');
+    const global2 = await admin.get(`/api/canned-responses/${global.body.template.id}`);
+    assert.equal(global2.body.template.scope, 'GLOBAL');
+    assert.equal(global2.body.template.team_id, null);
+  });
 });
 
 describe('validación de datos', () => {
