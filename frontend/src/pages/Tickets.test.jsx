@@ -596,7 +596,16 @@ describe('Tickets · acciones masivas', () => {
   it('descarta la selección al cambiar de página', async () => {
     const user = userEvent.setup();
     authState.user = FULL;
-    threeRows();
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp([row()], 1, 2, 30));
+      if (url === '/api/categories') return Promise.resolve({ data: [] });
+      if (url === '/api/departments') return Promise.resolve({ data: [] });
+      if (url === '/api/users/assignable') return Promise.resolve({ data: [] });
+      if (url === '/api/teams/assignable') return Promise.resolve({ data: [] });
+      return Promise.reject(new Error('404'));
+    });
+
     renderWithProviders(<Tickets />, { route: '/app/tickets' });
     await screen.findByText('TCK-000001');
 
@@ -605,8 +614,9 @@ describe('Tickets · acciones masivas', () => {
 
     // Cambiar la paginación es la forma más segura de no arrastrar la selección
     // sobre tickets que el usuario ya no está viendo.
-    await user.click(screen.getByRole('button', { name: 'Siguiente' }));
+    await user.click(screen.getByRole('button', { name: /Siguiente/ }));
 
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('page=2')));
     await waitFor(() => expect(screen.queryByText(/seleccionado\(s\)/)).not.toBeInTheDocument());
   });
 
