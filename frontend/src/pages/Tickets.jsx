@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, download, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
@@ -76,8 +76,8 @@ export default function Tickets() {
   const { data: list, error: queryError } = useQuery({
     queryKey: ['tickets', query],
     queryFn: () => api.get(`/api/tickets?${query}`),
-    // Sin polling: los cambios llegan por SSE (conexi├│n global) y se refresca al
-    // volver a la pesta├▒a/recuperar la conexi├│n (refetchOnWindowFocus por defecto).
+    // Sin polling: los cambios llegan por SSE (conexión global) y se refresca al
+    // volver a la pestaña/recuperar la conexión (refetchOnWindowFocus por defecto).
   });
 
   const { data: counters } = useQuery({
@@ -184,7 +184,7 @@ export default function Tickets() {
 
   return (
     <div>
-      {/* Chips de filtros r├ípidos con contadores */}
+      {/* Chips de filtros rápidos con contadores */}
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
         {VIEWS.map((v) => {
           const active = chipActive(v.key);
@@ -213,7 +213,7 @@ export default function Tickets() {
       <div className="card mb-4">
         <div className="flex flex-wrap items-center gap-2 p-3">
             <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
-              B├║squeda avanzada
+              Búsqueda avanzada
               {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
             </button>
             <select
@@ -234,7 +234,7 @@ export default function Tickets() {
               onClick={() => update({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
               title={filters.dir === 'asc' ? 'Ascendente' : 'Descendente'}
             >
-              {filters.dir === 'asc' ? 'Ôåæ Asc' : 'Ôåô Desc'}
+              {filters.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
             </button>
             {hasAnyFilter && (
               <button type="button" className="btn-ghost text-sm" onClick={() => setSearchParams({}, { replace: false })}>
@@ -274,7 +274,7 @@ export default function Tickets() {
               </span>
             </>
           ) : (
-            'CargandoÔÇª'
+            'Cargando…'
           )}
         </p>
         <div className="flex gap-2">

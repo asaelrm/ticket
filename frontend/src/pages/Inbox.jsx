@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
@@ -16,7 +16,7 @@ import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearch
 import { LoadingScreen, ErrorBox, Spinner, Modal } from '../components/ui';
 
 const TABS = [
-  { key: 'mine', label: 'Asignados a m├¡', counter: 'assigned_to_me' },
+  { key: 'mine', label: 'Asignados a mí', counter: 'assigned_to_me' },
   { key: 'my-teams', label: 'Mi equipo', counter: 'assigned_to_my_teams' },
   { key: 'open', label: 'Abiertos', counter: 'open' },
   { key: 'unassigned', label: 'Sin asignar', counter: 'unassigned' },
@@ -110,8 +110,8 @@ export default function Inbox() {
   const { data: list, error: queryError } = useQuery({
     queryKey: ['inbox-tickets', tab, filters],
     queryFn: () => api.get(`/api/tickets?${query}`),
-    // Sin polling: los cambios llegan por SSE (conexi├│n global) y se refresca al
-    // volver a la pesta├▒a/recuperar la conexi├│n (refetchOnWindowFocus por defecto).
+    // Sin polling: los cambios llegan por SSE (conexión global) y se refresca al
+    // volver a la pestaña/recuperar la conexión (refetchOnWindowFocus por defecto).
   });
 
   const { data: counters } = useQuery({
@@ -141,7 +141,7 @@ export default function Inbox() {
     queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
   }, [queryClient]);
 
-  // Equivale al efecto [reload, tab]: limpia selecci├│n y recarga contadores al cambiar pesta├▒a/filtros.
+  // Equivale al efecto [reload, tab]: limpia selección y recarga contadores al cambiar pestaña/filtros.
   useEffect(() => {
     setSelected(new Set());
     queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
@@ -331,12 +331,12 @@ export default function Inbox() {
               className="input !pl-9"
               value={searchDraft}
               onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder="Buscar por n├║mero, t├¡tulo, solicitante, correoÔÇª"
+              placeholder="Buscar por número, título, solicitante, correo…"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
             <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
-              M├ís filtros
+              Más filtros
               {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
             </button>
             <button type="button" className="btn-secondary !text-white" onClick={() => setSavedOpen(true)}>
@@ -366,9 +366,9 @@ export default function Inbox() {
             </select>
           </div>
           <div>
-            <label className="label" htmlFor="inbox-category">Categor├¡a</label>
+            <label className="label" htmlFor="inbox-category">Categoría</label>
             <select id="inbox-category" className="input" value={filters.category} onChange={(e) => update({ category: e.target.value })}>
-              <option value="">Todas las categor├¡as</option>
+              <option value="">Todas las categorías</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -389,7 +389,7 @@ export default function Inbox() {
               onClick={() => update({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
               title={filters.dir === 'asc' ? 'Ascendente' : 'Descendente'}
             >
-              {filters.dir === 'asc' ? 'Ôåæ Asc' : 'Ôåô Desc'}
+              {filters.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
             </button>
           </div>
           <div className="flex items-end">
@@ -418,7 +418,7 @@ export default function Inbox() {
               </span>
             </>
           ) : (
-            'CargandoÔÇª'
+            'Cargando…'
           )}
         </p>
         <button type="button" className="btn-secondary !px-2.5" onClick={reload} title="Actualizar">
@@ -466,7 +466,7 @@ export default function Inbox() {
           <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-3 lg:px-8">
             <span className="text-sm font-semibold text-slate-800">{selected.size} seleccionado(s)</span>
             <button type="button" className="btn-ghost text-sm" onClick={() => setSelected(new Set())}>
-              Quitar selecci├│n
+              Quitar selección
             </button>
             <div className="ml-auto flex flex-wrap gap-2">
               {canAssign && (
@@ -476,7 +476,7 @@ export default function Inbox() {
               )}
               {canAssign && (
                 <button type="button" className="btn-secondary" disabled={busy} onClick={openAssign}>
-                  Asignar aÔÇª
+                  Asignar a…
                 </button>
               )}
               {canManage && (
@@ -513,13 +513,13 @@ export default function Inbox() {
       )}
 
       <Modal open={assignOpen} onClose={() => setAssignOpen(false)} title={`Asignar ${selected.size} ticket(s)`}>
-        <label className="label">T├®cnico asignado</label>
+        <label className="label">Técnico asignado</label>
         <select className="input" value={assignValue} onChange={(e) => setAssignValue(e.target.value)}>
-          <option value="">Seleccione un t├®cnicoÔÇª</option>
+          <option value="">Seleccione un técnico…</option>
           {assignUsers.map((u) => (
             <option key={u.id} value={u.id}>
               {u.name} {u.last_name}
-              {u.department_name ? ` ┬À ${u.department_name}` : ''}
+              {u.department_name ? ` · ${u.department_name}` : ''}
             </option>
           ))}
         </select>
@@ -545,14 +545,14 @@ export default function Inbox() {
       </Modal>
 
       <Modal open={cancelOpen} onClose={() => setCancelOpen(false)} title={`Cancelar ${selected.size} ticket(s)`}>
-        <p className="text-sm text-slate-600">Se cancelar├ín los tickets seleccionados. Esta acci├│n no se puede deshacer.</p>
+        <p className="text-sm text-slate-600">Se cancelarán los tickets seleccionados. Esta acción no se puede deshacer.</p>
         <label className="mt-4 block text-sm font-medium text-slate-700">
-          Motivo de cancelaci├│n <span className="text-red-500">*</span>
+          Motivo de cancelación <span className="text-red-500">*</span>
           <textarea
             className="input mt-1 min-h-[90px]"
             value={cancelReason}
             onChange={(e) => setCancelReason(e.target.value)}
-            placeholder="Ej. Duplicados o solicitudes que ya no aplicanÔÇª"
+            placeholder="Ej. Duplicados o solicitudes que ya no aplican…"
             maxLength={2000}
           />
         </label>
@@ -583,7 +583,7 @@ export default function Inbox() {
               className="input"
               value={saveName}
               onChange={(e) => setSaveName(e.target.value)}
-              placeholder="Ej. Cr├¡ticos sin asignar"
+              placeholder="Ej. Críticos sin asignar"
               maxLength={40}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
@@ -601,7 +601,7 @@ export default function Inbox() {
         <div className="mt-5 border-t border-slate-200 pt-4">
           {savedFilters.length === 0 ? (
             <p className="text-sm text-slate-500">
-              A├║n no ha guardado filtros. Configure la bandeja (pesta├▒a, b├║squeda y filtros) y guarde la combinaci├│n actual.
+              Aún no ha guardado filtros. Configure la bandeja (pestaña, búsqueda y filtros) y guarde la combinación actual.
             </p>
           ) : (
             <ul className="space-y-2">
@@ -616,8 +616,8 @@ export default function Inbox() {
                       <p className="truncate text-sm font-medium text-slate-800">{f.name}</p>
                       <p className="truncate text-xs text-slate-500">
                         {tabLabel}
-                        {count ? ` ┬À ${count} filtro(s)` : ''}
-                        {search ? ` ┬À ÔÇ£${search}ÔÇØ` : ''}
+                        {count ? ` · ${count} filtro(s)` : ''}
+                        {search ? ` · “${search}”` : ''}
                       </p>
                     </div>
                     <button type="button" className="btn-secondary !px-3 !py-1.5" onClick={() => applySavedFilter(f)}>
@@ -630,7 +630,7 @@ export default function Inbox() {
                       title="Eliminar"
                       aria-label={`Eliminar filtro ${f.name}`}
                     >
-                      Ô£ò
+                      ✕
                     </button>
                   </li>
                 );
