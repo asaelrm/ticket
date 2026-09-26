@@ -554,7 +554,13 @@ router.get('/:id/tickets', requirePermission('kb.view'), (req, res) => {
   res.json({ data, total: data.length });
 });
 
-router.post('/:id/tickets/:ticketId', requirePermission('kb.view'), (req, res) => {
+/**
+ * Enlazar y desenlazar ES una escritura, no una lectura: exige kb.create.
+ * Con kb.view bastaba para que un empleado de solo lectura modificara el
+ * contenido de un ticket, lo que contradice el resto del módulo (editar exige
+ * kb.create, publicar exige kb.publish).
+ */
+router.post('/:id/tickets/:ticketId', requirePermission('kb.create'), (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticketId = parseIntSafe(req.params.ticketId);
   if (!readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
@@ -573,7 +579,7 @@ router.post('/:id/tickets/:ticketId', requirePermission('kb.view'), (req, res) =
   res.status(201).json({ data: { article_id: id, ticket_id: ticketId } });
 });
 
-router.delete('/:id/tickets/:ticketId', requirePermission('kb.view'), (req, res) => {
+router.delete('/:id/tickets/:ticketId', requirePermission('kb.create'), (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticketId = parseIntSafe(req.params.ticketId);
   if (!readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
