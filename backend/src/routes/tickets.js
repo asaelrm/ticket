@@ -1093,14 +1093,14 @@ function processComment(req, res, attachOnly) {
 
   // Contador de uso de la respuesta rápida (plantilla). Solo se incrementa aquí,
   // después de que el comentario (y sus adjuntos) quedaron persistidos, y
-  // únicamente si el usuariodogs...
-
+  // únicamente si el usuario escribió un mensaje real.
+  //
   // El identificador de la plantilla es opcional y llega en el FormData del
   // comentario. La validación usa la MISMA regla de visibilidad del selector, de
-  // modo que un technicians no puede acreditar uso de una plantilla ajena (de
-  // otro usuario o de un equipo del que no es miembro). Si la plantilla ya no es
-  // visible o fue desactivada, el comentario se guarda igual y solo se omite el
-  // contador: nunca se bloquea el envío por esto.
+  // modo que nadie puede acreditar uso de una plantilla ajena (de otro usuario o
+  // de un equipo del que no es miembro). Si la plantilla ya no es visible o fue
+  // desactivada, el comentario se guarda igual y solo se omite el contador:
+  // nunca se bloquea el envío por esto.
   if (!attachOnly && message) {
     const templateId = parseIntSafe(req.body?.canned_response_id);
     if (templateId) {
