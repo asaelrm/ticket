@@ -29,8 +29,8 @@ const LIST_SELECT = `
  *               historial, por lo que la membresía es exclusivamente de estado
  *               actual: al salir del equipo se pierde el acceso de inmediato).
  *
- * El filtro se aplica siempre antes de contar y paginar, de modo que un
- *:template de otro equipo nunca aparece en la respuesta ni en el total.
+ * El filtro se aplica siempre antes de contar y paginar, de modo que una
+ * plantilla de otro equipo nunca aparece en la respuesta ni en el total.
  */
 const VISIBLE_SQL = `
   c.is_active = 1 AND (
