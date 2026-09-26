@@ -5,7 +5,7 @@ import { api } from '../lib/api';
 import { renderMessage } from '../lib/markdown';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
-import { fieldErrors, statusLabel, ARTICLE_STATUS_COLOR } from '../lib/kb';
+import { fieldErrors, statusLabel, ARTICLE_STATUS_COLOR, canEditArticle } from '../lib/kb';
 
 // Límites que replica backend/src/utils/articleLimits.js. Deben coincidir con
 // los CHECK de schema.sql: es la misma constante en tres sitios.
