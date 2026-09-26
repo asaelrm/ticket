@@ -133,6 +133,10 @@ export default function Layout() {
 
   const system = [];
   if (can(user, 'report.view')) system.push({ to: '/app/reports', label: 'Reportes', icon: ICONS.reports });
+  if (can(user, 'settings.manage') || can(user, 'team.manage')) {
+    system.push({ to: '/app/templates', label: 'Respuestas rápidas', icon: ICONS.templates });
+  }
+  if (can(user, 'settings.manage')) system.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });
   if (can(user, 'settings.manage')) system.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });
   if (can(user, 'settings.manage')) system.push({ to: '/app/audit', label: 'Auditoría', icon: ICONS.audit });
 
