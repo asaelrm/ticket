@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, formatDateTime } from '../lib/api';
 import { renderMessage } from '../lib/markdown';
@@ -19,7 +19,6 @@ import {
 // aplicar ningún formato. Aquí no se interpreta nada más.
 export default function KnowledgeDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [error, setError] = useState('');
@@ -51,7 +50,7 @@ export default function KnowledgeDetail() {
   if (isLoading) return <LoadingScreen text="Cargando artículo…" />;
 
   // 404 no es solo "no existe": también es la respuesta para un borrador o un
-  // archivado de otro autor. El mensaje no debeARYAN confirmar cuál de los dos.
+  // archivado de otro autor. El mensaje no debe confirmar cuál de los dos es.
   if (queryError || !article) {
     return (
       <div className="space-y-4">
