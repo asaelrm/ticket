@@ -286,7 +286,7 @@ describe('Audit', () => {
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=50'));
   });
 
-  it('el selector de registros por página muestra 10 porque no existe la opción 30', async () => {
+  it('el selector de registros por página muestra el mismo valor que se envía a la API', async () => {
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
