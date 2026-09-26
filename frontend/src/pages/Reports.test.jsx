@@ -312,7 +312,7 @@ describe('Reports: rendimiento por técnico y por equipo', () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
     expect(await screen.findByRole('heading', { name: 'Rendimiento por técnico' })).toBeInTheDocument();
-    expect(screen.getByText('Juan Pérez')).toBeInTheDocument();
+    expect(screen.getAllByText('Juan Pérez').length).toBe(2, 'aparece en su tabla y en el desglose de CSAT');
     expect(screen.getByText('5 h 0 min')).toBeInTheDocument();
     expect(screen.getByText('75 min')).toBeInTheDocument();
     expect(screen.getByText('6.5 h')).toBeInTheDocument();
@@ -433,6 +433,6 @@ describe('Reports: satisfacción del cliente', () => {
 
     expect(await screen.findByText('Total tickets')).toBeInTheDocument();
     expect(screen.queryByText('Valoración media')).toBeNull();
-    expect(screen.getByText('Rendimiento por técnico')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Rendimiento por técnico' })).toBeInTheDocument();
   });
 });
