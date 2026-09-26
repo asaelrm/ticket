@@ -35,7 +35,7 @@ export default function ResolveTicketsModal({ open, onClose, count, onConfirm, b
         className="input mt-1 min-h-[90px]"
         value={resolution}
         onChange={(e) => setResolution(e.target.value)}
-        placeholder="Ej.: Se_solutionó en sitio y se verificó con el usuario."
+        placeholder="Ej.: Se solucionó en sitio y se verificó con el usuario."
         maxLength={10000}
       />
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

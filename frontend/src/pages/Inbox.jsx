@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import {
   api,
+  setTicketStatus,
   STATUSES,
   PRIORITIES,
   STATUS_LABEL,
@@ -13,6 +14,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
+import ResolveTicketsModal from '../components/ResolveTicketsModal';
 import { LoadingScreen, ErrorBox, Spinner, Modal } from '../components/ui';
 
 const TABS = [
@@ -67,6 +69,8 @@ export default function Inbox() {
   const [assignValue, setAssignValue] = useState('');
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolveIds, setResolveIds] = useState([]);
   const [savedFilters, setSavedFilters] = useState(loadSavedFilters);
   const [savedOpen, setSavedOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
