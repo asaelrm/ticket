@@ -507,4 +507,71 @@ describe('TicketDetail', () => {
     expect(screen.getByText('Satisfacción del usuario:')).toBeInTheDocument();
     expect(screen.getByText(/Excelente atención/)).toBeInTheDocument();
   });
+
+  describe('artículos de conocimiento', () => {
+    const KB_ARTICLE = {
+      id: 5,
+      title: 'Recrear el perfil de Outlook',
+      category_name: 'Correo',
+      view_count: 12,
+      status: 'PUBLISHED',
+    };
+
+    function mockWithArticles(extra = {}) {
+      api.get.mockImplementation((url) => {
+        if (url === '/api/tickets/1') return Promise.resolve(detailData({}, extra));
+        if (url === '/api/tickets/1/articles') {
+          return Promise.resolve({ data: [KB_ARTICLE], total: 1 });
+        }
+        if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
+        if (url === '/api/users/assignable') return Promise.resolve({ data: USERS });
+        if (url === '/api/teams/assignable') return Promise.resolve({ data: TEAMS });
+        if (url === '/api/categories?active=1') return Promise.resolve({ data: CATEGORIES });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+    }
+
+    it('muestra la sección y carga los artículos cuando tiene kb.view', async () => {
+      authState.user = { ...USER_TECH, permissions: ['ticket.view.all', 'kb.view'] };
+      mockWithArticles();
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+
+      expect(await screen.findByText('Recrear el perfil de Outlook')).toBeInTheDocument();
+      expect(screen.getByText('Base de conocimiento')).toBeInTheDocument();
+      expect(api.get).toHaveBeenCalledWith('/api/tickets/1/articles');
+    });
+
+    it('no carga ni muestra nada de conocimientos sin kb.view', async () => {
+      authState.user = { ...USER_TECH, permissions: ['ticket.view.all'] };
+      mockWithArticles();
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+
+      await screen.findByText('PC no enciende');
+      expect(screen.queryByText('Base de conocimiento')).not.toBeInTheDocument();
+      expect(api.get).not.toHaveBeenCalledWith('/api/tickets/1/articles');
+    });
+
+    it('con kb.create ofrece vincular y crear borrador en un ticket resuelto', async () => {
+      authState.user = { ...USER_TECH, permissions: ['ticket.view.all', 'kb.view', 'kb.create'] };
+      mockWithArticles({ status: 'RESOLVED' });
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+
+      expect(await screen.findByRole('button', { name: 'Vincular artículo' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Crear borrador desde el ticket/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Desvincular' })).toBeInTheDocument();
+    });
+
+    it('no ofrece crear borrador si el ticket sigue abierto', async () => {
+      authState.user = { ...USER_TECH, permissions: ['ticket.view.all', 'kb.view', 'kb.create'] };
+      mockWithArticles();
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+
+      expect(await screen.findByRole('button', { name: 'Vincular artículo' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Crear borrador desde el ticket/ })).not.toBeInTheDocument();
+    });
+  });
 });
