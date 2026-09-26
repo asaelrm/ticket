@@ -480,6 +480,37 @@ router.get('/export', (req, res) => {
   if (sections.has('resolved')) {
     lines.push(row('RESUELTOS POR DÍA (últimos 30)'), row('Día', 'Cantidad'), ...r.by_day.map((d) => row(d.day, d.n)), '');
   }
+  if (sections.has('technicians')) {
+    lines.push(
+      row('RENDIMIENTO POR TÉCNICO'),
+      row('Técnico', 'Asignados', 'Abiertos', 'Resueltos', 'Cerrados', 'Tiempo total (min)', 'Tiempo medio (min)', 'Resolución media (h)', 'Incumpl. SLA', 'Cumplimiento SLA %')
+    );
+    for (const t of r.by_technician) {
+      lines.push(row(t.technician, t.assigned, t.open, t.resolved, t.closed, t.total_time_minutes, t.avg_time_minutes ?? '', t.avg_resolution_hours ?? '', t.sla_breached, t.sla_pct ?? ''));
+    }
+    lines.push('');
+  }
+  if (sections.has('teams')) {
+    lines.push(row('RENDIMIENTO POR EQUIPO'), row(r.by_team.note), row('Equipo', 'Asignados', 'Abiertos', 'Completados', 'Resolución media (h)', 'Incumpl. SLA', 'Cumplimiento SLA %'));
+    for (const t of r.by_team.data) {
+      lines.push(row(t.team, t.assigned, t.open, t.completed, t.avg_resolution_hours ?? '', t.sla_breached, t.sla_pct ?? ''));
+    }
+    lines.push('');
+  }
+  if (sections.has('csat')) {
+    lines.push(row('SATISFACCIÓN (CSAT)'));
+    lines.push(row('Respuestas recibidas', r.csat.responses));
+    lines.push(row('Tickets resueltos/cerrados (base de la tasa)', r.csat.eligible));
+    lines.push(row('Tasa de respuesta', r.csat.response_rate == null ? 'Sin base comparable' : `${r.csat.response_rate}%`));
+    lines.push(row('Valoración media', r.csat.average == null ? 'Sin respuestas' : r.csat.average));
+    lines.push(row('Distribución', ...r.csat.distribution.map((d) => `${d.rating}★: ${d.n}`)));
+    lines.push(row('Evolución mensual', ...r.csat.by_month.map((m) => `${m.month}: ${m.average ?? 's/d'} (${m.responses})`)));
+    for (const [title, key] of [['CSAT POR TÉCNICO', 'by_technician'], ['CSAT POR DEPARTAMENTO', 'by_department'], ['CSAT POR CATEGORÍA', 'by_category']]) {
+      lines.push(row(title), row('Filtro', 'Respuestas', 'Media'));
+      for (const item of r.csat[key]) lines.push(row(item.label, item.responses, item.average));
+    }
+    lines.push('');
+  }
   if (sections.has('details')) {
     lines.push(row('DETALLE DE TICKETS'), row('Ticket', 'Título', 'Estado', 'Prioridad', 'Reportero', 'Asignado a', 'Departamento', 'Categoría', 'Creado', 'Resuelto/cerrado'));
     for (const ticket of r.details) lines.push(row(ticket.ticket_number, ticket.title, STATUS_LABEL[ticket.status] || ticket.status, PRIORITY_LABEL[ticket.priority] || ticket.priority, ticket.reporter, ticket.assigned_to, ticket.department, ticket.category, ticket.created_at, ticket.resolved_at || ticket.closed_at || ''));
