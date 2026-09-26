@@ -7,7 +7,7 @@ let adminC;
 let tecnicoC;
 let empleadoC;
 
-const SECRETO = 'contraseña-interna-2026.txt';
+const SECRETO = 'evidencia-interna-confidencial.png';
 
 before(async () => {
   adminC = createClient();
@@ -18,8 +18,13 @@ before(async () => {
   await empleadoC.login('empleado', 'Empleado1234!');
 });
 
+// La firma debe coincidir con la extensión: el validador rechaza el mismatch.
 function archivo() {
-  return { buffer: Buffer.from(SECRETO), name: SECRETO, mime: 'text/plain' };
+  return {
+    buffer: Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'),
+    name: SECRETO,
+    mime: 'image/png',
+  };
 }
 
 async function createTicket(client, over = {}) {
