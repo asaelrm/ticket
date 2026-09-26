@@ -75,10 +75,10 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
     const onClick = (e) => {
       const inPanel = panelRef.current && panelRef.current.contains(e.target);
       const inButton = buttonRef.current && buttonRef.current.contains(e.target);
-      if (!inPanel && !inButton) onClose();
+      if (!inPanel && !inButton) close();
     };
     const onKey = (e) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') close();
     };
     const onMove = () => place();
     document.addEventListener('mousedown', onClick);
