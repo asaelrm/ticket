@@ -36,7 +36,7 @@ function Check($name, $cond, $detail) {
 
 $jar = "jar.txt"
 Remove-Item $jar,h*.txt -ErrorAction SilentlyContinue
-'{"account":"admin","password":"lab-admin-123"}' | Out-File -Encoding ascii body.json
+'{"account":"admin","password":"123456"}' | Out-File -Encoding ascii body.json
 
 "== 1. HTTPS real y HSTS por host =="
 $code = CurlLab -o NUL -w "%{http_code}" "https://$($Host_):$($Port)/api/health"
@@ -52,6 +52,7 @@ Check "X-Forwarded-Proto:http ignorado (HSTS sigue)" ($h -match "strict-transpor
 CurlLab -c $jar -o NUL "https://$($Host_):$($Port)/api/auth/me" | Out-Null
 $csrf = ((Get-Content $jar | Where-Object { $_ -match "tf_csrf" }) -split "`t")[-1]
 CurlLab -b $jar -c $jar -D h1.txt -o b1.txt -X POST -H "Content-Type: application/json" -H "x-csrf-token: $csrf" --data "@body.json" "https://$($Host_):$($Port)/api/auth/login" | Out-Null
+$login = Get-Content h1.txt -Raw
 Check "login correcto" ($login -match "200 OK") "estado: $((Select-String -Path h1.txt -Pattern '^HTTP/' | ForEach-Object { $_.Line }))"
 Check "tf_sid con Secure"  ($login -match "tf_sid=[^;]*;[^\r\n]*Secure")  "falta Secure"
 Check "tf_sid con HttpOnly" ($login -match "tf_sid=[^;]*HttpOnly")          "falta HttpOnly"
