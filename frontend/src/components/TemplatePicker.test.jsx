@@ -407,6 +407,7 @@ describe('TemplatePicker', () => {
 
     it('la fila seleccionada se distingue del resto por contraste de color y de fondo', async () => {
       await openPicker();
+      await screen.findByText('Saludo inicial');
       const selected = screen.getByText('Saludo inicial');
       const unselected = screen.getByText('Diagnóstico de red');
       const { bg } = readColors(selected.parentElement.className);
