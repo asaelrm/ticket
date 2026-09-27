@@ -7,9 +7,6 @@ import { api } from '../lib/api';
 import { renderWithProviders } from '../test/utils';
 import { backgroundOf, expectContrast, luminance, readColors } from '../test/contrast';
 
-// Alto de reserva que usa el componente cuando el panel todavía no se ha medido.
-const PANEL_FALLBACK_HEIGHT = 320;
-
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual('../lib/api');
   return { ...actual, api: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } };
@@ -452,22 +449,45 @@ describe('TemplatePicker', () => {
   describe('posicionamiento', () => {
     it('mantiene el panel dentro de la ventana en una pantalla baja', async () => {
       // Regresión: la posición se calculaba asumiendo un alto fijo de 320 px
-      // (top = innerHeight - 320). Con una ventana más baja que eso el top
-      // salía negativo y el menú aparecía fuera de la pantalla.
+      // (top = min(bottom + 6, innerHeight - 320)). Con una ventana más baja
+      // que 320 px el top salía negativo y el menú aparecía fuera de la
+      // pantalla, precisamente en móvil o en ventanas pequeñas.
       const originalHeight = window.innerHeight;
       const originalWidth = window.innerWidth;
       Object.defineProperty(window, 'innerHeight', { value: 300, configurable: true });
       Object.defineProperty(window, 'innerWidth', { value: 360, configurable: true });
       try {
         await openPicker();
+        await screen.findByText('Saludo inicial');
         const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
-        const top = Number(panel.style.top);
-        const left = Number(panel.style.left);
-        expect(Number.isFinite(top) && top >= 0, `top fuera de la ventana: ${top}`).toBe(true);
-        expect(left >= 0, `left fuera de la ventana: ${left}`).toBe(true);
-        expect(top + PANEL_FALLBACK_HEIGHT <= window.innerHeight || top < PANEL_FALLBACK_HEIGHT, 'el panel no cabe').toBe(true);
+
+        const top = parseFloat(panel.style.top);
+        const left = parseFloat(panel.style.left);
+        const width = Math.min(420, window.innerWidth - 16);
+
+        expect(Number.isFinite(top), `top no numérico: "${panel.style.top}"`).toBe(true);
+        expect(Number.isFinite(left), `left no numérico: "${panel.style.left}"`).toBe(true);
+        expect(top, 'el panel no puede empezar por encima de la ventana').toBeGreaterThanOrEqual(0);
+        expect(top, 'el panel no puede empezar por debajo de la ventana').toBeLessThan(window.innerHeight);
+        expect(left, 'el panel no puede empezar por la izquierda de la ventana').toBeGreaterThanOrEqual(0);
+        expect(left + width, 'el panel no puede desbordar por la derecha').toBeLessThanOrEqual(window.innerWidth);
       } finally {
         Object.defineProperty(window, 'innerHeight', { value: originalHeight, configurable: true });
+        Object.defineProperty(window, 'innerWidth', { value: originalWidth, configurable: true });
+      }
+    });
+
+    it('coloca el panel a la derecha cuando el botón está cerca del borde', async () => {
+      const originalWidth = window.innerWidth;
+      Object.defineProperty(window, 'innerWidth', { value: 500, configurable: true });
+      try {
+        await openPicker();
+        const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
+        const left = parseFloat(panel.style.left);
+        const width = Math.min(420, window.innerWidth - 16);
+        // El botón arranca en x=0 en jsdom: el panel no puede desbordar.
+        expect(left + width).toBeLessThanOrEqual(window.innerWidth);
+      } finally {
         Object.defineProperty(window, 'innerWidth', { value: originalWidth, configurable: true });
       }
     });
