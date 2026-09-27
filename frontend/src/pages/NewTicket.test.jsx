@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -53,6 +53,10 @@ beforeEach(() => {
     return Promise.reject(new Error(`404 ${url}`));
   });
   api.post.mockResolvedValue({ ticket: { id: 42 } });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe('NewTicket', () => {
@@ -129,7 +133,9 @@ describe('NewTicket', () => {
     const revoked = [];
     const createObjectURL = vi.fn(() => `blob:mock/${createObjectURL.mock.calls.length}`);
     const revokeObjectURL = vi.fn((u) => revoked.push(u));
-    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
+    // Se sustituye la referencia global en vez de mutar URL, para no dejar
+    // createObjectURL/revokeObjectURL falsos en el resto del fichero.
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
 
     const { container, unmount } = renderWithProviders(<NewTicket />, { route: '/new-ticket' });
     await screen.findByLabelText(/Título/);
