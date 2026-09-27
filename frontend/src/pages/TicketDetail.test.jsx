@@ -372,6 +372,73 @@ describe('TicketDetail', () => {
     await waitFor(() => expect(screen.getByPlaceholderText('Escriba una respuesta para el empleado…')).toHaveValue(''));
   });
 
+  describe('legibilidad del editor', () => {
+    // La paleta de index.css está invertida para el tema oscuro: slate-50..300
+    // son superficies oscuras y slate-400..950 textos claros. El editor usaba
+    // text-slate-100, que resuelve a un azul marino (#0C3347) sobre un fondo
+    // #0b3046: ratio ~1:1 y el texto escrito era invisible. Estos tests leen las
+    // clases reales del DOM, así que vuelven a fallar si alguien reintroduce un
+    // token oscuro sobre una superficie oscura.
+
+    async function renderEditor() {
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+      return screen.getByPlaceholderText('Escriba una respuesta para el empleado…');
+    }
+
+    it('el texto que se escribe es legible sobre el fondo del editor', async () => {
+      const textarea = await renderEditor();
+      expect(expectContrast(textarea, { surface: EDITOR_SURFACE, label: 'texto del editor' })).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('el placeholder es legible sobre el fondo del editor', async () => {
+      const textarea = await renderEditor();
+      expect(expectPlaceholderContrast(textarea, { surface: EDITOR_SURFACE, label: 'placeholder del editor' })).toBeGreaterThanOrEqual(3);
+    });
+
+    it('el cursor de escritura se ve sobre el fondo del editor', async () => {
+      // El caret hereda el color del texto: si el texto es invisible, el cursor
+      // tampoco se distingue y parece que el campo está deshabilitado.
+      const textarea = await renderEditor();
+      const { text } = readColors(textarea.className);
+      const caret = /caret-\[/.test(textarea.className) ? readColors(textarea.className).bg : text;
+      expect(resolveColor(caret, EDITOR_SURFACE).toLowerCase(), 'el caret debe usar un color visible').not.toBe(
+        resolveColor('slate-100', EDITOR_SURFACE)
+      );
+    });
+
+    it('los botones de formato son legibles sobre la barra', async () => {
+      await renderEditor();
+      for (const label of ['Negrita', 'Cursiva', 'Lista', 'Código']) {
+        const button = screen.getByRole('button', { name: label });
+        expect(
+          expectContrast(button, { surface: TOOLBAR_SURFACE, label: `botón ${label}` }),
+          `el botón ${label} debeHighlight` in {} ? '' : ''
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it('el botón de respuestas rápidas es legible y se distingue de la barra', async () => {
+      await renderEditor();
+      const trigger = screen.getByRole('button', { name: /Respuestas rápidas/ });
+      expect(expectContrast(trigger, { surface: TOOLBAR_SURFACE, label: 'botón de respuestas rápidas' })).toBeGreaterThanOrEqual(4.5);
+
+      // Su fondo es un blanco translúcido sobre la barra: el color compuesto
+      // tiene que seguir dejando el texto por encima de AA.
+      const { text, bg } = readColors(trigger.className);
+      expect(bg, 'el botón debe declarar su propio fondo').toBeTruthy();
+      const own = resolveColor(bg, TOOLBAR_SURFACE);
+      expect(contrastRatio(resolveColor(text, own), own)).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('el contador de caracteres en warning sigue siendo legible', async () => {
+      await renderEditor();
+      const textarea = screen.getByPlaceholderText('Escriba una respuesta para el empleado…');
+      await userEvent.setup().type(textarea, 'hola');
+      expect(screen.queryByText(/\d+\/4000 caracteres/)).toBeNull();
+    });
+  });
+
   it('envía una nota interna marcada como interna', async () => {
     const user = userEvent.setup();
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
