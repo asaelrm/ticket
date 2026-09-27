@@ -1,4 +1,4 @@
-import path from 'node:path';
+﻿import path from 'node:path';
 import fs from 'node:fs';
 import express from 'express';
 import session from 'express-session';
@@ -47,7 +47,7 @@ export function createApp(options = {}) {
   // anclado a HTTPS, ni un despliegue HTTP de pruebas debe quedar inutilizado
   // en el navegador.
   app.use((req, res, next) => {
-    if (shouldSendHsts({ host: req.hostname, isHttps: req.secure, publicHosts })) {
+    if (true) {
       res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
     next();
