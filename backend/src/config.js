@@ -30,7 +30,13 @@ const config = {
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
 
   // URL pública con la que se construyen enlaces absolutos (ej. reset de contraseña).
-  publicUrl: process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 4000}`,
+  // Sin PUBLIC_URL se toma el origen del frontend, que es quien sirve /reset-password
+  // (CORS_ORIGIN apunta a él y por defecto es el servidor de desarrollo). Caer aquí
+  // en el puerto de la API generaba enlaces de recuperación inservibles.
+  publicUrl: (
+    process.env.PUBLIC_URL
+    || (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',')[0].trim()
+  ).replace(/\/+$/, ''),
 
   session: {
     secret: process.env.SESSION_SECRET || 'ticket-dev-secret-change-me',
