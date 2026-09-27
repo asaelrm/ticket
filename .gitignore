@@ -18,6 +18,28 @@ backend/directory.json
 .env
 .env.local
 
+# Credenciales del tunel de Cloudflare. Es un secreto con la misma categoría
+# que un SESSION_SECRET: da acceso a la entrada publica del despliegue.
+deploy/https/tunnel/credentials.json
+deploy/https/tunnel/*.json
+
+# CA raiz exportada de Caddy, por si alguien la deja junto al codigo.
+caddy-root.crt
+labprod-root.crt
+
+# Certificados y claves privadas, cualquiera que sea su nombre. Los nombres
+# concretos de arriba se quedan por compatibilidad, pero lo que manda es el
+# patron: un .crt o una .pem dentro del repositorio no tiene ninguna
+# justificacion legitima y publicarlos rompe la cadena de confianza de quien
+# los confianza.
+*.crt
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
 # Build
 frontend/dist/
 dist/
@@ -25,6 +47,26 @@ dist/
 # Logs
 *.log
 npm-debug.log*
+
+# Instaladores y binarios sueltos
+# El instalador de Tailscale se descargo dentro del repo por error (logo/).
+# Ahora vive en D:\instaladores\, fuera de aqui. Este patron evita que un
+# instalador de 1 MB acabe en GitHub con un `git add .`.
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.iso
+*.tgz
+*.zip
+*.7z
+
+# Copias de seguridad de la base de datos y de los adjuntos. Nunca deben
+# versionarse: viven en D:\copias\ticket\, fuera del repositorio.
+copias/
+backups/
+*.db.bak
+*.tar.gz
 
 # OS
 .DS_Store

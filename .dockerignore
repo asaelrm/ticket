@@ -1,17 +1,83 @@
-node_modules
-**/node_modules
-**/dist
-backend/data
-backend/uploads
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-.git
+# ============================================================================
+# Contexto de build: que se envia al daemon y que puede acabar en la imagen
+# ============================================================================
+# El Dockerfile hace `COPY backend ./` y `COPY frontend ./`, es decir copia
+# directorios ENTEROS. Eso convierte en imagen cualquier cosa que este ahi sin
+# querer, asi que las reglas de este fichero no son una cuestion de tamano:
+# son lo que impide que la base de datos de produccion viaje dentro de la
+# imagen.
+#
+# Antes de tocar este fichero, comprobar que sigue lo que el build necesita:
+#   backend/package*.json   -> npm ci de dependencias de produccion
+#   backend/src             -> el runtime (config.js, db.js, server.js...)
+#   frontend/package*.json  -> npm ci del frontend
+#   frontend/src, public    -> entrada de `npm run build`
+#   frontend/index.html     -> plantilla de Vite
+#   frontend/vite.config.js -> configuracion del build
+# Todo lo demas se puede excluir sin romper el build.
+
+# --- Datos de produccion: lo mas importante de esta lista -------------------
+# backend/data/tickets.db contiene los tickets y las cuentas reales, y
+# backend/uploads/ los adjuntos. Se montan en volumenes en tiempo de ejecucion;
+# no pintan nada en la imagen.
+backend/data/
+backend/uploads/
+# Instantanea de cuentas, credenciales y rutas, que ademas se regenera al
+# arrancar con los datos reales del volumen.
+backend/directory.json
+
+# --- Dependencias: se reinstalan dentro de la imagen -------------------------
+# 156 MB que no hacen falta, y los del host son de Windows: si Travelan, rompen
+# la etapa de build de Linux.
+**/node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# --- Secretos y configuracion local ------------------------------------------
+# .env solo se usa en desarrollo y lleva las claves de sesion reales. El
+# ejemplo si se conserva, para que exista dentro de la imagen.
 .env
-.env.local
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+
+# --- Estado de git -----------------------------------------------------------
+# 47 MB de historico que la imagen no necesita.
+.git/
+.gitignore
+.gitattributes
+
+# --- Artefactos que se regeneran ----------------------------------------------
+# El frontend se compila dentro de la imagen; copia el dist del host
+# sobreescribiria el recien compilado con el del ultimo build en local.
+frontend/dist/
+backend/dist/
+**/coverage/
+**/.cache/
+*.tsbuildinfo
+
+# --- Dependencias de desarrollo que tampoco hacen falta en la imagen ----------
+# npm ci ya corre dentro de la imagen; los tests se ejecutan en el host contra
+# una base de datos temporal, no dentro del contenedor.
+backend/test/
+**/*.test.js
+**/*.spec.js
+.vscode/
+.idea/
+**/.DS_Store
+Thumbs.db
+
+# --- Documentacion y ficheros de trabajo --------------------------------------
+# Ninguno de esto lo consume el runtime.
+*.md
+!backend/**/*.md
+LICENSE
+docker-compose*.yml
+deploy/
+docs/
+*.txt
 *.log
-README.md
-.github
-.vscode
-.idea
+.vs/
+.idea/

@@ -1,0 +1,60 @@
+# ============================================================
+# Configuracion del tunel de Cloudflare — PREPARADA, NO ACTIVA
+# ============================================================
+# Este archivo describe COMO debe ser el tunel. No hace nada por si solo: solo
+# lo lee cloudflared, y cloudflared solo arranca si se pide el perfil
+# `tunnel` (ver ../compose.tunnel.yml).
+#
+# ANTES de rellenar los dos marcadores de abajo:
+#   cloudflared tunnel login
+#   cloudflared tunnel create ticket
+# El comando imprime un ID con esta forma:
+#   1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d
+# y deja un credentials.json en ~/.cloudflared/. Copiar ese ID a `tunnel:` y
+# ese fichero a deploy/https/tunnel/credentials.json (esta en .gitignore).
+#
+# El ID y el credentials.json NO se pueden inventar: sin ellos el tunel no
+# arranca, y es justamente lo que se quiere.
+
+tunnel: PONER_AQUI_EL_ID_DEL_TUNEL
+
+# Autenticacion con el tunel. El fichero lo genera `tunnel create`.
+credentials-file: /etc/cloudflared/credentials.json
+
+# ------------------------------------------------------------
+# Como se verifica el origen
+# ------------------------------------------------------------
+# Caddy emite su certificado con una CA propia (`tls internal` en el Caddyfile).
+# Sin esto, cloudflared rechazaria el certificado por no estar en ningun
+# almacen publico, y la unica salida seria desactivar la verificacion
+# (noTLSVerify). En vez de eso se le da la CA:
+#
+#   caPool          -> el fichero de la CA, montado en solo lectura desde el
+#                      volumen de Caddy.
+#   originServerName-> el nombre del certificado. Sin esto, cloudflared
+#                      compararia el certificado con "caddy" y fallaria.
+#
+# Asi el tramo tunel -> Caddy va cifrado Y verificado, y no hace falta
+# --no-tls-verify en ningun sitio.
+originRequest:
+  originServerName: tickets.lan
+  caPool: /caddy-ca/pki/authorities/local/root.crt
+  # La aplicacion no acepta el origen si no esta en CORS_ORIGIN. El tunel
+  # presenta el hostname publico, no tickets.lan, asi que ese hostname tiene
+  # que estar permitido en CORS_ORIGIN del despliegue (ver README.md).
+  httpHostHeader: tickets.lan
+  noTLSVerify: false
+
+# ------------------------------------------------------------
+# Que entra por el tunel
+# ------------------------------------------------------------
+ingress:
+  # El hostname publico que se haya registrado en Cloudflare. Pon aqui el
+  # dominio real, no tickets.lan: ese es el nombre interno de la LAN.
+  - hostname: PONER_AQUI_EL_HOSTNAME_PUBLICO
+    service: https://caddy:443
+
+  # Regla de cierre: cualquier otro nombre que llegue al tunel se rechaza con
+  # 404 en vez de reenviarse al backend. Sin ella, un hostname mal
+  # configurado en el panel llegaria a la aplicacion.
+  - service: http_status:404

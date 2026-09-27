@@ -1,0 +1,80 @@
+# ============================================================
+# Cloudflare Tunnel — PREPARADO, NO ACTIVO
+# ============================================================
+# Este archivo NO se usa solo. El servicio `cloudflared` lleva
+# `profiles: ["tunnel"]`, asi que `docker compose up` sin mas NO lo levanta.
+# Para arrancarlo haria falta pedirlo explicitamente:
+#
+#   docker compose -f docker-compose.yml -f deploy/https/compose.https.yml \
+#                  -f deploy/https/tunnel/compose.tunnel.yml \
+#                  --profile tunnel up -d
+#
+# Y antes habria que cumplir las tres condiciones de abajo. Nada de eso se ha
+# hecho: no hay token, ni credenciales, ni cuenta de Cloudflare configurada.
+#
+# ------------------------------------------------------------
+# 1. De donde sale el trafico
+# ------------------------------------------------------------
+#   Internet --TLS (Cloudflare)--> cloudflared --TLS--> caddy:443 --HTTP--> app:4000
+#
+# El tunel NUNCA habla con Vite ni con el puerto 4000. Apunta a `caddy:443`,
+# que es la unica entrada del despliegue, igual que los navegadores de la LAN.
+# Asi el tunel no introduce una segunda ruta al backend ni un segundo punto
+# donde la configuracion de cookies y HSTS pueda divergir.
+#
+# El tramo cloudflared -> caddy va CIFRADO y VERIFICADO: el certificado lo
+# emite la CA interna de Caddy, y esa CA se le pasa a cloudflared en
+# `caPool`. Asi que el tunel no necesita `--no-tls-verify` ni `noTLSVerify`.
+# La alternativa facil (apuntar a `http://caddy:80` en claro) se descarta a
+# proposito: el tramo interno de la red Docker no sale a la red, pero TLS
+# aqui no cuesta nada y elimina una clase entera de errores de red.
+#
+# ------------------------------------------------------------
+# 2. Lo que hay que aportar antes de activarlo
+# ------------------------------------------------------------
+#   - Un tunel con nombre:
+#         cloudflared tunnel login
+#         cloudflared tunnel create ticket
+#     Eso imprime un ID y deja un credentials.json. Copiar ese ID a
+#     deploy/https/tunnel/config.yml y el credentials.json a
+#     deploy/https/tunnel/credentials.json (esta en .gitignore, NO se sube).
+#   - Un hostname publico con un registro CNAME hacia
+#     <id>.cfargotunnel.com, y de ahi un "Public Hostname" que apunte a
+#     `https://caddy:443`.
+#   - `tickets.lan` resuelto a esta maquina en cada equipo de la LAN, como ya
+#     esta descrito en deploy/https/README.md seccion 3.
+#
+# ------------------------------------------------------------
+# 3. Lo que este archivo NO hace
+# ------------------------------------------------------------
+#   - No abre puertos: cloudflared no publica nada. Sale por HTTPS saliente
+#     (salida a internet), no necesita puertos entrantes ni abrir el router.
+#   - No toca la cookie ni HSTS: los decide Caddy y Express, igual que para
+#     la LAN.
+#   - No sirve el frontend por una via distinta: pasa por el mismo Caddy.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2025.8.1
+    # Con profiles, este servicio no arranca salvo que se pida --profile tunnel.
+    profiles: ["tunnel"]
+    depends_on:
+      - caddy
+    command: tunnel --no-autoupdate run --config /etc/cloudflared/config.yml
+    volumes:
+      - ./config.yml:/etc/cloudflared/config.yml:ro
+      # Las credenciales del tunel. Nunca se suben al repositorio.
+      - ./credentials.json:/etc/cloudflared/credentials.json:ro
+      # La CA raiz de Caddy, en LECTURA, para que el tunel pueda verificar el
+      # certificado del origen en vez de desactivarlo.
+      - caddy_data:/caddy-ca:ro
+    networks:
+      # La misma red que Caddy, por nombre de servicio: `caddy:443` resuelve
+      # dentro de la red sin depender de IP.
+      - edge
+    restart: unless-stopped
+    # El token NO se escribe aqui. Si se prefiere arrancar con token en vez de
+    # credenciales en disco, sustituir `command` por:
+    #   tunnel --no-autoupdate run --token ${TUNNEL_TOKEN:?define TUNNEL_TOKEN}
+    # y quitar el montaje de credentials.json. El token tambien es un secreto:
+    # va en el entorno o en un fichero .env, nunca en este archivo.

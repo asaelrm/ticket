@@ -1,0 +1,30 @@
+# ============================================================================
+# LABORATORIO: contraejemplo. Que pasa SIN el `name:` explicito
+# ============================================================================
+# Los dos stacks comparten proyecto y clave de volumen, y no declaran `name:`,
+# igual que el docker-compose.yml real de produccion. Sirve para dejar constancia
+# de por que "basta con quitar external: true" NO es una solucion: la clave
+# `ticket_data` se resuelve a `<proyecto>_ticket_data`, y como el proyecto se
+# llama igual en produccion y en desarrollo, los dos stacks caen en el MISMO
+# volumen. Sin `name:` explicito no hay separacion, se}n usuario lo recuerde o no.
+
+name: ticketvolsep
+
+services:
+  uno:
+    image: node:24-alpine
+    container_name: volsep-colision-uno
+    command: sh -c 'ls -A /d'
+    volumes:
+      - ticket_data:/d
+
+  dos:
+    image: node:24-alpine
+    container_name: volsep-colision-dos
+    command: sh -c 'ls -A /d'
+    volumes:
+      - ticket_data:/d
+
+volumes:
+  # Sin `name:` a proposito: es el estado en el que queda el repo real.
+  ticket_data: {}

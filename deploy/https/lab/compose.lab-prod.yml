@@ -1,0 +1,129 @@
+# ============================================================
+# LABORATORIO ESPEJO DE PRODUCCION — topologia real, sin Vite
+# ============================================================
+# Este es el banco de pruebas que valida el despliegue de verdad. El otro
+# laboratorio (compose.lab.yml) monta Vite porque reproduce el modo de
+# desarrollo; este monta la MISMA imagen que produce el Dockerfile, que es
+# lo que se desplegara, y monta el MISMO Caddyfile de produccion.
+#
+# Que cambia respecto al otro laboratorio:
+#   - no hay Vite ni HMR: el frontend va compilado dentro de la imagen y lo
+#     sirve Express (app.js:153-168). Es la topologia que se va a desplegar;
+#   - el Caddyfile que se monta es deploy/https/Caddyfile, el de produccion,
+#     no una copia. Si el de produccion se rompe, aqui se ve;
+#   - monta el Dockerfile real, asi que tambien valida esa imagen;
+#   - el cliente de correo es un sumidero local, para poder probar la
+#     recuperacion de contrasena en modo produccion (donde la API ya no
+#     devuelve el token).
+#
+# Aislado: proyecto `ticketlabprod`, red 172.31.0.0/24, volumenes
+# `ticketlabprod_*` y escucha SOLO en 127.0.0.1:8444. No comparte nada con el
+# servicio real ni con el otro laboratorio, y puede convivir con los dos.
+#
+# Uso (los secretos van en el entorno, nunca en este archivo):
+#   $env:LABPROD_SESSION_SECRET = "lo-que-sea"
+#   $env:LABPROD_ADMIN_PASSWORD = "lo-que-sea"
+#   docker compose -p ticketlabprod -f deploy/https/lab/compose.lab-prod.yml up -d --build
+#   powershell -ExecutionPolicy Bypass -File deploy\https\lab\verify-lab-prod.ps1
+#
+# Limpieza (esto SI borra datos, pero solo del laboratorio):
+#   docker compose -p ticketlabprod -f deploy/https/lab/compose.lab-prod.yml down -v
+
+name: ticketlabprod
+
+services:
+  # La aplicacion real: Express + el frontend compilado, en un solo contenedor.
+  app:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      # Secreto propio del laboratorio. Nunca el de produccion.
+      SESSION_SECRET: ${LABPROD_SESSION_SECRET:?define LABPROD_SESSION_SECRET con 32+ caracteres}
+      # Es lo que se quiere validar: la cookie con Secure SIEMPRE.
+      COOKIE_SECURE: "true"
+      PUBLIC_URL: https://tickets.lan
+      CORS_ORIGIN: https://tickets.lan
+      # La IP estatica del servicio `caddy` de mas abajo. Es el unico pariente
+      # TCP que ve Express, asi que es el unico al que se le hace caso.
+      TRUST_PROXY: 172.31.0.10
+      PUBLIC_HOSTS: tickets.lan
+      MAX_UPLOAD_SIZE_MB: "5"
+      MAX_FILES_PER_TICKET: "5"
+      # Correo al sumidero de abajo, para poder medir la recuperacion de
+      # contrasena sin un servidor de correo de verdad.
+      MAIL_ENABLED: "true"
+      MAIL_TRANSPORT: smtp
+      SMTP_HOST: smtpsink
+      SMTP_PORT: "1025"
+      SMTP_SECURE: "false"
+      SMTP_FROM: tickets@lab.local
+      SMTP_FROM_NAME: Ticket Laboratorio
+      # Administrador del laboratorio, solo para poder entrar. Va en el
+      # entorno, no en este archivo.
+      SEED_ADMIN_USERNAME: ${LABPROD_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_EMAIL: ${LABPROD_ADMIN_EMAIL:-admin@lab.local}
+      SEED_ADMIN_PASSWORD: ${LABPROD_ADMIN_PASSWORD:?define LABPROD_ADMIN_PASSWORD con 12+ caracteres}
+    volumes:
+      # Volumenes propios del laboratorio: los datos y los adjuntos se
+      # prueban de verdad, con `down` y `up` pero sin perderlos.
+      - labprod_data:/app/backend/data
+      - labprod_uploads:/app/backend/uploads
+    networks:
+      labnet:
+        ipv4_address: 172.31.0.20
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # Sumidero de correo del laboratorio. No es parte del despliegue: existe
+  # solo para poder leer el token de recuperacion y asi probarla.
+  smtpsink:
+    image: node:24-alpine
+    command: node /lab/smtp-sink.mjs
+    environment:
+      SINK_PORT: "1025"
+      SINK_DIR: /correo
+    volumes:
+      - ./smtp-sink.mjs:/lab/smtp-sink.mjs:ro
+      - labprod_correo:/correo
+    networks:
+      labnet:
+        ipv4_address: 172.31.0.30
+
+  # Proxy de borde. Monta el Caddyfile DE PRODUCCION, sin tocarlo.
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      # Solo loopback y en otro puerto que el otro laboratorio: 8444.
+      - "127.0.0.1:8444:443"
+    volumes:
+      - ../Caddyfile:/etc/caddy/Caddyfile:ro
+      - labprod_caddy_data:/data
+      - labprod_caddy_config:/config
+    networks:
+      labnet:
+        # Estatica y estable: de este valor depende TRUST_PROXY.
+        ipv4_address: 172.31.0.10
+
+networks:
+  labnet:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+
+volumes:
+  labprod_data:
+  labprod_uploads:
+  labprod_correo:
+  labprod_caddy_data:
+  labprod_caddy_config:

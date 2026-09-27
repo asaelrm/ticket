@@ -1,0 +1,28 @@
+# ============================================================================
+# LABORATORIO: simulacion del stack de PRODUCCION para probar la separacion
+# ============================================================================
+# No toca los volumenes reales. Usa el prefijo `ticketvolsep_`.
+#
+# Reproduce a proposito la condicion dangerosa del repo real: el proyecto de
+# Compose se llama `ticket`, el MISMO que tendra produccion, porque ambos
+# ficheros estan en el mismo directorio. Asi se ve que la separacion no
+# depende de acordarse de pasar `-p`.
+#
+# La diferencia con el docker-compose.yml real es una sola, y es la que hay
+# que exportar: el volumen lleva `name:` explicito. Sin eso, la clave
+# `ticket_data` de este fichero se resolveria a `ticket_ticket_data`, que es
+# justo el volumen de produccion.
+
+name: ticketvolsep
+
+services:
+  prod:
+    image: node:24-alpine
+    container_name: volsep-prod
+    command: sh -c 'echo "PRODUCION" > /d/marca.txt; ls -A /d'
+    volumes:
+      - ticket_data:/d
+
+volumes:
+  ticket_data:
+    name: ticketvolsep_prod_data

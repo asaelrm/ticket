@@ -1,0 +1,24 @@
+# ============================================================================
+# LABORATORIO: simulacion del stack de DESARROLLO para probar la separacion
+# ============================================================================
+# Companion de `compose.volsep-prod.yml`. Mismo proyecto, misma clave de
+# volumen, mismo contenedor: lo UNICO que cambia es el `name:` explicito. Si
+# con esa unica diferencia los dos stacks siguen viniendo separados, queda
+# demostrado que el nombre explicito es lo que protege los datos.
+#
+# Para escribir en el volumen equivocado haria falta borrar el `name:` de aqui,
+# que es exactamente el forget que documenta el README.
+
+name: ticketvolsep
+
+services:
+  dev:
+    image: node:24-alpine
+    container_name: volsep-dev
+    command: sh -c 'echo "DESARROLLO" > /d/marca.txt; echo "  dev leyo $(cat /d/marca.txt)"; ls -A /d'
+    volumes:
+      - ticket_data:/d
+
+volumes:
+  ticket_data:
+    name: ticketvolsep_dev_data
