@@ -14,12 +14,33 @@
 // saltos: sirve solo si hay exactamente un proxy delante y nadie más puede
 // inyectar la cabecera, lo que tampoco es asumible desde una LAN.
 const BLIND_VALUES = new Set(['true', 'yes', 'on', 'all']);
+const TRUSTED_KEYWORDS = new Set(['loopback', 'linklocal', 'uniquelocal']);
+
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/;
+// Compresión IPv6 suficiente para validar; no hace falta interpretarla.
+const IPV6 = /^[0-9a-fA-F:]+(\/\d{1,3})?$/;
+
+function isIpOrCidr(entry) {
+  if (TRUSTED_KEYWORDS.has(entry)) return true;
+  if (IPV4.test(entry)) {
+    const [addr, prefix] = entry.split('/');
+    const octets = addr.split('.').map(Number);
+    if (octets.some((o) => o > 255)) return false;
+    if (prefix === undefined) return true;
+    return Number(prefix) <= 32;
+  }
+  if (IPV6.test(entry) && entry.includes(':')) {
+    const [, prefix] = entry.split('/');
+    return prefix === undefined || Number(prefix) <= 128;
+  }
+  return false;
+}
 
 export function resolveTrustProxy(raw) {
   const value = String(raw ?? '').trim();
 
-  if (!value) return false;
-  if (value.toLowerCase() === 'false' || value.toLowerCase() === 'off') return false;
+  if (!value) return { value: false, warning: null };
+  if (value.toLowerCase() === 'false' || value.toLowerCase() === 'off') return { value: false, warning: null };
 
   if (BLIND_VALUES.has(value.toLowerCase())) {
     return { value: true, warning: 'TRUST_PROXY está en modo "confiar en cualquiera": cualquier cliente puede falsificar X-Forwarded-Proto. Limítelo a la IP o el CIDR del proxy.' };
@@ -36,18 +57,24 @@ export function resolveTrustProxy(raw) {
     };
   }
 
-  // Lista separada por comas de IP literales, CIDR o `loopback`, `linklocal`
-  // y `uniquelocal`, que son los nombres que acepta Express.
+  // Lista separada por comas de IP literales, CIDR o las palabras que acepta
+  // Express (loopback, linklocal, uniquelocal). Cualquier otra cosa se
+  // descarta: un valor mal escrito no debe abrir la puerta por sorpresa.
   const entries = value
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+  const valid = entries.filter(isIpOrCidr);
+  const rejected = entries.filter((e) => !isIpOrCidr(e));
 
-  if (!entries.length) {
-    return { value: false, warning: `TRUST_PROXY tiene un valor no reconocido ("${value}"): se ignora y no se confía en ninguna cabecera.` };
+  if (!valid.length) {
+    return { value: false, warning: `TRUST_PROXY no contiene ninguna IP o CIDR válido ("${value}"): se ignora y no se confía en ninguna cabecera.` };
   }
 
-  return { value: entries, warning: null };
+  return {
+    value: valid,
+    warning: rejected.length ? `TRUST_PROXY: se ignoran las entradas no válidas (${rejected.join(', ')}).` : null,
+  };
 }
 
 // Hosts (sin puerto) que deben recibir HSTS. HSTS es por host, así que solo se
