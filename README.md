@@ -47,7 +47,14 @@ npm run dev:backend   # http://localhost:4000
 npm run dev:frontend  # http://localhost:5173
 ```
 
-La primera vez que arranca, el backend aplica migraciones y crea el seed automáticamente.
+La primera vez que arranca, el backend aplica migraciones y crea el seed
+automáticamente, pero **no crea ninguna cuenta**: no hay contraseñas por defecto
+en el código. Para poder entrar, defina `SEED_ADMIN_PASSWORD` en
+`backend/.env` con 12+ caracteres, arranque, entre y quítela. Si quiere las
+cuentas de demostración, añada `SEED_DEMO_ACCOUNTS=true` junto con
+`SEED_DEMO_PASSWORD` y `SEED_TECH_PASSWORD`. Ver
+[Cuentas iniciales (seed)](#cuentas-iniciales-seed).
+
 
 ## Directorio de usuarios y departamentos
 
@@ -85,20 +92,20 @@ debe restablecerlas antes de que puedan entrar.
 
 ## Cuentas iniciales (seed)
 
-En **desarrollo** se crean automáticamente tres cuentas de demostración —`admin`,
-`tecnico` y `empleado`— con una contraseña de ejemplo definida en
-[`backend/src/seed.js`](backend/src/seed.js). **No se documentan aquí a
-propósito**: una contraseña de ejemplo escrita en el README acaba en
-producción, en una captura de pantalla o en un ticket, y con ella cualquiera que
-lea el repositorio entra como administrador.
+El seed **no inventa ninguna contraseña**. No existe ningún valor por defecto
+escrito en el código: sin configuración, no se crea ninguna cuenta. Es
+deliberado, porque el fallo que causa más daños es el despliegue que arranca
+"sin querer" y nace con un `admin` de contraseña pública.
 
-> **Cámbielas en el primer inicio**, antes de usar el sistema con datos de
-> verdad. La contraseña se cambia en *Mi perfil* y desde *Usuarios* para las
-> cuentas de los demás.
+### Administrador (el procedimiento normal)
 
-En **producción** las cuentas demo con contraseña conocida **no se crean**. El
-administrador inicial se crea al arrancar solo si define `SEED_ADMIN_PASSWORD`
-(opcionalmente `SEED_ADMIN_USERNAME` y `SEED_ADMIN_EMAIL`).
+1. Defina `SEED_ADMIN_PASSWORD` con 12 caracteres o más
+   (opcionalmente `SEED_ADMIN_USERNAME` y `SEED_ADMIN_EMAIL`).
+2. Arranque una vez: se crea el administrador con esa contraseña.
+3. Entre, cámbiela en *Mi perfil* y **quite `SEED_ADMIN_PASSWORD` del entorno**.
+
+En producción, una `SEED_ADMIN_PASSWORD` de menos de 12 caracteres o con aspecto
+de valor de ejemplo **impide el arranque**.
 
 Si el administrador **ya existe**, `SEED_ADMIN_PASSWORD` **no hace nada**: el
 arranque avisa por consola y respeta la contraseña que haya. Así, una variable
@@ -106,6 +113,18 @@ que se quedó en el entorno no puede devolver el sistema a una contraseña conoc
 en cada reinicio. Si de verdad necesita restablecer el acceso del
 administrador, defina además `SEED_ADMIN_FORCE_PASSWORD=true` **una sola vez**,
 compruebe que puede entrar y quite las dos variables.
+
+### Cuentas de demostración
+
+`tecnico` y `empleado` solo se crean si usted lo pide **explícitamente** con
+`SEED_DEMO_ACCOUNTS=true`. Que `NODE_ENV` no sea `production` **ya no basta**:
+un despliegue con `NODE_ENV=staging`, o sin definir, también es una instalación
+real. En producción la aplicación **rechaza** esa variable y no arranca.
+
+Indique también `SEED_DEMO_PASSWORD` y `SEED_TECH_PASSWORD` si quiere poder
+entrar con ellas. Si no lo hace, las cuentas se crean con una contraseña
+aleatoria inusable y el arranque avisa de cuáles son, en lugar de darles una
+contraseña que está escrita en el repositorio.
 
 
 ## Scripts
@@ -140,7 +159,10 @@ usan `test/helpers.js` se conectan con la base de datos real.
 ## Producción
 
 1. `npm run build` (frontend a `frontend/dist`).
-2. Configurar `.env` con `NODE_ENV=production`, `SESSION_SECRET` fuerte, `COOKIE_SECURE=true` y dominio HTTPS.
+2. Configurar `.env` con `NODE_ENV=production`, `PUBLIC_URL`, `SESSION_SECRET`
+   aleatorio de 32+ caracteres, `COOKIE_SECURE=true` y dominio HTTPS. Con la
+   configuración incompleta el proceso **no arranca** (ver
+   [Qué impide el arranque en producción](#qué-impide-el-arranque-en-producción)).
 3. Para correos reales, definir `MAIL_ENABLED=true`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM`.
 4. `npm start` — el backend sirve la API y el frontend compilado.
 
@@ -148,22 +170,42 @@ usan `test/helpers.js` se conectan con la base de datos real.
 
 | Variable               | Descripción                                                                                                                            |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`             | `production` activa validaciones estrictas (exige `SESSION_SECRET`).                                                                   |
-| `SESSION_SECRET`       | **Obligatoria en producción.** El arranque falla si `NODE_ENV=production` y no está definida.                                          |
-| `PUBLIC_URL`           | URL pública (sin slash final) usada para construir los enlaces absolutos de los correos, p. ej. el de recuperación de contraseña. Si no se define, se toma el origen del frontend (`CORS_ORIGIN`), no el puerto de la API. |
+| `NODE_ENV`             | `production` activa las validaciones estrictas de arranque (sección siguiente).                                                       |
+| `SESSION_SECRET`       | **Obligatoria en producción**: 32+ caracteres aleatorios. El arranque falla si falta, si es corta, si se parece a un valor de ejemplo o si repite un patrón corto. |
+| `PUBLIC_URL`           | **Obligatoria en producción** (URL sin slash final): sin ella el proceso no arranca, porque los enlaces de los correos quedarían mal construidos. |
 | `CORS_ORIGIN`          | Origen permitido por CORS. En producción con la SPA servida por el propio backend, use el mismo valor que `PUBLIC_URL`.                |
 | `CORS_ORIGINS`         | Alternativa a `CORS_ORIGIN`: lista de orígenes separados por comas. Tiene prioridad sobre `CORS_ORIGIN`.                               |
-| `COOKIE_SECURE`        | `true` cuando se sirve por HTTPS para que la cookie de sesión solo viaje por canales seguros.                                          |
-| `SEED_ADMIN_PASSWORD`  | Contraseña del administrador inicial. Solo se usa **al crearlo**: si la cuenta ya existe, no se aplica y el arranque avisa. Las cuentas demo no se crean en producción. |
+| `COOKIE_SECURE`        | `true` cuando se sirve por HTTPS para que la cookie de sesión solo viaje por canales seguros. Si está apagado en producción, el arranque **avisa**. |
+| `SEED_ADMIN_PASSWORD`  | Contraseña del administrador inicial (12+ caracteres en producción). Solo se usa **al crearlo**: si la cuenta ya existe, no se aplica y el arranque avisa. |
 | `SEED_ADMIN_FORCE_PASSWORD` | `true` vuelve a aplicar `SEED_ADMIN_PASSWORD` aunque el administrador ya exista. Es la única vía de recuperación: úsela una vez y quítela. |
 | `SEED_ADMIN_USERNAME`  | Usuario del administrador inicial (por defecto `admin`).                                                                               |
 | `SEED_ADMIN_EMAIL`     | Correo del administrador inicial (por defecto `admin@empresa.com`).                                                                    |
+| `SEED_DEMO_ACCOUNTS`   | `true` crea `empleado` y `tecnico`. **Rechazado en producción**, donde además impide el arranque. Por defecto `false`.              |
+| `SEED_DEMO_PASSWORD`   | Contraseña de la cuenta `empleado`. Si falta, la cuenta nace con una contraseña aleatoria inusable.                                  |
+| `SEED_TECH_PASSWORD`   | Contraseña de la cuenta `tecnico`. Si falta, la cuenta nace con una contraseña aleatoria inusable.                                    |
 | `DIRECTORY_SYNC`       | `false` desactiva por completo el archivo `directory.json` (por defecto `true`).                                                      |
 | `DIRECTORY_SNAPSHOT_FILE` | Ruta del archivo del directorio (por defecto `backend/directory.json`). Ya no lleva contraseñas.                                   |
 
-> En producción las cuentas demo con contraseña conocida **no se crean**. Defina
-> `SEED_ADMIN_PASSWORD` para crear el administrador inicial y cambie la contraseña
-> tras el primer inicio de sesión.
+### Qué impide el arranque en producción
+
+`NODE_ENV=production` no es una etiqueta: activa una comprobación al importar la
+configuración, es decir **antes** de crear directorios, migrar o insertar
+usuarios. Si algo de esto falla, el proceso muere con el motivo en pantalla en
+lugar de seguir adelante con un valor por defecto:
+
+- `SESSION_SECRET` ausente, más corto de 32 caracteres, o con aspecto de valor de
+  ejemplo (`cambie-esto`, `change-me`, un patrón corto repetido, el secreto de
+  desarrollo del repositorio...).
+- `SEED_ADMIN_PASSWORD` con menos de 12 caracteres o con aspecto de ejemplo.
+- `SEED_DEMO_ACCOUNTS=true`, que en producción es un error de configuración.
+- `PUBLIC_URL` ausente o mal formada.
+
+Además avisa —sin impedir el arranque— si `COOKIE_SECURE` está apagado o si
+`PUBLIC_URL`/`CORS_ORIGIN` siguen apuntando a `localhost`.
+
+> En producción las cuentas demo con contraseña conocida **no se crean ni se
+> pueden pedir**. Defina `SEED_ADMIN_PASSWORD` para crear el administrador
+> inicial y cambie la contraseña tras el primer inicio de sesión.
 
 ### Docker Compose
 
@@ -178,6 +220,14 @@ docker compose up -d --build
 `ticket_data` (base de datos) y `ticket_uploads` (adjuntos), y define un
 healthcheck contra `/api/health`. Las variables anteriores se pueden colocar en
 un archivo `.env` junto a `docker-compose.yml` en lugar de pasarlas en línea.
+
+`SESSION_SECRET` es la única variable que el compose **exige** (`${SESSION_SECRET:?…}`):
+si falta, `docker compose up` no arranca en lugar de inventar un secreto.
+`SEED_ADMIN_PASSWORD` no tiene valor por defecto, y `PUBLIC_URL` se deja vacía a
+propósito para que la aplicación decida: definiéndola se evita el fallo de
+arranque. `COOKIE_SECURE` y `PUBLIC_URL` no tienen valor por defecto en el compose
+base porque el override de HTTPS los fija; fijar aquí un valor por defecto rompería
+esa combinación.
 
 > Sin SMTP configurado (`MAIL_ENABLED=false`), los correos no se envían: se registran en la tabla `email_logs` y en consola (modo desarrollo), y el admin puede verlos desde **Configuración → Notificaciones**.
 

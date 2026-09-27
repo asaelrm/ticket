@@ -7,13 +7,27 @@
     environment:
       NODE_ENV: development
       PORT: 4000
+      # Secreto de DESARROLLO. Es público a propósito y por eso la
+      # aplicación lo rechaza en producción. No lo reutilice en ningún
+      # despliegue real.
       SESSION_SECRET: desarrollo-local-ticket
       COOKIE_SECURE: "false"
       CORS_ORIGIN: http://localhost:5173
       PUBLIC_URL: http://localhost:5173
-      SEED_ADMIN_PASSWORD: ""
+      # Primer arranque en local: defina SEED_ADMIN_PASSWORD (12+ caracteres)
+      # para crear el administrador, entre y quítela. Sin ella no se crea
+      # ninguna cuenta y no hay forma de entrar.
+      SEED_ADMIN_PASSWORD: "${SEED_ADMIN_PASSWORD:-}"
       SEED_ADMIN_USERNAME: admin
       SEED_ADMIN_EMAIL: admin@empresa.com
+      # Cuentas de demostración: hay que pedirlas explícitamente, y además
+      # indicar su contraseña (si no, nacen con una aleatoria inusable).
+      #   $env:SEED_DEMO_ACCOUNTS = "true"
+      #   $env:SEED_DEMO_PASSWORD = "<algo>"
+      #   $env:SEED_TECH_PASSWORD = "<algo>"
+      SEED_DEMO_ACCOUNTS: "${SEED_DEMO_ACCOUNTS:-false}"
+      SEED_DEMO_PASSWORD: "${SEED_DEMO_PASSWORD:-}"
+      SEED_TECH_PASSWORD: "${SEED_TECH_PASSWORD:-}"
     volumes:
       - ./backend:/app/backend
       - backend_node_modules:/app/backend/node_modules

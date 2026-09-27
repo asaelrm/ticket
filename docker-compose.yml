@@ -8,10 +8,20 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
-      SESSION_SECRET: ${SESSION_SECRET:-cambie-este-secreto-en-produccion-1234567890}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # SESSION_SECRET no tiene valor por defecto a proposito: si falta, el
+      # compose NO arranca. Ponlo en un fichero .env junto a este compose o en el
+      # entorno, con 32+ caracteres aleatorios:
+      #   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+      SESSION_SECRET: ${SESSION_SECRET:?define SESSION_SECRET con 32+ caracteres aleatorios}
+      # Sin valor por defecto también: la aplicación avisa al arrancar si la
+      # cookie de sesión puede viajar sin cifrar. El override de HTTPS lo pone
+      # a "true" (deploy/https/compose.https.yml).
+      COOKIE_SECURE: ${COOKIE_SECURE:-}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4000}
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:4000}
+      # Vacío a propósito: en producción, sin PUBLIC_URL el proceso se niega a
+      # arrancar, porque los enlaces de las notificaciones (incluido el de
+      # restablecer contraseña) se construirían con un origen equivocado.
+      PUBLIC_URL: ${PUBLIC_URL:-}
       # Proxy de confianza: IP o CIDR del proxy/túnel que termina TLS delante
       # de esta aplicación. VACÍO = no se confía en ninguna cabecera
       # X-Forwarded-*, que es el estado actual y el más seguro por defecto.
@@ -23,10 +33,19 @@ services:
       PUBLIC_HOSTS: ${PUBLIC_HOSTS:-}
       MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-5}
       MAX_FILES_PER_TICKET: ${MAX_FILES_PER_TICKET:-5}
-      # Administrador inicial (solo se crea si define SEED_ADMIN_PASSWORD).
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-123456}
+      # Administrador inicial. SIN valor por defecto: si no define
+      # SEED_ADMIN_PASSWORD, no se crea ninguna cuenta. Así una instalación
+      # nueva nunca nace con una contraseña escrita en el repositorio.
+      # Para crearlo: defínala aquí (o en .env) con 12+ caracteres, arranque
+      # una vez, entre y quítela de inmediato.
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@empresa.com}
+      # Cuentas de demostración. Requieren SEED_DEMO_ACCOUNTS=true y la
+      # aplicación las RECHAZA en producción: úselas solo en local.
+      SEED_DEMO_ACCOUNTS: ${SEED_DEMO_ACCOUNTS:-false}
+      SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:-}
+      SEED_TECH_PASSWORD: ${SEED_TECH_PASSWORD:-}
     volumes:
       - ticket_data:/app/backend/data
       - ticket_uploads:/app/backend/uploads

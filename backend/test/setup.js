@@ -24,11 +24,16 @@ process.env.UPLOAD_DIR = path.join(dir, 'uploads');
 // La instantánea del directorio se resuelve contra la raíz del backend, no
 // contra DATA_DIR: si no se indica, la suite escribiría backend/directory.json.
 process.env.DIRECTORY_SNAPSHOT_FILE = path.join(dir, 'directory.json');
-// Las pruebas necesitan las cuentas demo del seed, que solo se crean fuera de
-// producción. Se fija de forma explícita para que el resultado no dependa del
-// NODE_ENV de quien lanza la suite.
+// Las pruebas necesitan las cuentas que usa el resto de la suite, y el seed ya
+// no inventa ninguna: se las pide explícitamente con contraseñas de fixture que
+// solo existen aquí. Además, el resultado no puede depender del NODE_ENV de
+// quien lanza la suite.
 process.env.NODE_ENV = 'development';
 process.env.SESSION_SECRET = 'ticket-pruebas';
+process.env.SEED_ADMIN_PASSWORD = '123456';
+process.env.SEED_DEMO_ACCOUNTS = 'true';
+process.env.SEED_DEMO_PASSWORD = 'Empleado1234!';
+process.env.SEED_TECH_PASSWORD = 'Tecnico1234!';
 
 const { runMigrations } = await import('../src/db.js');
 const { seed } = await import('../src/seed.js');

@@ -11,6 +11,12 @@ process.env.DATA_DIR = tmp;
 process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
 process.env.SESSION_SECRET = 'test-secret';
 process.env.NODE_ENV = 'test';
+// El seed exige pedir cada cuenta. Estas son las credenciales de fixture que
+// usa la suite; no hay ninguna contraseña por defecto en el código de producción.
+process.env.SEED_ADMIN_PASSWORD = '123456';
+process.env.SEED_DEMO_ACCOUNTS = 'true';
+process.env.SEED_DEMO_PASSWORD = 'Empleado1234!';
+process.env.SEED_TECH_PASSWORD = 'Tecnico1234!';
 
 const { runMigrations } = await import('../src/db.js');
 const { seed } = await import('../src/seed.js');

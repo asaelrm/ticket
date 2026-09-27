@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import db, { transaction } from './db.js';
 import config from './config.js';
+import { unusablePassword } from './utils/password.js';
 
 function boolEnv(value) {
   if (value === undefined || value === null || value === '') return false;
@@ -165,6 +166,9 @@ function ensureUsers(options = {}) {
     env = config.env,
     seedAdminPassword = process.env.SEED_ADMIN_PASSWORD || '',
     forceAdminPassword = boolEnv(process.env.SEED_ADMIN_FORCE_PASSWORD),
+    seedDemoAccounts = boolEnv(process.env.SEED_DEMO_ACCOUNTS),
+    demoPassword = process.env.SEED_DEMO_PASSWORD || '',
+    techPassword = process.env.SEED_TECH_PASSWORD || '',
   } = options;
 
   const getDept = db.prepare('SELECT id FROM departments WHERE name = ?');
@@ -181,11 +185,13 @@ function ensureUsers(options = {}) {
   const adminUsername = process.env.SEED_ADMIN_USERNAME || 'admin';
   const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@empresa.com';
 
-  // En producción el administrador solo se crea si define SEED_ADMIN_PASSWORD.
-  // En desarrollo se crea con la contraseña demo '123456'.
-  const shouldCreateAdmin = !isProduction || Boolean(seedAdminPassword);
-  const adminPassword = seedAdminPassword || '123456';
-  if (shouldCreateAdmin) {
+  // El administrador SOLO nace si alguien define su contraseña. Antes se creaba
+  // con una contraseña de ejemplo de seis dígitos en cualquier entorno que no
+  // fuese exactamente 'production', así que un despliegue con NODE_ENV sin
+  // definir o mal escrito salía con una cuenta pública. Aquí no queda ninguna
+  // contraseña en el código: o la define quien instala, o el administrador no
+  // se crea.
+  if (seedAdminPassword) {
     const admin = getBy.get(adminUsername, adminEmail);
     if (!admin) {
       db.prepare(
@@ -196,18 +202,18 @@ function ensureUsers(options = {}) {
         process.env.SEED_ADMIN_LAST_NAME || 'Sistema',
         adminUsername,
         adminEmail,
-        bcrypt.hashSync(adminPassword, 12),
+        bcrypt.hashSync(seedAdminPassword, 12),
         deptTech?.id ?? null,
         'Administrador del sistema',
         roleAdmin,
         new Date().toISOString()
       );
-    } else if (seedAdminPassword && forceAdminPassword) {
+    } else if (forceAdminPassword) {
       // Única vía para recuperar el acceso: hay que pedirla explícitamente con
       // SEED_ADMIN_FORCE_PASSWORD=true. Sin ella, una variable que se quedó en
       // el entorno no vuelve a imponer una contraseña conocida en cada arranque.
       db.prepare('UPDATE users SET password_hash = ?, last_password_change_at = ? WHERE id = ?').run(
-        bcrypt.hashSync(adminPassword, 12),
+        bcrypt.hashSync(seedAdminPassword, 12),
         new Date().toISOString(),
         admin.id
       );
@@ -225,11 +231,28 @@ function ensureUsers(options = {}) {
     }
   }
 
-  // Cuentas demo: nunca en producción.
-  if (isProduction) return;
+  // Cuentas de demostración: exigen SEED_DEMO_ACCOUNTS=true y nunca en
+  // producción. Que NODE_ENV no sea 'production' ya NO basta: un despliegue con
+  // NODE_ENV=staging, o sin definir, también es una instalación real y no debe
+  // nacer con cuentas de contraseña conocida.
+  if (seedDemoAccounts && isProduction) {
+    console.error(
+      '[seed] SEED_DEMO_ACCOUNTS=true se ha ignorado: las cuentas de demostración no se '
+      + 'crean en producción. Si las necesita, levante ese entorno con NODE_ENV=development.'
+    );
+    return;
+  }
+  if (!seedDemoAccounts) return;
+
+  // Sin contraseña definida, la cuenta se crea con una aleatoria e
+  // inutilizable: es preferible a darle una contraseña que está escrita en el
+  // repositorio. Mismo criterio que el directorio de usuarios.
+  const sinContrasenaConocida = [];
 
   const emp = getBy.get('empleado', 'empleado@empresa.com');
   if (!emp) {
+    const password = demoPassword || unusablePassword();
+    if (!demoPassword) sinContrasenaConocida.push('empleado');
     db.prepare(
       `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
@@ -238,7 +261,7 @@ function ensureUsers(options = {}) {
       'Demo',
       'empleado',
       'empleado@empresa.com',
-      bcrypt.hashSync('Empleado1234!', 12),
+      bcrypt.hashSync(password, 12),
       deptRh?.id ?? null,
       'Analista',
       roleEmployee,
@@ -248,6 +271,8 @@ function ensureUsers(options = {}) {
 
   const tech = getBy.get('tecnico', 'tecnico@empresa.com');
   if (!tech) {
+    const password = techPassword || unusablePassword();
+    if (!techPassword) sinContrasenaConocida.push('tecnico');
     db.prepare(
       `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
@@ -256,11 +281,19 @@ function ensureUsers(options = {}) {
       'Soporte',
       'tecnico',
       'tecnico@empresa.com',
-      bcrypt.hashSync('Tecnico1234!', 12),
+      bcrypt.hashSync(password, 12),
       deptTech?.id ?? null,
       'Soporte Técnico',
       roleTechnician,
       new Date().toISOString()
+    );
+  }
+
+  if (sinContrasenaConocida.length) {
+    console.warn(
+      `[seed] Cuentas demo creadas SIN contraseña conocida: ${sinContrasenaConocida.join(', ')}. `
+      + 'Para poder entrar con ellas, defina SEED_DEMO_PASSWORD y SEED_TECH_PASSWORD antes del '
+      + 'primer arranque, o haga que un administrador las restablezca.'
     );
   }
 }
