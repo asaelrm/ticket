@@ -11,7 +11,7 @@ export function uploadMiddleware({ maxFiles = 12 } = {}) {
       // Sin estos tres, busboy admite un número ilimitado de campos de texto y
       // de "partes" (su límite por defecto es Infinity) y, con memoryStorage,
       // cada uno se queda en el heap antes de mirar ningún permiso: una sola
-      // petición podíatragarse varios GB. Los formularios reales usan 2 campos.
+      // petición podía tragarse varios GB. Los formularios reales usan 2 campos.
       fields: 20,
       parts: maxFiles + 20,
       fieldSize: 64 * 1024,
