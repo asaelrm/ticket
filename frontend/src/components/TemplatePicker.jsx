@@ -53,7 +53,20 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
     const r = btn.getBoundingClientRect();
     const width = Math.min(420, window.innerWidth - 16);
     const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
-    setPos({ top: Math.min(r.bottom + 6, window.innerHeight - 320), left });
+    // El alto del panel no se conoce hasta que se ha renderizado (cambia según
+    // si hay resultados, vista previa, etc.), así que se mide. Antes se
+    // asumía un alto fijo de 320 px: en una pantalla baja el panel se salía por
+    // abajo, y con window.innerHeight < 320 la posición calculada era negativa
+    // y el menú aparecía fuera de la ventana.
+    const height = panelRef.current?.getBoundingClientRect().height ?? 320;
+    const margin = 8;
+    const roomBelow = window.innerHeight - r.bottom - margin;
+    const roomAbove = r.top - margin;
+    let top;
+    if (height <= roomBelow) top = r.bottom + 6;
+    else if (height <= roomAbove) top = Math.max(margin, r.top - height - 6);
+    else top = Math.max(margin, Math.min(r.bottom + 6, window.innerHeight - height - margin));
+    setPos({ top: Math.round(top), left: Math.round(left) });
   };
 
   useEffect(() => {
@@ -83,6 +96,14 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Reubicar cuando cambia el alto del panel: al abrirlo la lista suele estar
+  // vacía y al cargar los resultados (o al elegir una plantilla y aparecer la
+  // vista previa) crece.
+  useLayoutEffect(() => {
+    if (open) place();
+  }, [open, templates.length, highlight, tooLong]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const current = templates[highlight] || null;
   const expansion = current ? expandTemplate(current.body, context) : null;
