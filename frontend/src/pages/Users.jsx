@@ -16,6 +16,14 @@ const EMPTY = {
   role_id: '',
 };
 
+// Enlace de restablecimiento. Se usa el origen real del navegador para que
+// apunte al servidor que el administrador está usando, y se codifica el token
+// porque es base64url y puede llevar caracteres con significado en la URL.
+export function resetEnlace(token) {
+  const origen = typeof window === 'undefined' ? '' : window.location.origin;
+  return `${origen}/reset-password?token=${encodeURIComponent(token)}`;
+}
+
 function TextField({ label, value, onChange, type = 'text', help }) {
   return (
     <div>
@@ -325,19 +333,42 @@ export default function Users() {
               Se generó un enlace de recuperación para <b>{tokenModal.user}</b>. Compártalo únicamente con el usuario.
             </p>
             <div className="rounded-lg bg-slate-50 p-3">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Token (modo desarrollo)</p>
-              <code className="block break-all text-sm font-semibold text-slate-800">{tokenModal.token}</code>
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Enlace de recuperación</p>
+              {/* El enlace se construye con el origen desde el que se está
+                  usando la aplicación, no con PUBLIC_URL del backend: así
+                  funciona igual en localhost, en el laboratorio con
+                  tickets.lan y en el dominio público detrás de Cloudflare.
+                  La ruta NO lleva el prefijo /app de las páginas privadas:
+                  /reset-password es una ruta pública hermana de /login. */}
+              <a
+                href={`${resetEnlace(tokenModal.token)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="block break-all text-sm font-semibold text-blue-700 underline hover:text-blue-900"
+              >
+                {resetEnlace(tokenModal.token)}
+              </a>
               <p className="mt-1 text-xs text-slate-400">Expira: {formatDateTime(tokenModal.expires)}</p>
             </div>
-            <p className="text-xs text-slate-400">Puede usar este token en la URL /reset-password?token=…</p>
+            <p className="text-xs text-slate-400">
+              Envíale este enlace al usuario. Se abre sin iniciar sesión y vale una sola vez.
+            </p>
             <div className="flex justify-end gap-2">
               <button
                 className="btn-secondary"
-                onClick={() => navigator.clipboard.writeText(tokenModal.token)}
+                onClick={() => navigator.clipboard.writeText(resetEnlace(tokenModal.token))}
               >
-                Copiar token
+                Copiar enlace
               </button>
-              <button className="btn-primary" onClick={() => setTokenModal(null)}>Cerrar</button>
+              <a
+                href={resetEnlace(tokenModal.token)}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-primary inline-flex items-center"
+              >
+                Abrir enlace
+              </a>
+              <button className="btn-secondary" onClick={() => setTokenModal(null)}>Cerrar</button>
             </div>
           </div>
         )}

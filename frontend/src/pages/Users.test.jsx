@@ -261,7 +261,46 @@ describe('Users', () => {
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/users/2/reset-password', {}));
     expect(await screen.findByRole('dialog', { name: 'Restablecer contraseña' })).toBeInTheDocument();
-    expect(await screen.findByText('tok-abc-123')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('link', { name: /reset-password\?token=tok-abc-123/ })
+    ).toBeInTheDocument();
+  });
+
+  // El enlace se entregaba como texto suelto ("/reset-password?token=…") y había
+  // que armarlo a mano. Añadiendo el prefijo /app que usa el resto de la
+  // aplicación, la ruta cae en el comodín y el navegador acaba en el login:
+  // el enlace "no abría". Por eso ahora se entrega pulsable y absoluto.
+  it('entrega un enlace absoluto a la ruta pública, sin el prefijo /app', async () => {
+    api.post.mockResolvedValue({ token: 'tok-abc-123', expires: '2026-10-01T00:00:00Z' });
+
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByTitle('Restablecer contraseña'));
+
+    const enlace = await screen.findByRole('link', { name: /reset-password\?token=tok-abc-123/ });
+    const esperado = `${window.location.origin}/reset-password?token=tok-abc-123`;
+    expect(enlace).toHaveAttribute('href', esperado);
+    expect(enlace.getAttribute('href')).not.toContain('/app/reset-password');
+    // Se abre en otra pestaña para no perder la sesión del administrador.
+    expect(enlace).toHaveAttribute('target', '_blank');
+    expect(enlace).toHaveAttribute('rel', expect.stringContaining('noreferrer'));
+  });
+
+  it('codifica el token al construir el enlace', async () => {
+    api.post.mockResolvedValue({ token: 'a+b/c=d', expires: '2026-10-01T00:00:00Z' });
+
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByTitle('Restablecer contraseña'));
+
+    const enlace = await screen.findByRole('link', { name: /reset-password/ });
+    expect(enlace.getAttribute('href')).toBe(
+      `${window.location.origin}/reset-password?token=${encodeURIComponent('a+b/c=d')}`
+    );
   });
 
   it('abre el historial de tickets del usuario', async () => {
