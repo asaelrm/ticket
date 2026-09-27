@@ -85,22 +85,46 @@ export function resolveColor(token, alphaBase = '#ffffff') {
   return composite(hex, Number(alpha), alphaBase);
 }
 
+/** Quita los corchetes de las utilidades arbitrarias: `[#0b3046]` -> `#0b3046`. */
+function unwrap(token) {
+  return token.startsWith('[') && token.endsWith(']') ? token.slice(1, -1) : token;
+}
+
+/**
+ * Un token es un color si es un hex literal, blanco/negro, o un par
+ * `familia-tono` definido en @theme. Así `text-sm` (tamaño) y `text-[11px]`
+ * no se confunden con `text-slate-100` (color).
+ */
+function isColorToken(token) {
+  const name = unwrap(token.split('/')[0]);
+  if (name.startsWith('#')) return true;
+  if (name === 'white' || name === 'black') return true;
+  if (!/^[a-z]+-\d{2,3}$/.test(name)) return false;
+  return Boolean(themeColors()[name]);
+}
+
 /**
  * Extrae de un className el token de texto, de placeholder y de fondo que
- * apliquen en el estado base (ignora variantes hover/focus).
- * Devuelve null si la clase no declara un color de texto, para que quien llame
- * decida si eso es un error.
+ * apliquen en el estado base (ignora variantes hover/focus y breakpoints).
+ * Devuelve null en los que el elemento no declara ese color, para que quien
+ * llame decida si eso es un error.
  */
 export function readColors(className) {
   const tokens = String(className || '').split(/\s+/).filter(Boolean);
-  const out = { text: null, placeholder: null, bg: null, bgAlpha: false };
-  for (const t of tokens) {
-    if (/^(hover|focus|active|group-hover|sm|md|lg|xl|dark):/.test(t)) continue;
-    if (t.startsWith('placeholder:text-')) out.placeholder ??= t.slice('placeholder:text-'.length);
-    else if (t.startsWith('text-')) out.text ??= t.slice('text-'.length);
-    else if (t.startsWith('bg-')) {
-      out.bg ??= t.slice('bg-'.length);
-      out.bgAlpha ??= t.slice('bg-'.length).includes('/');
+  const out = { text: null, placeholder: null, bg: null };
+  for (const raw of tokens) {
+    if (/^(hover|focus|focus-within|focus-visible|active|group-hover|peer-checked|sm|md|lg|xl|2xl|dark):/.test(raw)) continue;
+    const t = raw;
+    if (t.startsWith('placeholder:text-')) {
+      const value = t.slice('placeholder:text-'.length);
+      if (isColorToken(value)) out.placeholder ??= value;
+    } else if (t.startsWith('text-')) {
+      const value = t.slice('text-'.length);
+      // Un tamaño de fuente no es un color: si no resuelve como color, se ignora.
+      if (isColorToken(value)) out.text ??= value;
+    } else if (t.startsWith('bg-')) {
+      const value = t.slice('bg-'.length);
+      if (isColorToken(value)) out.bg ??= value;
     }
   }
   return out;
