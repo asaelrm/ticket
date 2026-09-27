@@ -5,6 +5,10 @@ import userEvent from '@testing-library/user-event';
 import TemplatePicker from './TemplatePicker';
 import { api } from '../lib/api';
 import { renderWithProviders } from '../test/utils';
+import { backgroundOf, expectContrast, luminance, readColors } from '../test/contrast';
+
+// Alto de reserva que usa el componente cuando el panel todavía no se ha medido.
+const PANEL_FALLBACK_HEIGHT = 320;
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual('../lib/api');
@@ -363,6 +367,105 @@ describe('TemplatePicker', () => {
 
     expect(await screen.findByText('Recuperada')).toBeInTheDocument();
     expect(screen.queryByText('Error de red')).toBeNull();
+  });
+
+  describe('legibilidad del panel', () => {
+    // El panel se portaliza a document.body, así que no hereda ninguna
+    // superficie: tiene que declarar la suya. Antes era bg-white (blanco puro)
+    // con títulos text-slate-800, que en esta paleta también es blanco
+    // (#F8FAFC), y la fila seleccionada usaba bg-brand-50 (#E7FAF1) con el
+    // mismo texto blanco: todo ilegible aunque el menú estuviera bien
+    // posicionado. Estos tests leen las clases reales del DOM.
+
+    it('el panel declara un fondo oscuro, no blanco', async () => {
+      await openPicker();
+      const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
+      const { bg } = readColors(panel.className);
+      expect(bg, 'el panel debe declarar su propio fondo').toBeTruthy();
+      expect(backgroundOf(panel.className, '#ffffff').toLowerCase()).not.toBe('#ffffff');
+    });
+
+    it('el título de cada plantilla es legible sobre el panel', async () => {
+      await openPicker();
+      const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
+      const surface = backgroundOf(panel.className, '#ffffff');
+      for (const title of ['Saludo inicial', 'Diagnóstico de red']) {
+        const el = screen.getByText(title);
+        expect(expectContrast(el, { surface, min: 4.5, label: `título "${title}"` })).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+
+    it('el extracto de cada plantilla es legible sobre el panel', async () => {
+      await openPicker();
+      const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
+      const surface = backgroundOf(panel.className, '#ffffff');
+      const excerpt = screen.getByText(/su ticket TCK-000042 está en revisión/);
+      expect(expectContrast(excerpt, { surface, min: 3, label: 'extracto de plantilla' })).toBeGreaterThanOrEqual(3);
+    });
+
+    it('la fila seleccionada se distingue del resto por contraste de color y de fondo', async () => {
+      await openPicker();
+      const selected = screen.getByText('Saludo inicial');
+      const unselected = screen.getByText('Diagnóstico de red');
+      const { bg } = readColors(selected.parentElement.className);
+      expect(bg, 'la fila seleccionada debe declarar un fondo propio').toBeTruthy();
+
+      // La selección no puede resolverse a blanco o a un blanco casi puro:
+      // era bg-brand-50 (#E7FAF1) con texto blanco, invisible.
+      const selectedBg = backgroundOf(selected.parentElement.className, '#0e3a50');
+      expect(luminance(selectedBg), 'la fila seleccionada no debe ser un blanco').toBeLessThan(0.5);
+
+      // Y el texto de la fila no seleccionada tiene que seguir siendo legible
+      // sobre el fondo del panel, no solo sobre el de la selección.
+      const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
+      const surface = backgroundOf(panel.className, '#ffffff');
+      expect(expectContrast(unselected, { surface, min: 4.5, label: 'título no seleccionado' })).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('la vista previa es legible sobre su propia superficie', async () => {
+      await openPicker();
+      const preview = await screen.findByText(/está en revisión/);
+      const box = preview.closest('div[class*="rounded-lg"]');
+      const surface = backgroundOf(box.className, '#0e3a50');
+      expect(surface.toLowerCase(), 'la vista previa no puede ser blanca con texto blanco').not.toBe('#ffffff');
+      expect(expectContrast(preview, { surface, min: 4.5, label: 'vista previa' })).toBeGreaterThanOrEqual(4.5);
+    });
+
+    it('los botones de acción Insertar/Reemplazar/Copiar son legibles', async () => {
+      const { user } = await openPicker();
+      await user.click(screen.getByText('Saludo inicial'));
+      for (const name of ['Insertar', 'Reemplazar todo', 'Copiar']) {
+        const btn = screen.getByRole('button', { name });
+        // btn-primary / btn-secondary / btn-ghost declaran su color en la hoja
+        // de estilos; aquí se comprueba que no lo anulan con un token oscuro.
+        expect(readColors(btn.className).text ?? null).toBeNull();
+        expect(btn).toBeInTheDocument();
+      }
+    });
+  });
+
+  describe('posicionamiento', () => {
+    it('mantiene el panel dentro de la ventana en una pantalla baja', async () => {
+      // Regresión: la posición se calculaba asumiendo un alto fijo de 320 px
+      // (top = innerHeight - 320). Con una ventana más baja que eso el top
+      // salía negativo y el menú aparecía fuera de la pantalla.
+      const originalHeight = window.innerHeight;
+      const originalWidth = window.innerWidth;
+      Object.defineProperty(window, 'innerHeight', { value: 300, configurable: true });
+      Object.defineProperty(window, 'innerWidth', { value: 360, configurable: true });
+      try {
+        await openPicker();
+        const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
+        const top = Number(panel.style.top);
+        const left = Number(panel.style.left);
+        expect(Number.isFinite(top) && top >= 0, `top fuera de la ventana: ${top}`).toBe(true);
+        expect(left >= 0, `left fuera de la ventana: ${left}`).toBe(true);
+        expect(top + PANEL_FALLBACK_HEIGHT <= window.innerHeight || top < PANEL_FALLBACK_HEIGHT, 'el panel no cabe').toBe(true);
+      } finally {
+        Object.defineProperty(window, 'innerHeight', { value: originalHeight, configurable: true });
+        Object.defineProperty(window, 'innerWidth', { value: originalWidth, configurable: true });
+      }
+    });
   });
 });
 
