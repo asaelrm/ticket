@@ -84,7 +84,7 @@ describe('Paleta del tema (index.css @theme)', () => {
     // "arregla" la paleta a los valores de Tailwind, este test avisa de que
     // hay que revisar todos los usages, no solo este fichero.
     for (const dark of ['slate-50', 'slate-100', 'slate-200', 'slate-300']) {
-      expect(contrast(THEME[dark], '#ffffff'), `${dark} debería ser oscuro`).toBeLessThan(3);
+      expect(contrast(THEME[dark], '#ffffff'), `${dark} debería ser oscuro`).toBeGreaterThan(8);
     }
     for (const light of ['slate-600', 'slate-700', 'slate-800', 'slate-900']) {
       expect(contrast(THEME[light], '#000000'), `${light} debería ser claro`).toBeGreaterThan(8);
