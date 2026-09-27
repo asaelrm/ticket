@@ -110,7 +110,25 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
   const tooLong = Boolean(expansion && expansion.text.length > MAX_COMMENT_LENGTH);
   const templateVars = current ? extractVariables(current.body) : { used: [], unknown: [] };
 
+  // Reubicar cuando cambia el alto del panel: al abrirlo la lista suele estar
+  // vacía y al cargar los resultados (o al elegir una plantilla y aparecer la
+  // vista previa) crece.
+  useLayoutEffect(() => {
+    if (open) place();
+  }, [open, templates.length, highlight, tooLong]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  const current = templates[highlight] || null;
+  const expansion = current ? expandTemplate(current.body, context) : null;
+  const tooLong = Boolean(expansion && expansion.text.length > MAX_COMMENT_LENGTH);
+  const templateVars = current ? extractVariables(current.body) : { used: [], unknown: [] };
+
   const close = () => setOpen(false);
+
+  const current = templates[highlight] || null;
+  const expansion = current ? expandTemplate(current.body, context) : null;
+  const tooLong = Boolean(expansion && expansion.text.length > MAX_COMMENT_LENGTH);
+  const templateVars = current ? extractVariables(current.body) : { used: [], unknown: [] };
 
   function insert(mode) {
     if (!current || !expansion || tooLong) return;
