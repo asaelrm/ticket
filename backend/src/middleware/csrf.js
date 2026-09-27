@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import config from '../config.js';
 
 // Patrón double-submit: el navegador recibe la cookie `tf_csrf` (no HttpOnly,
 // para que el JS la lea) y debe reflejarla en la cabecera `x-csrf-token`.
@@ -23,7 +24,13 @@ export function ensureCsrfCookie(req, res, next) {
   res.cookie('tf_csrf', token, {
     httpOnly: false,
     sameSite: 'lax',
-    secure: req.secure || req.protocol === 'https',
+    // El flag Secure sale de la CONFIGURACIÓN, no de `req.secure`. La misma
+    // instancia sirve HTTPS por Cloudflare y HTTP desde la LAN, así que decidir
+    // por petición daría dos políticas de cookie distintas según quién llame.
+    // Peor: con `trust proxy` activo, un `X-Forwarded-Proto: http` falsificado
+    // degradaría la cookie en una visita que en realidad es HTTPS. Con una
+    // política estática no hay forma de degradarla desde la cabecera.
+    secure: config.session.secure,
     path: '/',
     maxAge: 24 * 60 * 60 * 1000,
   });
