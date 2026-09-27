@@ -1,21 +1,32 @@
 import { it } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
 import { createApp } from '../src/app.js';
+import { resolveTrustProxy } from '../src/transportSecurity.js';
 
-it('debug hsts', async () => {
-  const server = createApp({ trustProxy: 'loopback', publicHosts: 'tickets.example.com' }).listen(0, '0.0.0.0');
+it('debug trust', async () => {
+  const lines = [];
+  lines.push(`resolveTrustProxy('loopback') = ${JSON.stringify(resolveTrustProxy('loopback'))}`);
+  const app = createApp({ trustProxy: 'loopback', publicHosts: 'tickets.example.com' });
+  app.get('/probe', (req, res) => {
+    res.json({
+      secure: req.secure,
+      protocol: req.protocol,
+      hostname: req.hostname,
+      host: req.headers.host,
+      xfp: req.headers['x-forwarded-proto'] ?? null,
+      remote: req.socket.remoteAddress,
+      trustSetting: app.get('trust proxy fn') ? 'fn' : String(app.get('trust proxy')),
+    });
+  });
+  const server = app.listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const port = server.address().port;
-  const lines = [];
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/health`, {
+    const res = await fetch(`http://127.0.0.1:${port}/probe`, {
       headers: { Host: 'tickets.example.com', 'X-Forwarded-Proto': 'https' },
     });
-    lines.push(`status ${res.status}`);
-    for (const [k, v] of res.headers.entries()) if (/transport/i.test(k)) lines.push(`hdr ${k} = ${v}`);
-    const v = res.headers.get('strict-transport-security');
-    lines.push(`typeof ${typeof v} value ${JSON.stringify(v)}`);
+    lines.push(JSON.stringify(await res.json(), null, 1));
+    lines.push(`hsts=${res.headers.get('strict-transport-security')}`);
   } finally {
     await new Promise((r) => server.close(r));
   }
