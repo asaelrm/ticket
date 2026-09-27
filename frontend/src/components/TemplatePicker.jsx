@@ -166,9 +166,14 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
             aria-label="Respuestas rápidas"
             onKeyDown={onPanelKeyDown}
             style={{ position: 'fixed', top: pos.top, left: pos.left, width: 420, maxWidth: 'calc(100vw - 16px)' }}
-            className="z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+            // El panel se portaliza a document.body, así que NO hereda la
+            // superficie de la tarjeta: debe declarar la suya. Era bg-white
+            // (blanco puro) con texto slate-800, que en esta paleta también es
+            // blanco: títulos y vista previa invisibles. Ahora usa las mismas
+            // superficies oscuras que el resto de la aplicación.
+            className="z-50 overflow-hidden rounded-xl border border-cyan-300/40 bg-[#0e3a50] shadow-xl"
           >
-            <div className="border-b border-slate-200 p-3">
+            <div className="border-b border-cyan-300/20 p-3">
               <label className="sr-only" htmlFor="canned-search">
                 Buscar respuestas rápidas
               </label>
