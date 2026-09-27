@@ -76,7 +76,7 @@ export default function NewTicket() {
       resized.push(f);
     }
     if (oversized.length) {
-      setError(`Archivos demasiado grandes: ${oversized.join(', ')}. MÃƒÂ¡ximo ${MAX_SIZE_MB} MB por archivo.`);
+      setError(`Archivos demasiado grandes: ${oversized.join(', ')}. MÃ¡ximo ${MAX_SIZE_MB} MB por archivo.`);
       return;
     }
     setError('');
@@ -92,7 +92,7 @@ export default function NewTicket() {
     createMutation.mutate();
   }
 
-  if (loadingInit) return <LoadingScreen text="Cargando formularioÃ¢â‚¬Â¦" />;
+  if (loadingInit) return <LoadingScreen text="Cargando formularioâ€¦" />;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -105,7 +105,7 @@ export default function NewTicket() {
         <form onSubmit={onSubmit} className="space-y-5 px-6 py-5" noValidate>
           <div>
             <label className="label" htmlFor="title">
-              TÃƒÂ­tulo *
+              TÃ­tulo *
             </label>
             <input
               id="title"
@@ -121,11 +121,11 @@ export default function NewTicket() {
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="category">
-                CategorÃƒÂ­a *
+                CategorÃ­a *
               </label>
               <select id="category" className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
                 <option value="" disabled>
-                  SeleccioneÃ¢â‚¬Â¦
+                  Seleccioneâ€¦
                 </option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -167,14 +167,14 @@ export default function NewTicket() {
 
           <div>
             <label className="label" htmlFor="description">
-              DescripciÃƒÂ³n detallada *
+              DescripciÃ³n detallada *
             </label>
             <textarea
               id="description"
               className="input min-h-[130px] resize-y"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describa el problema, pasos para reproducirlo y cualquier detalle relevanteÃ¢â‚¬Â¦"
+              placeholder="Describa el problema, pasos para reproducirlo y cualquier detalle relevanteâ€¦"
               maxLength={10000}
               required
             />
@@ -188,7 +188,7 @@ export default function NewTicket() {
               </svg>
               <span className="text-sm font-medium text-slate-600">Haga clic para adjuntar fotos o archivos</span>
               <span className="text-xs text-slate-400">
-                JPG, PNG, WEBP, PDF, DOC/DOCX, XLS/XLSX, TXT Ã‚Â· MÃƒÂ¡x. {MAX_SIZE_MB} MB Ã‚Â· {MAX_FILES} archivos
+                JPG, PNG, WEBP, PDF, DOC/DOCX, XLS/XLSX, TXT Â· MÃ¡x. {MAX_SIZE_MB} MB Â· {MAX_FILES} archivos
               </span>
               <input type="file" className="hidden" multiple onChange={onFiles} />
             </label>
@@ -229,7 +229,7 @@ export default function NewTicket() {
             </button>
             <button type="submit" className="btn-primary" disabled={saving}>
               {saving && <Spinner className="h-4 w-4 text-white" />}
-              {saving ? 'Creando ticketÃ¢â‚¬Â¦' : 'Crear ticket'}
+              {saving ? 'Creando ticketâ€¦' : 'Crear ticket'}
             </button>
           </div>
         </form>
@@ -242,8 +242,8 @@ export default function NewTicket() {
 // al desmontar o cambiar el archivo. Antes se creaba dentro del render con un
 // revoke en onLoad: cada tecla del formulario generaba una URL nueva (y por
 // tanto reiniciaba la carga de todas las miniaturas) y, si la carga se abortaba
-// porque el src habÃƒÂ­a cambiado, onLoad no llegaba a dispararse y esa URL Ã¢â‚¬â€con
-// el File entero detrÃƒÂ¡sÃ¢â‚¬â€ se quedaba retenida durante toda la sesiÃƒÂ³n.
+// porque el src habÃ­a cambiado, onLoad no llegaba a dispararse y esa URL â€”con
+// el File entero detrÃ¡sâ€” se quedaba retenida durante toda la sesiÃ³n.
 function FileThumb({ file }) {
   const [url, setUrl] = useState('');
 
