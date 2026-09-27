@@ -239,11 +239,11 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
             </div>
 
             {current && (
-              <div className="border-t border-slate-200 bg-slate-50 p-3">
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Vista previa</p>
+              <div className="border-t border-cyan-300/20 bg-[#08283d] p-3">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Vista previa</p>
                 {/* El cuerpo se escapa antes de aplicar markdown: nunca HTML crudo. */}
                 <div
-                  className="max-h-28 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-700"
+                  className="max-h-28 overflow-y-auto rounded-lg border border-cyan-300/20 bg-[#0b3046] p-2 text-sm text-slate-600"
                   dangerouslySetInnerHTML={{ __html: renderMessage(expansion.text) }}
                 />
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -259,7 +259,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
                   ))}
                 </div>
                 {tooLong && (
-                  <p className="mt-2 text-xs font-medium text-red-600">
+                  <p className="mt-2 text-xs font-medium text-red-300">
                     El texto expandido tiene {expansion.text.length} caracteres y supera el máximo de {MAX_COMMENT_LENGTH} del
                     comentario. Acorte la plantilla antes de usarla.
                   </p>
