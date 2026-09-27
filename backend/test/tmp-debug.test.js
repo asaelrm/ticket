@@ -1,12 +1,14 @@
 import { it } from 'vitest';
 import fs from 'node:fs';
-import { createApp } from '../src/app.js';
+import express from 'express';
 import { resolveTrustProxy } from '../src/transportSecurity.js';
 
 it('debug trust', async () => {
   const lines = [];
-  lines.push(`resolveTrustProxy('loopback') = ${JSON.stringify(resolveTrustProxy('loopback'))}`);
-  const app = createApp({ trustProxy: 'loopback', publicHosts: 'tickets.example.com' });
+  const t = resolveTrustProxy('loopback');
+  lines.push(`resolveTrustProxy('loopback') = ${JSON.stringify(t)}`);
+  const app = express();
+  if (t.value) app.set('trust proxy', t.value);
   app.get('/probe', (req, res) => {
     res.json({
       secure: req.secure,
@@ -15,7 +17,6 @@ it('debug trust', async () => {
       host: req.headers.host,
       xfp: req.headers['x-forwarded-proto'] ?? null,
       remote: req.socket.remoteAddress,
-      trustSetting: app.get('trust proxy fn') ? 'fn' : String(app.get('trust proxy')),
     });
   });
   const server = app.listen(0, '127.0.0.1');
@@ -26,9 +27,8 @@ it('debug trust', async () => {
       headers: { Host: 'tickets.example.com', 'X-Forwarded-Proto': 'https' },
     });
     lines.push(JSON.stringify(await res.json(), null, 1));
-    lines.push(`hsts=${res.headers.get('strict-transport-security')}`);
   } finally {
     await new Promise((r) => server.close(r));
   }
-  fs.writeFileSync('C:/Users/asael/AppData/Local/Temp/opencode/hsts-debug.txt', lines.join('\n'));
+  fs.writeFileSync('C:/Users/asael/AppData/Local/Temp/opencode/trust-debug.txt', lines.join('\n'));
 });
