@@ -1,0 +1,77 @@
+# ============================================================
+# Override de PRODUCCION: entrada HTTPS unificada
+# ============================================================
+# NO APLICADO. Este archivo esta preparado, no activo.
+#
+# Uso previsto (cuando se autorice):
+#   docker compose -f docker-compose.yml -f deploy/https/compose.https.yml up -d
+#
+# Que anade este override:
+#   - el proxy Caddy, que es la unica entrada HTTPS;
+#   - una red con subred fija para poder fijar la IP de Caddy y usarla
+#     como TRUST_PROXY estable;
+#   - COOKIE_SECURE, PUBLIC_HOSTS y TRUST_PROXY en Express.
+#
+# Que NO puede hacer este override (importante):
+#   Docker Compose CONCATENA la lista `ports`, no la reemplaza. Por eso
+#   `ports: []` NO cierra los puertos. Para cerrar 4000 y 5173 hay que
+#   EDITAR docker-compose.yml y borrar esas dos entradas `ports:`
+#   (o usar la etiqueta `!reset []`, soportada por Compose >= 2.24 pero
+#   menos legible en revision). Ver README.md, seccion 5.
+
+services:
+  backend:
+    environment:
+      # IP estatica de Caddy en la red `edge`. Es el unico pariente TCP
+      # que vera Express, asi que es el unico que puede hablar de
+      # X-Forwarded-*.
+      TRUST_PROXY: "172.29.0.10"
+      # Politica ESTATICA: la cookie es Secure siempre, no "si la
+      # peticion parece cifrada". Un cliente no puede degradarla.
+      COOKIE_SECURE: "true"
+      # Solo este host recibe HSTS. El nombre interno de la LAN, no.
+      PUBLIC_HOSTS: "tickets.lan"
+      CORS_ORIGIN: "https://tickets.lan"
+      PUBLIC_URL: "https://tickets.lan"
+    networks:
+      - default
+      - edge
+
+  frontend:
+    networks:
+      - default
+      - edge
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      # Unica entrada. Abierta a la LAN a proposito: es la que usan
+      # los navegadores. cloudflared entra por aqui desde el host.
+      - "443:443"
+      # Puerto 80 solo para redirect. Comente si no lo necesita.
+      - "80:80"
+    volumes:
+      - ./deploy/https/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      edge:
+        # Estatica: el valor de TRUST_PROXY depende de esto.
+        ipv4_address: 172.29.0.10
+    restart: unless-stopped
+
+networks:
+  edge:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+
+volumes:
+  # Conserva la CA y los certificados entre reinicios. Si se borra,
+  # Caddy genera una CA nueva y TODOS los dispositivos dejan de
+  # confiar en el sitio hasta reinstalar el certificado raiz.
+  caddy_data:
+  caddy_config:
