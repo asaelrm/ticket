@@ -40,8 +40,12 @@ export function createClient() {
       .join('; ');
   }
 
-  async function get(url) {
-    const res = await request(app).get(url).set('Cookie', cookieStr());
+  async function get(url, { timeout } = {}) {
+    const req = request(app).get(url).set('Cookie', cookieStr());
+    // Timeout opcional: hay rutas cuyo defecto es justamente no responder
+    // nunca, y sin esto la suite se quedaría colgada en lugar de fallar.
+    if (timeout) req.timeout({ response: timeout, deadline: timeout });
+    const res = await req;
     store(res);
     return res;
   }

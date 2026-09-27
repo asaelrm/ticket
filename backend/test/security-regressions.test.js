@@ -200,11 +200,11 @@ describe('Descarga de adjuntos', () => {
     assert.equal(attachmentPath(`${path.basename(config.uploadDir)}-evil.png`), null);
   });
 
-  // El timeout no es decorativo: sin el manejador de 'error' en files.js, el
-  // stream lanza una excepción no capturada y la petición se queda colgada
-  // indefinidamente. Con el timeout, el fallo se reporta en 5 s en lugar de
-  // bloquear la suite entera.
-  it('si la lectura falla a mitad de descarga responde 404 en vez de tumbar el proceso', { timeout: 5000 }, async (t) => {
+  // El timeout de la petición no es decorativo: sin el manejador de 'error' en
+  // files.js, el stream lanza una excepción no capturada y la respuesta nunca
+  // llega. Con el timeout, el fallo se reporta en 3 s en lugar de bloquear la
+  // suite entera.
+  it('si la lectura falla a mitad de descarga responde 404 en vez de tumbar el proceso', { timeout: 15000 }, async (t) => {
     const admin = createClient();
     await admin.login('admin', '123456');
     const creado = await admin.postMultipart(
