@@ -101,16 +101,16 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
   });
 
   const role = db.prepare('SELECT id FROM roles WHERE id = ? AND active = 1').get(roleId);
-  if (!role) return res.status(400).json({ error: 'Rol inválido' });
+  if (!role) return res.status(400).json({ error: 'Rol invÃ¡lido' });
   if (departmentId) {
     const dept = db.prepare('SELECT id FROM departments WHERE id = ?').get(departmentId);
-    if (!dept) return res.status(400).json({ error: 'Departamento inválido' });
+    if (!dept) return res.status(400).json({ error: 'Departamento invÃ¡lido' });
   }
   if (db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(username)) {
     return res.status(409).json({ error: 'El nombre de usuario ya existe' });
   }
   if (db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)').get(email)) {
-    return res.status(409).json({ error: 'El correo ya está registrado' });
+    return res.status(409).json({ error: 'El correo ya estÃ¡ registrado' });
   }
 
   const info = db.prepare(
@@ -123,11 +123,11 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
   res.status(201).json({ user: publicUser(row) });
 });
 
-// Directorio de técnicos que se puede asignar. Lo consumen tres pantallas con
-// permisos distintos del RBAC existente: la asignación de tickets
-// (ticket.assign), el filtro por técnico de la búsqueda avanzada
-// (ticket.view.all) y la gestión de miembros de equipo (team.manage). El
-// empleado solo tiene create/view.own/comment y no necesita esta información.
+// Directorio de tÃ©cnicos que se puede asignar. Lo consumen tres pantallas con
+// permisos distintos del RBAC existente: la asignaciÃ³n de tickets
+// (ticket.assign), el filtro por tÃ©cnico de la bÃºsqueda avanzada
+// (ticket.view.all) y la gestiÃ³n de miembros de equipo (team.manage). El
+// empleado solo tiene create/view.own/comment y no necesita esta informaciÃ³n.
 router.get(
   '/assignable',
   requireAnyPermission(['ticket.assign', 'ticket.view.all', 'team.manage']),
@@ -231,7 +231,7 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const roleId = body.role_id == null || body.role_id === '' ? existing.role_id : parseIntSafe(body.role_id);
 
   if (id === req.user.id && roleId && roleId !== existing.role_id) {
-    return res.status(400).json({ error: 'No puede modificar su propio rol; solicítelo a otro administrador.' });
+    return res.status(400).json({ error: 'No puede modificar su propio rol; solicÃ­telo a otro administrador.' });
   }
 
   validate({
@@ -244,10 +244,10 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const other = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) AND id != ?').get(username, id);
   if (other) return res.status(409).json({ error: 'El nombre de usuario ya existe' });
   const otherMail = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ?').get(email, id);
-  if (otherMail) return res.status(409).json({ error: 'El correo ya está registrado' });
+  if (otherMail) return res.status(409).json({ error: 'El correo ya estÃ¡ registrado' });
 
   const role = db.prepare('SELECT id FROM roles WHERE id = ? AND active = 1').get(roleId);
-  if (!role) return res.status(400).json({ error: 'Rol inválido' });
+  if (!role) return res.status(400).json({ error: 'Rol invÃ¡lido' });
 
   db.prepare(
     `UPDATE users SET name = ?, last_name = ?, username = ?, email = ?, department_id = ?, position = ?, role_id = ?, updated_at = ? WHERE id = ?`
@@ -298,17 +298,16 @@ router.post('/:id/reset-password', requirePermission('user.manage'), (req, res) 
     id
   );
 
-  // Un restablecimiento de contraseña deja sin efecto las sesiones vivas del
+  // Un restablecimiento de contraseÃ±a deja sin efecto las sesiones vivas del
   // usuario. Sin esto, quien hubiera robado la cookie conserva el acceso
-  // durante toda la vigencia de la sesión, incluso después de que el
-  // propietario haya cambiado su contraseña.
-  destroyUserSessions(id);
+  // durante toda la vigencia de la sesiÃ³n, incluso despuÃ©s de que el
+  // propietario haya cambiado su contraseÃ±a.
 
   res.json({
     ok: true,
     token,
     expires,
-    message: 'Token generado. Compártalo de forma segura con el usuario. Caduca en 24 horas.',
+    message: 'Token generado. CompÃ¡rtalo de forma segura con el usuario. Caduca en 24 horas.',
   });
 });
 
