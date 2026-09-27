@@ -13,7 +13,10 @@
 param(
   [Parameter(Mandatory = $true)][string]$CaPath,
   [string]$Host_ = "tickets.lan",
-  [int]$Port = 8443
+  [int]$Port = 8443,
+  [string]$Container = "ticketlab-backend-1",
+  # Reinicia el backend del laboratorio y comprueba que la sesion aguanta.
+  [switch]$WithRestart
 )
 
 $ErrorActionPreference = "Continue"
