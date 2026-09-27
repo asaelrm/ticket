@@ -2,7 +2,6 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Readable } from 'node:stream';
 import { createClient } from './helpers.js';
 import config from '../src/config.js';
 import { attachmentPath } from '../src/utils/fileType.js';
@@ -36,8 +35,8 @@ describe('Aislamiento de datos: PATCH /api/tickets/:id', () => {
     await emp.login('empleado', 'Empleado1234!');
 
     // El PATCH no debe devolver el ticket a quien no puede verlo. El fallo
-    // anterior respondía 200 con el ticket completo: filtered a la vista pública
-    // del empleado.
+    // anterior respondía 200 con el ticket completo, filtrado a la vista
+    // pública del empleado.
     const res = await emp.patch(`/api/tickets/${id}`, {});
     assert.equal(res.status, 404, 'Un ticket ajeno debe ser 404, no 200 con datos');
     assert.equal(res.body.ticket, undefined, 'No debe filtrarse el ticket por el PATCH');
@@ -147,9 +146,9 @@ describe('Login: coste constante para enumeración de cuentas', () => {
     const msExistente = Number(t3 - t2) / 1e6;
     const msInexistente = Number(t1 - t0) / 1e6;
     // Si el usuario no existe, `||` cortocircuitaba y bcrypt no se ejecutaba:
-    // la respuesta llegaba ~200 veces más rápido y bastaba medirlo para
-    // enumerar cuentas válidas. El umbral es holgadamente bajo el coste de un
-    // bcrypt de coste 12, así que no depende de la velocidad de la máquina.
+    // la respuesta llegaba del orden de 80 veces más rápido y bastaba medirlo
+    // para enumerar cuentas válidas. El umbral es holgadamente bajo el coste de
+    // un bcrypt de coste 12, así que no depende de la velocidad de la máquina.
     assert.ok(
       msInexistente > 30,
       `Un login de usuario inexistente tardó ${msInexistente.toFixed(1)} ms: no se ejecutó bcrypt (existente: ${msExistente.toFixed(1)} ms)`
