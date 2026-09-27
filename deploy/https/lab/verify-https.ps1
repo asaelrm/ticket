@@ -83,6 +83,26 @@ Check "token valido llega al controlador (no 403)" ($ok -notmatch "403") "estado
 $code = & curl.exe --cacert $CaPath --ssl-no-revoke -s -o NUL -w "%{http_code}" "https://127.0.0.1:$($Port)/api/health"
 Check "rechaza otro hostname" ($code -eq "000") "respondio $code"
 
+"== 7. Reinicio del contenedor =="
+if (-not $WithRestart) {
+  "  (omitida: pasar -WithRestart para ejecutarla)"
+} else {
+  $code = CurlLab -b $jar -o NUL -w "%{http_code}" "https://$($Host_):$($Port)/api/auth/me"
+  Check "sesion viva antes de reiniciar" ($code -eq "200") "estado: $code"
+  docker restart $Container | Out-Null
+  # El arranque tarda: npm install + migraciones + seed.
+  $ok = $false
+  for ($i = 0; $i -lt 40; $i++) {
+    Start-Sleep -Seconds 3
+    $code = CurlLab -b $jar -o NUL -w "%{http_code}" "https://$($Host_):$($Port)/api/auth/me"
+    if ($code -eq "200") { $ok = $true; break }
+  }
+  Check "el backend vuelve a responder" ($ok) "no respondio 200 tras el reinicio"
+  Check "la sesion sobrevive al reinicio" ($code -eq "200") "estado: $code (SECRET o.store cambiaron)"
+  $h = CurlLab -D - -o NUL "https://$($Host_):$($Port)/api/health"
+  Check "HSTS sigue tras el reinicio" ($h -match "strict-transport-security") "HSTS desaparecio"
+}
+
 ""
 if ($script:fail -eq 0) { "RESULTADO: todas las comprobaciones pasaron"; exit 0 }
 "RESULTADO: $($script:fail) comprobacion(es) fallaron"; exit $script:fail
