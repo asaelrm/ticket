@@ -165,7 +165,7 @@ describe('Restablecimiento de contraseña por administrador', () => {
     // del seed cambia el estado compartido y rompería cualquier otro test que
     // use ese usuario.
     const roles = await admin.get('/api/roles');
-    const tecnico = roles.body.data.find((r) => r.code === 'TECHNICIAN');
+    const tecnico = roles.body.roles.find((r) => r.code === 'TECHNICIAN');
     const creado = await admin.post('/api/users', {
       name: 'Victima',
       last_name: 'Sesiones',
