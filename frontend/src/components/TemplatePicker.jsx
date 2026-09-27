@@ -278,14 +278,14 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
               </div>
             )}
 
-            <div className="flex flex-wrap justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2 text-xs">
+            <div className="flex flex-wrap justify-between gap-2 border-t border-cyan-300/20 bg-[#08283d] px-3 py-2 text-xs">
               {onManagePersonal && (
-                <button type="button" className="text-brand-600 hover:underline" onClick={() => { close(); onManagePersonal(); }}>
+                <button type="button" className="text-brand-300 hover:underline" onClick={() => { close(); onManagePersonal(); }}>
                   Administrar mis plantillas
                 </button>
               )}
               {canManageGlobal && onManageGlobal && (
-                <button type="button" className="text-brand-600 hover:underline" onClick={() => { close(); onManageGlobal(); }}>
+                <button type="button" className="text-brand-300 hover:underline" onClick={() => { close(); onManageGlobal(); }}>
                   Plantillas globales y de equipo
                 </button>
               )}
