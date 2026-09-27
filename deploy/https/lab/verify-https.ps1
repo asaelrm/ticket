@@ -52,24 +52,28 @@ Check "X-Forwarded-Proto:http ignorado (HSTS sigue)" ($h -match "strict-transpor
 CurlLab -c $jar -o NUL "https://$($Host_):$($Port)/api/auth/me" | Out-Null
 $csrf = ((Get-Content $jar | Where-Object { $_ -match "tf_csrf" }) -split "`t")[-1]
 CurlLab -b $jar -c $jar -D h1.txt -o b1.txt -X POST -H "Content-Type: application/json" -H "x-csrf-token: $csrf" --data "@body.json" "https://$($Host_):$($Port)/api/auth/login" | Out-Null
-$login = Get-Content h1.txt -Raw
 Check "login correcto" ($login -match "200 OK") "estado: $((Select-String -Path h1.txt -Pattern '^HTTP/' | ForEach-Object { $_.Line }))"
 Check "tf_sid con Secure"  ($login -match "tf_sid=[^;]*;[^\r\n]*Secure")  "falta Secure"
 Check "tf_sid con HttpOnly" ($login -match "tf_sid=[^;]*HttpOnly")          "falta HttpOnly"
 Check "tf_sid con SameSite" ($login -match "tf_sid=[^;]*SameSite")          "falta SameSite"
 
 "== 4. Sin entrada HTTP directa al backend =="
+# El puerto 8443 del laboratorio es el 443 de Caddy, que solo habla TLS.
+# Un cliente HTTP plano recibe un 400 de Caddy o falla la conexion; lo que
+# NO debe ocurrir nunca es un 200 con datos de sesion.
 $code = CurlLab -b $jar -o NUL -w "%{http_code}" "http://$($Host_):$($Port)/api/auth/me"
-Check "no responde por HTTP plano" ($code -eq "000") "respondio $code, se esperaba fallo de conexion"
+Check "no sirve la API por HTTP plano" ($code -ne "200") "respondio $code con la sesion"
 
 "== 5. CSRF sigue vigente =="
-CurlLab -b $jar -o NUL -D h2.txt -X POST -H "Content-Type: application/json" -H "x-csrf-token: token-falso" --data "@body.json" "https://$($Host_):$($Port)/api/auth/login" | Out-Null
+# /api/auth/login esta exento de CSRF por diseno, asi que se prueba sobre un
+# endpoint protegido: crear un ticket.
+CurlLab -b $jar -o NUL -D h2.txt -X POST -H "Content-Type: application/json" -H "x-csrf-token: token-falso" --data "{}" "https://$($Host_):$($Port)/api/tickets" | Out-Null
 $bad = (Select-String -Path h2.txt -Pattern "^HTTP/" | ForEach-Object { $_.Line })
 Check "token falso rechazado (403)" ($bad -match "403") "estado: $bad"
 $csrf2 = ((Get-Content $jar | Where-Object { $_ -match "tf_csrf" }) -split "`t")[-1]
-CurlLab -b $jar -c $jar -D h3.txt -o NUL -X POST -H "Content-Type: application/json" -H "x-csrf-token: $csrf2" --data "@body.json" "https://$($Host_):$($Port)/api/auth/login" | Out-Null
+CurlLab -b $jar -c $jar -D h3.txt -o NUL -X POST -H "Content-Type: application/json" -H "x-csrf-token: $csrf2" --data "{}" "https://$($Host_):$($Port)/api/tickets" | Out-Null
 $ok = (Select-String -Path h3.txt -Pattern "^HTTP/" | ForEach-Object { $_.Line })
-Check "token valido aceptado (200)" ($ok -match "200") "estado: $ok"
+Check "token valido llega al controlador (no 403)" ($ok -notmatch "403") "estado: $ok"
 
 "== 6. El certificado no vale para otros nombres =="
 $code = & curl.exe --cacert $CaPath --ssl-no-revoke -s -o NUL -w "%{http_code}" "https://127.0.0.1:$($Port)/api/health"
