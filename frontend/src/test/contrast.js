@@ -72,7 +72,8 @@ export function composite(fgHex, alpha, bgHex) {
  */
 export function resolveColor(token, alphaBase = '#ffffff') {
   if (!token) throw new Error('Token de color vacío');
-  const [name, alpha] = token.split('/');
+  const [rawName, alpha] = token.split('/');
+  const name = unwrap(rawName);
   let hex;
   if (name === 'white') hex = '#ffffff';
   else if (name === 'black') hex = '#000000';
