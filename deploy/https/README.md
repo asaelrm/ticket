@@ -232,7 +232,7 @@ docker compose -f docker-compose.dev.yml up -d
 ```
 
 El volumen `ticket_ticket_data` **no se borra en ningun paso**. Se conserva como
-la copia de produccion, y se puede archivar cuando，随اقرأ lo confirme.
+la copia de produccion, y se puede archivar cuando el usuario lo confirme.
 
 ---
 
