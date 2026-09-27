@@ -194,6 +194,10 @@ CREATE TABLE IF NOT EXISTS ticket_attachments (
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_attachments_ticket ON ticket_attachments(ticket_id);
+-- El recuento de adjuntos por comentario es una subconsulta correlacionada que
+-- se ejecuta una vez por cada comentario del ticket, y el borrado de los
+-- adjuntos de un comentario filtra por esta columna.
+CREATE INDEX IF NOT EXISTS idx_attachments_comment ON ticket_attachments(comment_id);
 
 CREATE TABLE IF NOT EXISTS ticket_history (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
