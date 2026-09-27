@@ -41,6 +41,17 @@ export function createApp(options = {}) {
   if (trust.warning) console.warn(`[transporte] ${trust.warning}`);
 
   const publicHosts = options.publicHosts !== undefined ? options.publicHosts : config.publicHosts;
+  // Aviso de arranque: no cambia nada, solo deja constancia de una combinación
+  // que deja la sesión de producción expuesta al sniffing en la LAN.
+  if (config.env === 'production' && !config.session.secure) {
+    console.warn(
+      '[transporte] NODE_ENV=production y COOKIE_SECURE=false: la cookie de sesión viaja sin el flag Secure. ' +
+        'Sirva la aplicación por HTTPS y ponga COOKIE_SECURE=true, o la sesión queda expuesta en redes sin TLS.'
+    );
+  }
+  if (config.env === 'production' && !publicHosts) {
+    console.warn('[transporte] PUBLIC_HOSTS vacío: no se enviará Strict-Transport-Security en ningún host.');
+  }
   // HSTS por host y solo sobre HTTPS verificado. La app sirve hoy HTTPS por
   // Cloudflare y HTTP desde la LAN en la MISMA instancia, así que no se emite
   // HSTS incondicionalmente: el nombre interno de la LAN no debe quedar
