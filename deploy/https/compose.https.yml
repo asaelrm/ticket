@@ -7,29 +7,30 @@
 #   docker compose -f docker-compose.yml -f deploy/https/compose.https.yml up -d
 #
 # Que anade este override:
-#   - el proxy Caddy, que es la unica entrada HTTPS;
-#   - una red con subred fija para poder fijar la IP de Caddy y usarla
+#   - el proxy Caddy, que es la unica entrada HTTPS de la LAN;
+#   - una red con subred fija, para poder fijar la IP de Caddy y usarla
 #     como TRUST_PROXY estable;
-#   - COOKIE_SECURE, PUBLIC_HOSTS y TRUST_PROXY en Express.
+#   - COOKIE_SECURE, PUBLIC_HOSTS y TRUST_PROXY en el servicio `app`.
 #
 # Que NO puede hacer este override (importante):
-#   Docker Compose CONCATENA la lista `ports`, no la reemplaza. Por eso
-#   `ports: []` NO cierra los puertos. Para cerrar 4000 y 5173 hay que
-#   EDITAR docker-compose.yml y borrar esas dos entradas `ports:`
-#   (o usar la etiqueta `!reset []`, soportada por Compose >= 2.24 pero
-#   menos legible en revision). Ver README.md, seccion 5.
+#   Docker Compose CONCATENA la lista `ports`, no la reemplaza, asi que
+#   `ports: []` NO cierra nada. Para que 4000 deje de estar publicado
+#   hay que EDITAR docker-compose.yml y borrar su entrada `ports:`
+#   (alternativa: `ports: !reset []`, soportada por Compose >= 2.24 pero
+#   menos legible al revisar). Ver README.md, seccion 5.
 
 services:
-  backend:
+  app:
     environment:
       # IP estatica de Caddy en la red `edge`. Es el unico pariente TCP
-      # que vera Express, asi que es el unico que puede hablar de
+      # que ve Express, asi que es el unico cuya palabra vale sobre
       # X-Forwarded-*.
       TRUST_PROXY: "172.29.0.10"
-      # Politica ESTATICA: la cookie es Secure siempre, no "si la
-      # peticion parece cifrada". Un cliente no puede degradarla.
+      # Politica ESTATICA: la cookie lleva Secure siempre, no "si la
+      # peticion parece cifrada". Asi ningun cliente puede degradarla.
       COOKIE_SECURE: "true"
-      # Solo este host recibe HSTS. El nombre interno de la LAN, no.
+      # Unico host que recibe HSTS. El nombre interno de la LAN, no:
+      # si apareciera aqui, el navegador anclaria ese nombre a HTTPS.
       PUBLIC_HOSTS: "tickets.lan"
       CORS_ORIGIN: "https://tickets.lan"
       PUBLIC_URL: "https://tickets.lan"
@@ -37,21 +38,15 @@ services:
       - default
       - edge
 
-  frontend:
-    networks:
-      - default
-      - edge
-
   caddy:
     image: caddy:2-alpine
     depends_on:
-      - backend
-      - frontend
+      - app
     ports:
-      # Unica entrada. Abierta a la LAN a proposito: es la que usan
-      # los navegadores. cloudflared entra por aqui desde el host.
+      # Unica entrada publicada. Abierta a la LAN a proposito: es la
+      # que usan los navegadores. cloudflared entra por aqui.
       - "443:443"
-      # Puerto 80 solo para redirect. Comente si no lo necesita.
+      # El 80 solo sirve para redirigir. Comente si no lo necesita.
       - "80:80"
     volumes:
       - ./deploy/https/Caddyfile:/etc/caddy/Caddyfile:ro
@@ -59,7 +54,9 @@ services:
       - caddy_config:/config
     networks:
       edge:
-        # Estatica: el valor de TRUST_PROXY depende de esto.
+        # Estatica: el valor de TRUST_PROXY depende de esto. Si Caddy
+        # perdiese la IP, Express dejaria de considerarlo de confianza
+        # y las cookies Secure dejarian de emitirse.
         ipv4_address: 172.29.0.10
     restart: unless-stopped
 
