@@ -229,7 +229,7 @@ export default function NewTicket() {
             </button>
             <button type="submit" className="btn-primary" disabled={saving}>
               {saving && <Spinner className="h-4 w-4 text-white" />}
-              {saving ? 'Creando ticketâ€¦' : 'Crear ticket'}
+              {saving ? 'Creando ticket…' : 'Crear ticket'}
             </button>
           </div>
         </form>
