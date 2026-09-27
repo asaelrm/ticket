@@ -34,7 +34,7 @@ export function createApp(options = {}) {
   // Confianza en proxies. Vacío o 'false' = no se cree ninguna cabecera de
   // proxy, que es el estado actual y el más seguro por defecto. Hay que
   // configurarlo de forma explícita para que `req.protocol` refleje el HTTPS
-  // real de Cloudflare; si seActivationa a ciegas, cualquier cliente podría
+  // real de Cloudflare; si se activa a ciegas, cualquier cliente podría
   // inyectar X-Forwarded-Proto (ver src/transportSecurity.js).
   const trust = options.trustProxy !== undefined ? resolveTrustProxy(options.trustProxy) : resolveTrustProxy(config.trustProxy);
   if (trust.value) app.set('trust proxy', trust.value);
