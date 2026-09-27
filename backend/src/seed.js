@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 import db, { transaction } from './db.js';
 import config from './config.js';
 
+function boolEnv(value) {
+  if (value === undefined || value === null || value === '') return false;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
 export const PERMISSIONS = [
   ['ticket.create', 'Crear tickets'],
   ['ticket.view.own', 'Ver sus propios tickets'],
@@ -155,7 +160,13 @@ function seedBaseData() {
   for (const [name, desc, color] of INITIAL_KB_CATEGORIES) insertKbCat.run(name, desc, color);
 }
 
-function ensureUsers() {
+function ensureUsers(options = {}) {
+  const {
+    env = config.env,
+    seedAdminPassword = process.env.SEED_ADMIN_PASSWORD || '',
+    forceAdminPassword = boolEnv(process.env.SEED_ADMIN_FORCE_PASSWORD),
+  } = options;
+
   const getDept = db.prepare('SELECT id FROM departments WHERE name = ?');
   const getRole = db.prepare('SELECT id FROM roles WHERE code = ?');
   const getBy = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)');
@@ -166,12 +177,11 @@ function ensureUsers() {
   const roleEmployee = getRole.get('EMPLOYEE').id;
   const roleTechnician = getRole.get('TECHNICIAN').id;
 
-  const isProduction = config.env === 'production';
-  const seedAdminPassword = process.env.SEED_ADMIN_PASSWORD || '';
+  const isProduction = env === 'production';
   const adminUsername = process.env.SEED_ADMIN_USERNAME || 'admin';
   const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@empresa.com';
 
-  // En producción el administrador solo se crea si se define SEED_ADMIN_PASSWORD.
+  // En producción el administrador solo se crea si define SEED_ADMIN_PASSWORD.
   // En desarrollo se crea con la contraseña demo '123456'.
   const shouldCreateAdmin = !isProduction || Boolean(seedAdminPassword);
   const adminPassword = seedAdminPassword || '123456';
@@ -192,13 +202,25 @@ function ensureUsers() {
         roleAdmin,
         new Date().toISOString()
       );
-    } else if (seedAdminPassword) {
-      // Si SEED_ADMIN_PASSWORD está definido, se fuerza esa contraseña en el
-      // arranque (permite recuperar el acceso). Ver .env.example.
+    } else if (seedAdminPassword && forceAdminPassword) {
+      // Única vía para recuperar el acceso: hay que pedirla explícitamente con
+      // SEED_ADMIN_FORCE_PASSWORD=true. Sin ella, una variable que se quedó en
+      // el entorno no vuelve a imponer una contraseña conocida en cada arranque.
       db.prepare('UPDATE users SET password_hash = ?, last_password_change_at = ? WHERE id = ?').run(
         bcrypt.hashSync(adminPassword, 12),
         new Date().toISOString(),
         admin.id
+      );
+      console.warn(
+        '[seed] SEED_ADMIN_FORCE_PASSWORD=true: se ha cambiado la contraseña del administrador ' +
+          `("${adminUsername}"). Desactive las dos variables en cuanto pueda.`
+      );
+    } else if (seedAdminPassword) {
+      console.warn(
+        `[seed] SEED_ADMIN_PASSWORD está definido y el administrador "${adminUsername}" ya existe: ` +
+          'NO se ha aplicado. Para restablecerla de verdad, defina además ' +
+          'SEED_ADMIN_FORCE_PASSWORD=true (una sola vez) o use el restablecimiento con token. ' +
+          'En cuanto el acceso esté comprobado, quite SEED_ADMIN_PASSWORD del entorno.'
       );
     }
   }
@@ -243,12 +265,12 @@ function ensureUsers() {
   }
 }
 
-export function seed() {
+export function seed(options = {}) {
   return transaction(() => {
     seedPermissionsAndRoles();
     seedBaseData();
     // ensureUsers decide internamente qué cuentas crear según el entorno.
-    ensureUsers();
+    ensureUsers(options);
     return {
       ok: true,
       roles: Object.keys(ROLES).length,

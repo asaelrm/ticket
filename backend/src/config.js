@@ -51,6 +51,20 @@ const config = {
     maxFilesPerTicket: int(process.env.MAX_FILES_PER_TICKET, 5),
   },
 
+  // Directorio de usuarios y departamentos (backend/directory.json).
+  //
+  // El archivo guarda el PERFIL de las cuentas (nombre, correo, departamento,
+  // puesto, rol, activo) y nunca sus contraseñas: un fichero que se versiona o
+  // se comparte no debe llevar hashes dentro.
+  //
+  //   DIRECTORY_SYNC=false            -> no se sincroniza nada.
+  //   DIRECTORY_SNAPSHOT_FILE=<ruta>  -> otro fichero (por defecto directory.json,
+  //                                      junto al backend).
+  directory: {
+    snapshotFile: process.env.DIRECTORY_SNAPSHOT_FILE || 'directory.json',
+    sync: bool(process.env.DIRECTORY_SYNC, true),
+  },
+
   // Notificaciones por correo. Con MAIL_ENABLED=false (o SMTP sin configurar)
   // los correos se registran en consola y en la tabla email_logs (modo dev).
   mail: {
@@ -70,6 +84,8 @@ config.dbFile =
   config.dbFile && config.dbFile !== 'false'
     ? path.resolve(rootDir, config.dbFile)
     : path.join(config.dataDir, 'tickets.db');
+
+config.directory.snapshotFile = path.resolve(rootDir, config.directory.snapshotFile);
 
 // En producción el secreto de sesión es obligatorio: no se firman cookies con
 // un valor público conocido.

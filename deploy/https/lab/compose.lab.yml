@@ -7,9 +7,14 @@
 #   - puertos 8443/8444 en lugar de 443/80;
 #   - una copia de backend y frontend, no los contenedores reales.
 #
-# Uso:
+# Uso (las credenciales y el secreto van en el entorno, no en este archivo):
+#   $env:LAB_SESSION_SECRET = "lo-que-sea"
+#   $env:LAB_ADMIN_PASSWORD = "lo-que-sea"
 #   docker compose -p ticketlab -f deploy/https/lab/compose.lab.yml up -d
 #   docker compose -p ticketlab -f deploy/https/lab/compose.lab.yml down -v
+#
+# Si faltan esas dos variables el compose NO arranca: es deliberado, para que
+# nadie se apoye en una contrasena escrita en el repositorio.
 #
 # IMPORTANTE: los puertos 4000, 5173 y los volumenes ticket_* NO se
 # tocan. Puede levantarse con el servicio real en marcha.
@@ -28,7 +33,7 @@ services:
       DATA_DIR: /app/backend/data
       DB_FILE: /app/backend/data/lab.db
       # Secreto propio del laboratorio. Nunca el de produccion.
-      SESSION_SECRET: laboratorio-efimero-no-usar-fuera
+      SESSION_SECRET: ${LAB_SESSION_SECRET:?define LAB_SESSION_SECRET}
       # Aqui SI se activa, que es justo lo que hay que probar.
       COOKIE_SECURE: "true"
       CORS_ORIGIN: https://tickets.lan
@@ -38,10 +43,14 @@ services:
       PUBLIC_HOSTS: tickets.lan
       MAX_UPLOAD_SIZE_MB: "5"
       MAX_FILES_PER_TICKET: "5"
-      # Solo para poder iniciar sesion en el laboratorio.
-      SEED_ADMIN_USERNAME: admin
-      SEED_ADMIN_EMAIL: admin@lab.local
-      SEED_ADMIN_PASSWORD: lab-admin-123
+      # El snapshot del directorio se genera en el volumen del laboratorio y
+      # nunca se versiona: asi se valida tambien que no lleva contrasenas.
+      DIRECTORY_SYNC: "true"
+      # Credenciales solo para poder iniciar sesion en el laboratorio. Se pasan
+      # por el entorno, no en este archivo. Ver README.md del laboratorio.
+      SEED_ADMIN_USERNAME: ${LAB_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_EMAIL: ${LAB_ADMIN_EMAIL:-admin@lab.local}
+      SEED_ADMIN_PASSWORD: ${LAB_ADMIN_PASSWORD:?define LAB_ADMIN_PASSWORD}
     volumes:
       - ../../../backend:/app/backend
       - lab_backend_node_modules:/app/backend/node_modules

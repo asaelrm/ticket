@@ -243,49 +243,67 @@ la copia de produccion, y se puede archivar cuando el usuario lo confirme.
 | 1 | `SESSION_SECRET` real y unico (no el de ejemplo) | **PENDIENTE** |
 | 2 | Contrasena de admin distinta de `123456` | **PENDIENTE** |
 | 3 | `SEED_ADMIN_PASSWORD` fuera del entorno | **PENDIENTE** |
-| 4 | `backend/directory.json` fuera del repositorio publico | **PENDIENTE** |
+| 4 | `backend/directory.json` fuera del repositorio publico | **CORREGIDO** |
 | 5 | HTTPS verificado desde la LAN y desde Cloudflare | pendiente |
 | 6 | 4000 y 5173 cerrados a la LAN | pendiente |
 
-### 7.1 El fallo de `SEED_ADMIN_PASSWORD`
+### 7.1 `SEED_ADMIN_PASSWORD` ya no pisa la contrasena
 
-`docker-compose.yml:27` trae `SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-123456}`,
-y `seed.js:195-203` **fuerza esa contrasena en cada arranque**.
-
-Medido en el laboratorio, con el codigo real:
+Antes `seed.js` **fuerza esa contrasena en cada arranque**: si se cambiaba la
+contrasena del admin y se dejaba `SEED_ADMIN_PASSWORD` en el entorno, el
+siguiente reinicio del contenedor la volvia a poner. Medido entonces en el
+laboratorio:
 
 ```
 con NODE_ENV=production -> ["admin"]        (crea el admin, y solo ese)
 2o arranque -> password es SEED_ADMIN_PASSWORD: true
 ```
 
-Es decir: **si se cambia la contrasena del admin y se deja
-`SEED_ADMIN_PASSWORD` en el entorno, el siguiente reinicio del contenedor la
-vuelve a poner.** Es la forma mas facil de creer que la contrasena esta
-cambiada cuando no lo esta.
+Ahora el arranque solo usa `SEED_ADMIN_PASSWORD` **al crear** la cuenta. Si el
+administrador ya existe, la variable se ignora, se avisa por consola y la
+contrasena que haya se respeta. Lo unico que la vuelve a aplicar es
+`SEED_ADMIN_FORCE_PASSWORD=true`, que hay que pedir a proposito y quitar
+despues. La via de recuperacion sigue siendo `/api/auth/reset-password` con
+token.
 
-Al terminar el alta inicial hay que **quitar `SEED_ADMIN_PASSWORD` del
-entorno**, y si se pierde el acceso, la via de recuperacion es
-`/api/auth/reset-password` con token, no esa variable.
+Cubierto por `backend/test/directorySync.test.js` ("el seed no impone contrasenas
+por defecto"), que ademas falla con el codigo anterior al arreglo.
 
-Ademas, `seed.js:207` impide las cuentas demo en produccion y eso se cumple:
-en una base nueva con `NODE_ENV=production` solo se crea `admin`.
+### 7.2 `directory.json` ya no publica contrasenas
 
-### 7.2 `directory.json`
+El problema era doble: el archivo estaba en un repositorio publico con hashes
+bcrypt dentro, y ademas el arranque lo reimportaba y `seed.js` lo reescribia al
+cambiar una contrasena, asi que **cambiar una contrasena publicaba su hash**.
 
-`backend/directory.json` esta en un repositorio publico y contiene tres hashes
-bcrypt de contrasenas. `server.js` lo reimporta al arrancar y `seed.js` lo
-reescribe cuando cambia una contrasena. Enquanto siga asi, un cambio de
-contrasena **publica su hash**. Es el punto mas urgente de la lista, y es
-independiente del HTTPS.
+Las dos partes estan corregidas:
+
+- `backend/directory.json` esta en `.gitignore` y fuera del indice de Git. El
+  archivo se conserva en local; cada instalacion tiene el suyo.
+- El archivo **ya no contiene `password_hash`**, ni al escribirlo ni al leerlo.
+  Un `directory.json` antiguo con hashes los ignora y avisa. Las cuentas nuevas
+  que solo existan en el archivo se crean con una contrasena aleatoria
+  inutilizable, y hay que restablecerlas.
+
+Verificado en el laboratorio y en `backend/test/directorySync.test.js`: cambiar
+la contrasena, reiniciar y comprobar que la anterior no entra.
+
+Queda pendiente lo de siempre, y es independiente del HTTPS: si el repositorio
+llego a ser publico, esos hashes antiguos hay que tratarlos como
+comprometidos. El orden correcto (cambiar contrasenas primero, reescribir el
+historial despues) esta en el README raiz, en "Retirar el archivo del
+historial". Borrar el archivo del historial sin cambiar antes las contrasenas no
+arregla nada.
 
 ---
 
 ## 8. Pruebas
 
-El laboratorio se levanta sin tocar el servicio real:
+El laboratorio se levanta sin tocar el servicio real. Las credenciales van en el
+entorno, nunca en los archivos: si faltan, el compose no arranca.
 
 ```powershell
+$env:LAB_SESSION_SECRET = "lo-que-sea"
+$env:LAB_ADMIN_PASSWORD = "lo-que-sea"
 docker compose -p ticketlab -f deploy\https\lab\compose.lab.yml up -d
 docker cp ticketlab-caddy-1:/data/caddy/pki/authorities/local/root.crt $env:TEMP\caddy-root.crt
 
@@ -293,7 +311,11 @@ powershell -ExecutionPolicy Bypass -File deploy\https\lab\verify-https.ps1 `
   -CaPath $env:TEMP\caddy-root.crt -WithRestart
 ```
 
-Salida esperada: 14 PASS y `RESULTADO: todas las comprobaciones pasaron`.
+`verify-https.ps1` toma la cuenta de `LAB_ADMIN_USERNAME`/`LAB_ADMIN_PASSWORD`, o
+de `-Username`/`-Password`. Sale con codigo 2 si no encuentra la contrasena, para
+no comprobar el inicio de sesion con una credencial inventada.
+
+Salida esperada: 15 PASS y `RESULTADO: todas las comprobaciones pasaron`.
 Cubre HTTPS local, cabeceras de proxy falsificadas, cookies seguras, CSRF,
 bloqueo de HTTP autenticado y reinicio de contenedores.
 

@@ -8,6 +8,10 @@
 #   powershell -ExecutionPolicy Bypass -File deploy\https\lab\verify-https.ps1 `
 #       -CaPath C:\ruta\a\caddy-root.crt
 #
+# La cuenta del laboratorio se toma del entorno (mismas variables que
+# compose.lab.yml) o de -Username / -Password. No hay ninguna credencial
+# escrita en este archivo a proposito.
+#
 # Sale con codigo 0 si todo pasa, o con el numero de fallos.
 
 param(
@@ -15,9 +19,18 @@ param(
   [string]$Host_ = "tickets.lan",
   [int]$Port = 8443,
   [string]$Container = "ticketlab-backend-1",
+  [string]$Username = $(if ($env:LAB_ADMIN_USERNAME) { $env:LAB_ADMIN_USERNAME } else { "admin" }),
+  [string]$Password = $env:LAB_ADMIN_PASSWORD,
   # Reinicia el backend del laboratorio y comprueba que la sesion aguanta.
   [switch]$WithRestart
 )
+
+if ([string]::IsNullOrWhiteSpace($Password)) {
+  "ERROR: falta la contrasena del laboratorio."
+  "  Defina LAB_ADMIN_PASSWORD en el entorno o pase -Password."
+  "  Es la misma variable que usa compose.lab.yml para crear la cuenta."
+  exit 2
+}
 
 $ErrorActionPreference = "Continue"
 $script:fail = 0
@@ -39,7 +52,10 @@ function Check($name, $cond, $detail) {
 
 $jar = "jar.txt"
 Remove-Item $jar,h*.txt -ErrorAction SilentlyContinue
-'{"account":"admin","password":"123456"}' | Out-File -Encoding ascii body.json
+# El cuerpo se genera con ConvertTo-Json para no tener que escapar a mano ni
+# dejar la contrasena escrita en el archivo.
+@{ account = $Username; password = $Password } | ConvertTo-Json -Compress |
+  Out-File -Encoding ascii body.json
 
 "== 1. HTTPS real y HSTS por host =="
 $code = CurlLab -o NUL -w "%{http_code}" "https://$($Host_):$($Port)/api/health"

@@ -49,20 +49,39 @@ npm run dev:frontend  # http://localhost:5173
 
 La primera vez que arranca, el backend aplica migraciones y crea el seed automáticamente.
 
-## Sincronización de usuarios y departamentos
+## Directorio de usuarios y departamentos
 
-El archivo `backend/directory.json` se actualiza al crear, editar o desactivar un
-usuario o departamento. Está versionado en Git para que, después de hacer
-`git pull` en otra PC e iniciar el backend, se restauren las mismas cuentas,
-departamentos, roles y contraseñas.
+`backend/directory.json` guarda el **perfil** de las cuentas (nombre, correo,
+departamento, puesto, rol, si está activa) y de los departamentos. Se regenera
+solo al crear, editar o desactivar un usuario o departamento.
 
-Después de modificar el directorio en una PC, confirme y publique
-`backend/directory.json`. En la otra PC ejecute `git pull` antes de iniciar el
-backend. No edite el directorio desde dos PCs sin sincronizar primero, porque
-Git puede generar conflictos.
+Dos reglas que no se negocian:
 
-> El archivo contiene nombres, correos y hashes de contraseña. Mantenga el
-> repositorio privado y limite quién puede acceder a él.
+- **El archivo no lleva contraseñas.** Ni hashes, ni nada. La contraseña de cada
+  cuenta vive únicamente en la tabla `users`.
+- **El archivo no está en Git.** Es estado de cada instalación, igual que la base
+  de datos. Está en `.gitignore`.
+
+Consecuencia práctica: restaurar el directorio **nunca cambia una contraseña**.
+Si alguien cambia una contraseña y reinicia, sigue siendo la nueva. Y un
+archivo `directory.json` antiguo que traiga hashes de una versión previa se
+ignora: el backend avisa por consola y no los aplica.
+
+> Si la versión antigua de este repositorio publicó `directory.json` con hashes,
+> ese hashes se considera comprometido. Consulte
+> [Retirar el archivo del historial](#retirar-el-archivo-del-historial).
+
+### Llevar el directorio a otra instalación
+
+Al no estar versionado, `git pull` ya no lo trae. Copie el archivo a la otra
+máquina por el canal que prefiera (una carpeta de red, un pendrive, un gestor de
+secretos) y déjelo en `backend/directory.json`, o indique otra ruta con
+`DIRECTORY_SNAPSHOT_FILE`. Si el destino ya tiene esas cuentas, solo se actualiza
+el perfil; las contraseñas se quedan como estén.
+
+Las cuentas que solo existan en el archivo se crean con una contraseña
+aleatoria e inutilizable, y el backend avisa de cuáles son: un administrador
+debe restablecerlas antes de que puedan entrar.
 
 ## Cuentas iniciales (seed)
 
@@ -78,9 +97,15 @@ En **desarrollo** se crean automáticamente estas cuentas de demostración:
 
 En **producción** las cuentas demo con contraseña conocida **no se crean**. El
 administrador inicial se crea al arrancar solo si define `SEED_ADMIN_PASSWORD`
-(opcionalmente `SEED_ADMIN_USERNAME` y `SEED_ADMIN_EMAIL`). Si el administrador
-ya existe y `SEED_ADMIN_PASSWORD` está definido, en cada arranque se fuerza esa
-contraseña (útil para recuperar el acceso).
+(opcionalmente `SEED_ADMIN_USERNAME` y `SEED_ADMIN_EMAIL`).
+
+Si el administrador **ya existe**, `SEED_ADMIN_PASSWORD` **no hace nada**: el
+arranque avisa por consola y respeta la contraseña que haya. Así, una variable
+que se quedó en el entorno no puede devolver el sistema a una contraseña conocida
+en cada reinicio. Si de verdad necesita restablecer el acceso del
+administrador, defina además `SEED_ADMIN_FORCE_PASSWORD=true` **una sola vez**,
+compruebe que puede entrar y quite las dos variables.
+
 
 ## Scripts
 
@@ -117,9 +142,12 @@ contraseña (útil para recuperar el acceso).
 | `CORS_ORIGIN`          | Origen permitido por CORS. En producción con la SPA servida por el propio backend, use el mismo valor que `PUBLIC_URL`.                |
 | `CORS_ORIGINS`         | Alternativa a `CORS_ORIGIN`: lista de orígenes separados por comas. Tiene prioridad sobre `CORS_ORIGIN`.                               |
 | `COOKIE_SECURE`        | `true` cuando se sirve por HTTPS para que la cookie de sesión solo viaje por canales seguros.                                          |
-| `SEED_ADMIN_PASSWORD`  | Contraseña del administrador. Si se define, al arrancar se crea (o se actualiza) la cuenta administrador; las cuentas demo no se crean en producción. |
+| `SEED_ADMIN_PASSWORD`  | Contraseña del administrador inicial. Solo se usa **al crearlo**: si la cuenta ya existe, no se aplica y el arranque avisa. Las cuentas demo no se crean en producción. |
+| `SEED_ADMIN_FORCE_PASSWORD` | `true` vuelve a aplicar `SEED_ADMIN_PASSWORD` aunque el administrador ya exista. Es la única vía de recuperación: úsela una vez y quítela. |
 | `SEED_ADMIN_USERNAME`  | Usuario del administrador inicial (por defecto `admin`).                                                                               |
 | `SEED_ADMIN_EMAIL`     | Correo del administrador inicial (por defecto `admin@empresa.com`).                                                                    |
+| `DIRECTORY_SYNC`       | `false` desactiva por completo el archivo `directory.json` (por defecto `true`).                                                      |
+| `DIRECTORY_SNAPSHOT_FILE` | Ruta del archivo del directorio (por defecto `backend/directory.json`). Ya no lleva contraseñas.                                   |
 
 > En producción las cuentas demo con contraseña conocida **no se crean**. Defina
 > `SEED_ADMIN_PASSWORD` para crear el administrador inicial y cambie la contraseña
@@ -140,6 +168,35 @@ healthcheck contra `/api/health`. Las variables anteriores se pueden colocar en
 un archivo `.env` junto a `docker-compose.yml` en lugar de pasarlas en línea.
 
 > Sin SMTP configurado (`MAIL_ENABLED=false`), los correos no se envían: se registran en la tabla `email_logs` y en consola (modo desarrollo), y el admin puede verlos desde **Configuración → Notificaciones**.
+
+## Retirar el archivo del historial
+
+`backend/directory.json` estuvo versionado en este repositorio y sus primeras
+versiones llevaban `password_hash` de las cuentas. El archivo ya no se versiona,
+pero **los commits antiguos siguen ahí** y, si el repositorio fue público, esos
+hashes se consideran comprometidos: quitar el archivo del historial no los
+arregla.
+
+El orden importa, y no es negociable:
+
+1. **Cambie las contraseñas primero.** De las cuentas del directorio y del
+   administrador. Es el paso que neutraliza los hashes; el siguiente solo limpia
+   el historial. Recuperar el acceso con `SEED_ADMIN_FORCE_PASSWORD=true` una
+   sola vez, y quitar la variable después.
+2. **Clonar el repositorio en una copia de trabajo** y reescribir el historial
+   con [`git filter-repo`](https://github.com/newren/git-filter-repo), quitando
+   `backend/directory.json` de todos los commits:
+   `git filter-repo --path backend/directory.json --invert-paths`
+3. Verificar con `git log --all -- backend/directory.json` (no debe dar nada) y
+   con `git grep password_hash $(git rev-list --all)` (tampoco).
+4. **Solo entonces** publicar el historial reescrito. Reescribir el historial
+   cambia todos los identificadores de commit: obliga a coordinarse con quien
+   tenga el repositorio y a un `push --force-with-lease` deliberado. Todo el
+   mundo que tenga el repositorio debe volver a clonarlo.
+
+No haga el paso 4 sin el paso 1 hecho y comprobado. Y si el repositorio nunca
+salió de su red, el paso 1 sigue siendo necesario: los hashes de bcrypt tienen
+meses de vida, y un hash robado se crackea sin dificultad con un equipo modesto.
 
 ## Arquitectura
 

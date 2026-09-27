@@ -9,6 +9,11 @@ backend/uploads/
 *.db-wal
 *.db-shm
 
+# Snapshot local del directorio de usuarios. Contiene el perfil de las cuentas
+# (nombre, correo, departamento, rol), nunca contraseñas, pero es estado de esta
+# instalación: cada una tiene el suyo y no se comparte ni se versiona.
+backend/directory.json
+
 # Env
 .env
 .env.local
