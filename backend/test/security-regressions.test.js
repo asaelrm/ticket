@@ -158,16 +158,30 @@ describe('Login: coste constante para enumeración de cuentas', () => {
 
 describe('Restablecimiento de contraseña por administrador', () => {
   it('invalida las sesiones activas del usuario afectado', async () => {
+    const admin = createClient();
+    await admin.login('admin', '123456');
+
+    // Usuario propio de esta prueba: restablecer la contraseña de un usuario
+    // del seed cambia el estado compartido y rompería cualquier otro test que
+    // use ese usuario.
+    const roles = await admin.get('/api/roles');
+    const tecnico = roles.body.data.find((r) => r.code === 'TECHNICIAN');
+    const creado = await admin.post('/api/users', {
+      name: 'Victima',
+      last_name: 'Sesiones',
+      username: `victima_reset_${Date.now()}`,
+      email: `victima_reset_${Date.now()}@empresa.test`,
+      password: 'Victima1234!',
+      role_id: tecnico.id,
+    });
+    assert.equal(creado.status, 201, 'El usuario de la prueba debe poder crearse');
+
     const victima = createClient();
-    await victima.login('tecnico', 'Tecnico1234!');
+    await victima.login(creado.body.user.username, 'Victima1234!');
     const before = await victima.get('/api/auth/me');
     assert.equal(before.status, 200, 'La sesión debe estar viva antes del reset');
 
-    const admin = createClient();
-    await admin.login('admin', '123456');
-    const users = await admin.get('/api/users');
-    const tecnico = users.body.data.find((u) => u.username === 'tecnico');
-    const reset = await admin.post(`/api/users/${tecnico.id}/reset-password`, {});
+    const reset = await admin.post(`/api/users/${creado.body.user.id}/reset-password`, {});
     assert.equal(reset.status, 200);
 
     // Tras el reset, la sesión previa del usuario sigue sirviendo datos: eso
