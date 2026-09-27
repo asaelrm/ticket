@@ -1,21 +1,22 @@
-// Renderizador mÃ­nimo y seguro para el texto de los tickets, las respuestas
-// rÃ¡pidas y los artÃ­culos de la base de conocimiento.
+// Renderizador mínimo y seguro para el texto de los tickets, las respuestas
+// rápidas y los artículos de la base de conocimiento.
 // Primero escapa el HTML y luego aplica un subconjunto de formato tipo Markdown.
 //
 // REGLA DE SEGURIDAD: el escapado ocurre SIEMPRE antes de aplicar cualquier
-// formato y nunca se interpreta una URL. No se genera ningÃºn atributo `href`,
-// `src`, `style` ni `on*` a partir del texto del usuario, de modo que la Ãºnica
-// forma de inyectar HTML es pagar el coste del escapado. AÃ±adir enlaces aquÃ­
-// exigirÃ­a una lista blanca de protocolos; es Ampliar mÃ¡s de lo necesario.
-// Se escapa tambiÃ©n el apÃ³strofo aunque hoy todo lo que sale entre comillas son
-// literales del propio renderizador: es una bomba de relojerÃ­a para el dÃ­a que
-// alguien aÃ±ada un `title='${texto}'` o un `data-x='${valor}'`.
+// formato y nunca se interpreta una URL. No se genera ningún atributo `href`,
+// `src`, `style` ni `on*` a partir del texto del usuario, de modo que la única
+// forma de inyectar HTML es pagar el coste del escapado. Añadir enlaces aquí
+// exigiría una lista blanca de protocolos; es Ampliar más de lo necesario.
+// Se escapa también el apóstrofo aunque hoy todo lo que sale entre comillas son
+// literales del propio renderizador: es una bomba de relojería para el día que
+// alguien añada un `title='${texto}'` o un `data-x='${valor}'`.
 function escapeHtml(text) {
   return String(text ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function inline(text) {
@@ -27,8 +28,8 @@ function inline(text) {
 }
 
 // Estilos de encabezado escritos a mano: el proyecto no usa el plugin
-// `prose` de Tailwind, asÃ­ que no hay una clase que aplicar y el HTML lleva las
-// suyas. h1 queda en text-lg para no desbordar la ficha de un artÃ­culo.
+// `prose` de Tailwind, así que no hay una clase que aplicar y el HTML lleva las
+// suyas. h1 queda en text-lg para no desbordar la ficha de un artículo.
 const HEADING_CLASS = {
   1: 'mt-4 mb-1.5 text-lg font-bold text-slate-800 first:mt-0',
   2: 'mt-4 mb-1.5 text-base font-bold text-slate-800 first:mt-0',
@@ -41,13 +42,13 @@ const HEADING_CLASS = {
 /**
  * Convierte Markdown en HTML seguro.
  *
- * Subconjunto soportado: pÃ¡rrafos, negrita, cursiva, cÃ³digo en lÃ­nea,
- * encabezados ATX (`#` â€¦ `######`), listas con viÃ±etas y listas ordenadas.
+ * Subconjunto soportado: párrafos, negrita, cursiva, código en línea,
+ * encabezados ATX (`#` … `######`), listas con viñetas y listas ordenadas.
  *
- * Se mantiene el renderizado por lÃ­neas, sin gramÃ¡tica de inglÃ©s ni dependencias
- * externas. Una lista se cierra en cuanto aparece una lÃ­nea que no es de la
- * lista, y cambiar de viÃ±eta a numerada cierra la anterior para que el HTML
- * siga siendo vÃ¡lido.
+ * Se mantiene el renderizado por líneas, sin gramática de inglés ni dependencias
+ * externas. Una lista se cierra en cuanto aparece una línea que no es de la
+ * lista, y cambiar de viñeta a numerada cierra la anterior para que el HTML
+ * siga siendo válido.
  * @param {string} raw
  * @returns {string} HTML listo para dangerouslySetInnerHTML
  */
@@ -55,7 +56,7 @@ export function renderMessage(raw) {
   const escaped = escapeHtml(raw).replace(/\r\n/g, '\n');
   const lines = escaped.split('\n');
   const html = [];
-  // 'ul' | 'ol' | null: quÃ© lista estÃ¡ abierta, para no anidar por accidente.
+  // 'ul' | 'ol' | null: qué lista está abierta, para no anidar por accidente.
   let listType = null;
 
   const closeList = () => {
@@ -79,8 +80,8 @@ export function renderMessage(raw) {
 
   for (const line of lines) {
     // Encabezado ATX. Exige al menos un espacio tras las almohadillas para no
-    // convertir un "#hashtag" en un tÃ­tulo, se limita a 6 niveles y admite
-    // sangrÃ­a inicial igual que las listas.
+    // convertir un "#hashtag" en un título, se limita a 6 niveles y admite
+    // sangría inicial igual que las listas.
     const heading = line.match(/^\s*(#{1,6})\s+(.+)$/);
     if (heading) {
       closeList();
@@ -96,9 +97,9 @@ export function renderMessage(raw) {
       continue;
     }
 
-    // Lista ordenada. Acepta `1.` y `1)`, como en Markdown. Una lÃ­nea como
-    // "2024. Informe anual" se interpreta como elemento, igual que harÃ­a
-    // cualquier Markdown estÃ¡ndar.
+    // Lista ordenada. Acepta `1.` y `1)`, como en Markdown. Una línea como
+    // "2024. Informe anual" se interpreta como elemento, igual que haría
+    // cualquier Markdown estándar.
     const ordered = line.match(/^\s*\d+[.)]\s+(.*)$/);
     if (ordered) {
       openList('ol');
