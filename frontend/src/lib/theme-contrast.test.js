@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { contrastRatio, resolveColor, themeColors } from './contrast';
+import { contrastRatio, resolveColor, themeColors } from '../test/contrast';
 
 // La paleta del proyecto NO es la de Tailwind. Estos tests documentan el
 // supuesto del que dependen el resto de comprobaciones de contraste de la
