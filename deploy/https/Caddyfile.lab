@@ -1,0 +1,71 @@
+# ============================================================
+# Proxy inverso local unificado para Vite + Express
+# ============================================================
+# PROPOSITO
+#   Un unico punto de entrada HTTPS que sirve tanto a la red local
+#   como a Cloudflare Tunnel. Ademas es el unico que puede tocar la
+#   red interna: Express y Vite dejan de estar expuestos a la LAN.
+#
+# NO ACTIVADO. Este archivo esta preparado pero no se usa hasta que
+# el laboratorio (deploy/https/lab) haya validado el comportamiento.
+#
+# Topologia resultante:
+#   LAN ──HTTPS──┐
+#                ├──> caddy (esta entrada)  /api/*  ──> backend:4000
+#   cloudflared ─┘                          resto     ──> vite:5173
+#
+# Por que /api va DIRECTO a Express y no a traves de Vite:
+#   el proxy de Vite concatena (no reemplaza) las cabeceras
+#   X-Forwarded-* del cliente. Si Express confia en la IP de Vite,
+#   un cliente podria inyectar X-Forwarded-For y eludir el limite
+#   de peticiones. Saltando a Express, el unico pariente es Caddy.
+#
+# ------------------------------------------------------------
+# TLS: CA local
+# ------------------------------------------------------------
+# `tls internal` genera una CA privada en el volumen `caddy_data` y
+# emite el certificado del host. Los dispositivos de la LAN deben
+# confiar en esa CA raiz (ver README.md, seccion 3). Es la opcion
+# adecuada en una red cerrada sin DNS publico.
+#
+# Si en el futuro hay un dominio real con DNS publico, sustitya esta
+# linea por `tls { issuer acme { email admin@ejemplo.com } }` y el
+# certificado pasa a ser emitido por una CA publica.
+
+tickets.lan {
+	# Solo TLS. No se abre :80 porque nada necesita actualizar ACME
+	# ni redirigir: cloudflared y la LAN entran directamente por 443.
+	tls internal
+
+	encode zstd gzip
+
+	# Cabeceras defensivas en el borde. El CSP lo mantiene la app;
+	# aqui solo se anaden las que el borde puede garantizar.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# ---- API: Express, conexion directa --------------------------
+	# `trusted_proxies` vacio = Caddy IGNORA cualquier X-Forwarded-*
+	# que le llegue del cliente y fija las suyas propias. Ese detalle
+	# es la garantia de que nadie pueda falsear el protocolo.
+	@api path /api/*
+	reverse_proxy @api backend:4000 {
+		transport http
+	}
+
+	# ---- Todo lo demas: Vite, incluyendo el websocket de HMR ----
+	reverse_proxy vite:5173 {
+		# Necesario para que ?token= de @vite/client funcione
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		# Sin cabeceras ni cookies: los tokens de sesion no van al log.
+		output stdout
+		format console
+	}
+}
