@@ -19,14 +19,14 @@ name: ticketlab
 services:
   # Copia del backend con la configuracion que se quiere validar.
   backend:
-    image: node:22-alpine
-    working_dir: /app
+    image: node:24-alpine
+    working_dir: /app/backend
     command: sh -c "npm install --silent && node src/server.js"
     environment:
       NODE_ENV: production
       PORT: "4000"
-      DATA_DIR: /app/data
-      DB_FILE: /app/data/lab.db
+      DATA_DIR: /app/backend/data
+      DB_FILE: /app/backend/data/lab.db
       # Secreto propio del laboratorio. Nunca el de produccion.
       SESSION_SECRET: laboratorio-efimero-no-usar-fuera
       # Aqui SI se activa, que es justo lo que hay que probar.
@@ -38,22 +38,22 @@ services:
       PUBLIC_HOSTS: tickets.lan
       MAX_UPLOAD_SIZE_MB: "5"
       MAX_FILES_PER_TICKET: "5"
-      ADMIN_BOOTSTRAP_PASSWORD: laboratorio-123456
     volumes:
-      - ../../../backend:/app
-      - lab_data:/app/data
+      - ../../../backend:/app/backend
+      - lab_backend_node_modules:/app/backend/node_modules
+      - lab_data:/app/backend/data
     networks:
       labnet:
         ipv4_address: 172.30.0.20
 
   # Vite real, con el HMR publicado en su origen real.
   vite:
-    image: node:22-alpine
-    working_dir: /app
+    image: node:24-alpine
+    working_dir: /app/frontend
     command: sh -c "npm install --silent && npx vite --host 0.0.0.0 --port 5173 --strictPort"
     volumes:
-      - ../../../frontend:/app
-      - vite_cache:/app/node_modules
+      - ../../../frontend:/app/frontend
+      - lab_vite_node_modules:/app/frontend/node_modules
     networks:
       labnet:
         ipv4_address: 172.30.0.30
@@ -86,4 +86,5 @@ volumes:
   lab_data:
   lab_caddy_data:
   lab_caddy_config:
-  vite_cache:
+  lab_backend_node_modules:
+  lab_vite_node_modules:
