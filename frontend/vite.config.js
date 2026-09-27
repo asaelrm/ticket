@@ -7,6 +7,16 @@ export default defineConfig({
   server: {
     port: 5173,
     host: 'localhost',
+    // Vite rechaza cualquier petición cuyo Host no esté en esta lista (control
+    // de seguridad añadido en 5.4.15). El laboratorio entra por el proxy Caddy
+    // con el Host "tickets.lan", así que sin esta entrada TODAS las páginas
+    // devolvían 403 y solo funcionaba /api/*, que va directo a Express.
+    //
+    // Se permite sólo el nombre exacto que usa el laboratorio. Poner `true`
+    // desactivaría el control y permitiría el envenenamiento de caché y de
+    // contraseña a través del Host desde cualquier red, que es justo lo que
+    // este control evita. Para un dominio propio, añadirlo aquí explícitamente.
+    allowedHosts: ['tickets.lan'],
     proxy: {
       '/api': {
         target: 'http://backend:4000',

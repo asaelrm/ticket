@@ -99,7 +99,58 @@ Check "token valido llega al controlador (no 403)" ($ok -notmatch "403") "estado
 $code = & curl.exe --cacert $CaPath --ssl-no-revoke -s -o NUL -w "%{http_code}" "https://127.0.0.1:$($Port)/api/health"
 Check "rechaza otro hostname" ($code -eq "000") "respondio $code"
 
-"== 7. Reinicio del contenedor =="
+"== 7. El frontend se sirve por HTTPS (HTML, JS y rutas de React) =="
+# Los bloques anteriores solo miraban /api/*, que Caddy envia DIRECTO a Express.
+# Si Vite rechaza el Host que le pasa el proxy, todas las PAGINAS devuelven 403
+# y el laboratorio parece sano porque la API responde bien. Estas comprobaciones
+# cubren esa capa, que es la que usa realmente el navegador.
+$code = CurlLab -o page.html -w "%{http_code}" "https://$($Host_):$($Port)/"
+$page = if (Test-Path page.html) { Get-Content page.html -Raw } else { "" }
+Check "la portada devuelve 200" ($code -eq "200") "codigo=$code"
+if ($page -match "Blocked request") {
+  Check "Vite acepta el Host del laboratorio" $false "Vite respondio 'Blocked request': falta '$Host_' en server.allowedHosts de vite.config.js"
+} else {
+  Check "Vite acepta el Host del laboratorio" $true ""
+}
+Check "entrega el contenedor de la aplicacion" ($page -match 'id="root"') "no aparece id=root: no es el index.html de la SPA"
+
+# Rutas de cliente: el servidor debe entregar el mismo shell para cualquier
+# ruta, que es lo que necesita React Router para navegar sin recargar de nuevo.
+foreach ($r in @("/login", "/forgot-password", "/reset-password", "/app/tickets", "/reset-password?token=PRUEBA")) {
+  $c = CurlLab -o NUL -w "%{http_code}" "https://$($Host_):$($Port)$r"
+  Check "ruta $r devuelve 200" ($c -eq "200") "codigo=$c"
+}
+
+# El HTML declara el modulo de entrada de Vite; tiene que servirse como
+# JavaScript de verdad, no como el 403 en texto plano de Vite.
+$entry = if ($page -match 'src="(/src/[^"]+)"') { $Matches[1] } else { "" }
+Check "el HTML declara el modulo de entrada" ([bool]$entry) "no hay <script src=/src/...> en el index"
+if ($entry) {
+  $c = CurlLab -D entry.h -o entry.js -w "%{http_code}" "https://$($Host_):$($Port)$entry"
+  $eh = if (Test-Path entry.h) { Get-Content entry.h -Raw } else { "" }
+  Check "el modulo de entrada se sirve" ($c -eq "200") "codigo=$c para $entry"
+  Check "llega como JavaScript" ($eh -match "content-type:\s*(text|application)/(x-)?(java|ecma)script") "content-type: $((($eh -split "`n") | Where-Object { $_ -match 'content-type' }) -join '')"
+}
+
+# Un modulo fuente tambien: es lo que el navegador pide en cada recarga durante
+# el desarrollo y lo que rompia el 403.
+$c = CurlLab -D mod.h -o NUL -w "%{http_code}" "https://$($Host_):$($Port)/src/App.jsx"
+$mh = if (Test-Path mod.h) { Get-Content mod.h -Raw } else { "" }
+Check "el modulo fuente /src/App.jsx se sirve" ($c -eq "200" -and $mh -match "content-type:\s*(text|application)/(x-)?(java|ecma)script") "codigo=$c"
+
+# Control negativo: un Host que NO esta en la lista no debe recibir contenido
+# alguno. Si devolviera la pagina, la correccion habria abierto la puerta a
+# cualquier dominio (venenamiento de cache y de contrasena a traves del Host),
+# que es exactamente lo que server.allowedHosts evita. Aqui SNI sigue siendo
+# tickets.lan, asi que el TLS es valido y lo unico que cambia es la cabecera
+# Host. Caddy no tiene un bloque para ese nombre y responde vacio, de modo que
+# se comprueba que no llegue NI la pagina NI un modulo de Vite.
+$size = CurlLab -H "Host: evil.example" -o NUL -w "%{size_download}" "https://$($Host_):$($Port)/"
+Check "un Host no autorizado no recibe la pagina" ([int]$size -eq 0) "llego $size bytes: allowedHosts estaria demasiado abierto"
+$sizeJs = CurlLab -H "Host: evil.example" -o NUL -w "%{size_download}" "https://$($Host_):$($Port)/src/main.jsx"
+Check "un Host no autorizado no recibe JavaScript" ([int]$sizeJs -eq 0) "llego $sizeJs bytes del modulo de Vite"
+
+"== 8. Reinicio del contenedor =="
 if (-not $WithRestart) {
   "  (omitida: pasar -WithRestart para ejecutarla)"
 } else {
