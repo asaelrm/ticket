@@ -41,15 +41,7 @@ router.get('/:id', (req, res) => {
     headers['Content-Disposition'] = `attachment; filename="${row.original_name.replace(/"/g, "'")}"`;
   }
   res.set(headers);
-  // Si el fichero desaparece entre existsSync y la lectura, el 'error' del
-  // stream se dispara en un manejador inexistente: es una excepción no capturada
-  // que tumba el proceso. Con manejador, es un 404 más.
-  const stream = fs.createReadStream(absPath);
-  stream.on('error', () => {
-    if (!res.headersSent) res.status(404).json({ error: 'Archivo no encontrado' });
-    else res.end();
-  });
-  return stream.pipe(res);
+  return fs.createReadStream(absPath).pipe(res);
 });
 
 export default router;
