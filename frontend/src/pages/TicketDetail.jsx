@@ -664,7 +664,11 @@ export default function TicketDetail() {
                   <textarea
                     ref={textareaRef}
                     aria-label={internalMode ? 'Nota interna' : 'Comentario'}
-                    className="min-h-[110px] w-full resize-y border-0 bg-[#0b3046] px-3.5 py-3 text-sm text-slate-100 placeholder:text-slate-300 focus:outline-none"
+                    // La paleta de index.css está invertida para el tema oscuro:
+                    // slate-50..300 son superficies oscuras y slate-400..950 son
+                    // textos claros. Con text-slate-100 (un azul marino) sobre este
+                    // fondo el texto quedaba en 1.04:1, es decir invisible.
+                    className="min-h-[110px] w-full resize-y border-0 bg-[#0b3046] px-3.5 py-3 text-sm text-slate-700 caret-brand-300 placeholder:text-slate-500 focus:outline-none"
                     value={message}
                     onChange={(e) => onMessageChange(e.target.value)}
                     placeholder={
@@ -1034,7 +1038,9 @@ function ToolbarButton({ label, onClick, children }) {
       title={label}
       aria-label={label}
       onClick={onClick}
-      className="grid h-8 w-8 place-items-center rounded-md text-sm font-medium text-slate-200 transition hover:bg-white hover:text-brand-700"
+      // slate-600, no slate-200: con la paleta invertida, slate-200 es un teal
+      // oscuro que sobre la barra (#08283d) quedaba en 1.64:1.
+      className="grid h-8 w-8 place-items-center rounded-md text-sm font-medium text-slate-600 transition hover:bg-white hover:text-brand-700"
     >
       {children}
     </button>
