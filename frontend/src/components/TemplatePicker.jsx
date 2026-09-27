@@ -97,27 +97,6 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Reubicar cuando cambia el alto del panel: al abrirlo la lista suele estar
-  // vacía y al cargar los resultados (o al elegir una plantilla y aparecer la
-  // vista previa) crece.
-  useLayoutEffect(() => {
-    if (open) place();
-  }, [open, templates.length, highlight, tooLong]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-
-  const current = templates[highlight] || null;
-  const expansion = current ? expandTemplate(current.body, context) : null;
-  const tooLong = Boolean(expansion && expansion.text.length > MAX_COMMENT_LENGTH);
-  const templateVars = current ? extractVariables(current.body) : { used: [], unknown: [] };
-
-  // Reubicar cuando cambia el alto del panel: al abrirlo la lista suele estar
-  // vacía y al cargar los resultados (o al elegir una plantilla y aparecer la
-  // vista previa) crece.
-  useLayoutEffect(() => {
-    if (open) place();
-  }, [open, templates.length, highlight, tooLong]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-
   const current = templates[highlight] || null;
   const expansion = current ? expandTemplate(current.body, context) : null;
   const tooLong = Boolean(expansion && expansion.text.length > MAX_COMMENT_LENGTH);
@@ -125,10 +104,13 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
 
   const close = () => setOpen(false);
 
-  const current = templates[highlight] || null;
-  const expansion = current ? expandTemplate(current.body, context) : null;
-  const tooLong = Boolean(expansion && expansion.text.length > MAX_COMMENT_LENGTH);
-  const templateVars = current ? extractVariables(current.body) : { used: [], unknown: [] };
+  // Reubicar cuando cambia el alto del panel: al abrirlo la lista suele estar
+  // vacía y al cargar los resultados (o al elegir una plantilla y aparecer la
+  // vista previa) crece. Se declara aquí porque depende de `tooLong`.
+  useLayoutEffect(() => {
+    if (open) place();
+  }, [open, templates.length, highlight, tooLong]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
 
   function insert(mode) {
     if (!current || !expansion || tooLong) return;
@@ -227,7 +209,10 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
               {templates.map((t, index) => (
                 <div key={t.id}>
                   {index === 0 || templates[index - 1].scope !== t.scope ? (
-                    <p className="bg-slate-50 px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    // bg-slate-50 (#0E3A50) era idéntico al fondo del panel, así
+                    // que la cabecera de grupo no se veía; slate-400 sobre
+                    // #0E3A50 tampoco llegaba a 4.5:1.
+                    <p className="bg-[#08283d] px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                       {scopeBadge(t)}
                     </p>
                   ) : null}
@@ -236,11 +221,14 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
                     onMouseEnter={() => setHighlight(index)}
                     onClick={() => setHighlight(index)}
                     aria-pressed={index === highlight}
-                    className={`block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 ${
-                      index === highlight ? 'bg-brand-50' : ''
+                    // hover:bg-slate-50 era el mismo color que el panel (invisible)
+                    // y la selección usaba bg-brand-50 (#E7FAF1, casi blanco) con
+                    // texto slate-800 (#F8FAFC, blanco): blanco sobre blanco.
+                    className={`block w-full px-3 py-2 text-left text-sm transition hover:bg-white/10 ${
+                      index === highlight ? 'bg-brand-500/20 ring-1 ring-inset ring-brand-400/40' : ''
                     }`}
                   >
-                    <span className="block font-medium text-slate-800">{t.title}</span>
+                    <span className="block font-medium text-slate-700">{t.title}</span>
                     <span className="block truncate text-xs text-slate-500">
                       {t.scope === 'TEAM' ? `${t.team_name} · ` : ''}
                       {t.body.slice(0, 80)}
