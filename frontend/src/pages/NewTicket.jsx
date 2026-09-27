@@ -242,8 +242,8 @@ export default function NewTicket() {
 // al desmontar o cambiar el archivo. Antes se creaba dentro del render con un
 // revoke en onLoad: cada tecla del formulario generaba una URL nueva (y por
 // tanto reiniciaba la carga de todas las miniaturas) y, si la carga se abortaba
-// porque el src habÃ­a cambiado, onLoad no llegaba a dispararse y esa URLâ€”con
-// el File entero detrÃ¡sâ€” se quedaba retenida durante toda la sesiÃ³n.
+// porque el src había cambiado, onLoad no llegaba a dispararse y esa URL, con el
+// File entero detrás, se quedaba retenida durante toda la sesión.
 function FileThumb({ file }) {
   const [url, setUrl] = useState('');
 
