@@ -1,0 +1,89 @@
+# ============================================================
+# LABORATORIO AISLADO — no forma parte del servicio real
+# ============================================================
+# Este compose NO es el despliegue. Es un banco de pruebas con:
+#   - nombre de proyecto propio (ticketlab), red propia, volumenes
+#     propios: no comparte nada con el stack que esta en marcha;
+#   - puertos 8443/8444 en lugar de 443/80;
+#   - una copia de backend y frontend, no los contenedores reales.
+#
+# Uso:
+#   docker compose -p ticketlab -f deploy/https/lab/compose.lab.yml up -d
+#   docker compose -p ticketlab -f deploy/https/lab/compose.lab.yml down -v
+#
+# IMPORTANTE: los puertos 4000, 5173 y los volumenes ticket_* NO se
+# tocan. Puede levantarse con el servicio real en marcha.
+
+name: ticketlab
+
+services:
+  # Copia del backend con la configuracion que se quiere validar.
+  backend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install --silent && node src/server.js"
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATA_DIR: /app/data
+      DB_FILE: /app/data/lab.db
+      # Secreto propio del laboratorio. Nunca el de produccion.
+      SESSION_SECRET: laboratorio-efimero-no-usar-fuera
+      # Aqui SI se activa, que es justo lo que hay que probar.
+      COOKIE_SECURE: "true"
+      CORS_ORIGIN: https://tickets.lan
+      PUBLIC_URL: https://tickets.lan
+      # La IP estatica y asignada al servicio `caddy` de mas abajo.
+      TRUST_PROXY: 172.30.0.10
+      PUBLIC_HOSTS: tickets.lan
+      MAX_UPLOAD_SIZE_MB: "5"
+      MAX_FILES_PER_TICKET: "5"
+      ADMIN_BOOTSTRAP_PASSWORD: laboratorio-123456
+    volumes:
+      - ../../../backend:/app
+      - lab_data:/app/data
+    networks:
+      labnet:
+        ipv4_address: 172.30.0.20
+
+  # Vite real, con el HMR publicado en su origen real.
+  vite:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install --silent && npx vite --host 0.0.0.0 --port 5173 --strictPort"
+    volumes:
+      - ../../../frontend:/app
+      - vite_cache:/app/node_modules
+    networks:
+      labnet:
+        ipv4_address: 172.30.0.30
+
+  # Proxy de borde: replica el Caddyfile de produccion.
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - backend
+      - vite
+    ports:
+      # Solo loopback: el laboratorio nunca se expone a la LAN.
+      - "127.0.0.1:8443:443"
+    volumes:
+      - ../Caddyfile:/etc/caddy/Caddyfile:ro
+      - lab_caddy_data:/data
+      - lab_caddy_config:/config
+    networks:
+      labnet:
+        # Estatica y estable: es el valor que ira en TRUST_PROXY.
+        ipv4_address: 172.30.0.10
+
+networks:
+  labnet:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  lab_data:
+  lab_caddy_data:
+  lab_caddy_config:
+  vite_cache:
