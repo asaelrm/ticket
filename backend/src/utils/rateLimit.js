@@ -10,6 +10,7 @@ export function rateLimit({ windowMs = 60_000, max = 100, message = 'Demasiadas 
   if (process.env.NODE_ENV === 'test') return function rateLimitDisabled(req, res, next) { next(); };
 
   const hits = new Map();
+  let requests = 0;
 
   return function rateLimitMw(req, res, next) {
     const key = req.ip || req.socket.remoteAddress || 'unknown';
@@ -18,9 +19,9 @@ export function rateLimit({ windowMs = 60_000, max = 100, message = 'Demasiadas 
     // Poda: las entradas nunca se borraban, así que cada IP nueva (botnet, NAT,
     // crawler, nodos de salida) dejaba una entrada viva durante toda la vida
     // del proceso. Se recorre el mapa una vez cada 1000 peticiones: O(n) pero
-    // amortizado, y en reposo sobre customers con pocas IPs es trivial.
-    if ((hits.pruneAt = (hits.pruneAt || 0) + 1) > 1000) {
-      hits.pruneAt = 0;
+    // amortizado, y en el caso habitual de pocas IPs es trivial.
+    if (++requests > 1000) {
+      requests = 0;
       for (const [k, v] of hits) {
         if (v.reset <= now) hits.delete(k);
       }
