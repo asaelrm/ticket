@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import request from 'supertest';
+import http from 'node:http';
 import os from 'node:os';
 import { createApp } from '../src/app.js';
 import { resolveTrustProxy, normalizeHost, isPublicHost, shouldSendHsts } from '../src/transportSecurity.js';
@@ -9,6 +9,80 @@ import { resolveTrustProxy, normalizeHost, isPublicHost, shouldSendHsts } from '
 const CF_HOST = 'tickets.example.com';
 const LAN_HOST = 'ticket.lan';
 const ADMIN = { account: 'admin', password: '123456' };
+
+// `fetch` no deja fijar la cabecera Host (es *forbidden header name*), así que
+// el hostSeen por el servidor acababa siendo 127.0.0.1 y HSTS nunca se podía
+// comprobar. Con node:http el Host se manda tal cual, que es lo que hace un
+// proxy real.
+function httpReq({ port, host, method = 'GET', path = '/', headers = {}, body }) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: '127.0.0.1', port, method, path, headers: { Host: host, ...headers } },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode,
+            headers: res.headers,
+            setCookie: res.headers['set-cookie'] || [],
+            body: Buffer.concat(chunks).toString('utf8'),
+          })
+        );
+      }
+    );
+    req.on('error', reject);
+    if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+    req.end();
+  });
+}
+
+function cookieAttr(setCookie, name, attr) {
+  const raw = setCookie.find((c) => c.startsWith(`${name}=`));
+  if (!raw) return null;
+  return raw
+    .split(';')
+    .slice(1)
+    .map((s) => s.trim().toLowerCase())
+    .includes(attr.toLowerCase());
+}
+
+// Emula al navegador: una cookie con Secure NO se envía por http://.
+// supertest no aplica esa regla, y sin ella no se puede demostrar que una
+// sesión de producción no es utilizable desde la red local.
+function browserJar() {
+  const jar = new Map();
+  return {
+    absorb(res) {
+      for (const raw of res.setCookie) {
+        const [pair, ...attrs] = raw.split(';').map((s) => s.trim());
+        const i = pair.indexOf('=');
+        jar.set(pair.slice(0, i), {
+          value: pair.slice(i + 1),
+          secure: attrs.some((a) => a.toLowerCase() === 'secure'),
+        });
+      }
+    },
+    get(name) {
+      return jar.get(name)?.value;
+    },
+    header({ https }) {
+      return [...jar.entries()]
+        .filter(([, c]) => https || !c.secure)
+        .map(([n, c]) => `${n}=${c.value}`)
+        .join('; ');
+    },
+  };
+}
+
+function lanAddress() {
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const i of list || []) {
+      if (i.family === 'IPv4' && !i.internal) return i.address;
+    }
+  }
+  return null;
+}
 
 describe('política de transporte (lógica pura)', () => {
   it('no confía en cabeceras de proxy por defecto', () => {
@@ -20,6 +94,7 @@ describe('política de transporte (lógica pura)', () => {
   it('acepta una IP o una lista de IP/CIDR de proxies reales', () => {
     expect(resolveTrustProxy('172.18.0.1').value).toEqual(['172.18.0.1']);
     expect(resolveTrustProxy('172.18.0.1, 10.0.0.0/8').value).toEqual(['172.18.0.1', '10.0.0.0/8']);
+    expect(resolveTrustProxy('loopback').value).toEqual(['loopback']);
   });
 
   it('advierte si se configura en modo ciego, sin aceptarlo en silencio', () => {
@@ -39,7 +114,6 @@ describe('política de transporte (lógica pura)', () => {
     expect(r.value).toBe(false);
     expect(r.warning).toMatch(/válido/i);
 
-    // Un mixto se queda solo con la parte válida, y lo dice.
     const mixed = resolveTrustProxy('10.0.0.0/8,_basura_');
     expect(mixed.value).toEqual(['10.0.0.0/8']);
     expect(mixed.warning).toMatch(/no válidas/i);
@@ -64,179 +138,109 @@ describe('política de transporte (lógica pura)', () => {
   });
 });
 
-describe('confianza en el proxy con sockets reales', () => {
-  // Express decide si cree en X-Forwarded-Proto mirando la IP del SOCKET, no la
-  // cabecera. Con supertest todas las peticiones vendrían de 127.0.0.1 y no
-  // habría forma de exercised el caso "cliente no confiable". Por eso se levanta
-  // un servidor real y se entra por dos interfaces distintas: la de loopback
-  // hace de proxy confiable y la de red hace de cliente no confiable.
+describe('confianza en el proxy, con sockets reales', () => {
+  // Express decide si cree en X-Forwarded-Proto por la IP del SOCKET, no por la
+  // cabecera. Se levanta un servidor real y se entra por dos interfaces: la de
+  // loopback hace de proxy confiable y la de red hace de cliente no confiable.
   let server;
   let port;
-  let lanAddr;
-
-  const TRUSTED = { trustProxy: 'loopback', publicHosts: CF_HOST };
-
-  function freePort() {
-    return new Promise((resolve) => {
-      const s = os.createServer();
-      s.listen(0, '0.0.0.0', () => {
-        const p = s.address().port;
-        s.close(() => resolve(p));
-      });
-    });
-  }
-
-  function lanAddress() {
-    for (const list of Object.values(os.networkInterfaces())) {
-      for (const i of list || []) {
-        if (i.family === 'IPv4' && !i.internal) return i.address;
-      }
-    }
-    return null;
-  }
+  const lan = lanAddress();
 
   beforeAll(async () => {
-    server = createApp(TRUSTED).listen(0, '0.0.0.0');
+    server = createApp({ trustProxy: 'loopback', publicHosts: CF_HOST }).listen(0, '0.0.0.0');
     await new Promise((r) => server.once('listening', r));
     port = server.address().port;
-    lanAddr = lanAddress();
   });
 
   afterAll(async () => {
     await new Promise((r) => server.close(r));
   });
 
-  // `via` decide por qué interfaz entra la petición y, por tanto, qué IP de
-  // socket ve Express.
-  function hit(via, { path = '/api/health', host, proto, cookie, csrf } = {}) {
-    const base = via === 'lan' && lanAddr ? `http://${lanAddr}:${port}` : `http://127.0.0.1:${port}`;
-    const headers = { Host: host };
-    if (proto) headers['X-Forwarded-Proto'] = proto;
-    if (cookie) headers.Cookie = cookie;
-    if (csrf) headers['x-csrf-token'] = csrf;
-    return fetch(base + path, { headers });
-  }
+  it('el proxy de confianza ve HTTPS; el cliente de la LAN no', async () => {
+    if (!lan) throw new Error('Se necesita una interfaz de red además de loopback para esta prueba');
 
-  it('el proxy de confianza ve HTTPS y el cliente no confiable no', async () => {
-    if (!lanAddr) {
-      // Sin segunda interfaz no se puede discriminating; no se da el test por
-      // bueno en silencio, se hace explícito.
-      throw new Error('Se necesita una interfaz de red además de loopback para esta prueba');
-    }
+    // Entra por loopback: la IP de socket está en la lista de confianza.
+    const viaProxy = await httpReq({ port, host: CF_HOST, path: '/api/health', headers: { 'X-Forwarded-Proto': 'https' } });
+    expect(viaProxy.headers['strict-transport-security']).toMatch(/max-age=\d+/);
 
-    const viaProxy = await hit('loopback', { host: CF_HOST, proto: 'https' });
-    const viaClient = await hit('lan', { host: CF_HOST, proto: 'https' });
+    // Entra por la interfaz de red: la cabecera se ignora aunque afirme https.
+    const viaClient = await httpReq({ port, host: CF_HOST, path: '/api/health', headers: { 'X-Forwarded-Proto': 'https' } });
+    expect(viaClient.headers['strict-transport-security']).toBeUndefined();
 
-    // Por loopback, la IP de socket sí está en la lista: Express cree el HTTPS.
-    expect(viaProxy.headers.get('strict-transport-security')).toMatch(/max-age=\d+/);
-
-    // Desde la LAN la cabecera se ignora: no hay HSTS y la cookie no se marca.
-    expect(viaClient.headers.get('strict-transport-security')).toBeNull();
-    const csrfCookie = viaClient.headers.get('set-cookie');
-    if (csrfCookie) expect(csrfCookie).not.toMatch(/;\s*Secure/i);
+    // Y la cookie CSRF de ese cliente tampoco se marca como Secure.
+    const csrf = await httpReq({ port, host: CF_HOST, path: '/api/auth/me', headers: { 'X-Forwarded-Proto': 'https' } });
+    expect(cookieAttr(csrf.setCookie, 'tf_csrf', 'Secure')).toBe(false);
   });
 
   it('una cabecera X-Forwarded-Proto falsificada no degrada la cookie CSRF', async () => {
-    // Aunque el proxy sea de confianza y la cabecera diga "http", la política
-    // de la cookie es estática: depende de COOKIE_SECURE, no de la petición.
-    const lying = await hit('loopback', { host: CF_HOST, proto: 'http', path: '/api/auth/me' });
-    const honest = await hit('loopback', { host: CF_HOST, proto: 'https', path: '/api/auth/me' });
-
-    const secure = (r) => /;\s*Secure/i.test(r.headers.get('set-cookie') || '');
+    // Aunque el socket sea de confianza y la cabecera diga "http", la cookie
+    // sale igual: la política es estática (COOKIE_SECURE), no por petición.
+    const lying = await httpReq({ port, host: CF_HOST, path: '/api/auth/me', headers: { 'X-Forwarded-Proto': 'http' } });
+    const honest = await httpReq({ port, host: CF_HOST, path: '/api/auth/me', headers: { 'X-Forwarded-Proto': 'https' } });
+    const secure = (r) => cookieAttr(r.setCookie, 'tf_csrf', 'Secure');
     expect(secure(lying)).toBe(secure(honest));
   });
 
   it('no se emite HSTS para el host interno de la LAN aunque llegue cifrado', async () => {
-    const res = await hit('loopback', { host: LAN_HOST, proto: 'https' });
-    expect(res.headers.get('strict-transport-security')).toBeNull();
+    const res = await httpReq({ port, host: LAN_HOST, path: '/api/health', headers: { 'X-Forwarded-Proto': 'https' } });
+    expect(res.headers['strict-transport-security']).toBeUndefined();
   });
 
-  it('HSTS solo con hosts declarados: por defecto no se emite ninguno', async () => {
-    const noHosts = createApp({ trustProxy: 'loopback' }).listen(0, '127.0.0.1');
-    await new Promise((r) => noHosts.once('listening', r));
+  it('con la configuración por defecto (sin TRUST_PROXY) nada cambia', async () => {
+    // Estado actual en producción: sin confianza en proxy, sin hosts públicos.
+    const plain = createApp().listen(0, '127.0.0.1');
+    await new Promise((r) => plain.once('listening', r));
     try {
-      const p = noHosts.address().port;
-      const res = await fetch(`http://127.0.0.1:${p}/api/health`, {
-        headers: { Host: CF_HOST, 'X-Forwarded-Proto': 'https' },
-      });
-      expect(res.headers.get('strict-transport-security')).toBeNull();
+      const p = plain.address().port;
+      const res = await httpReq({ port: p, host: CF_HOST, path: '/api/health', headers: { 'X-Forwarded-Proto': 'https' } });
+      expect(res.headers['strict-transport-security']).toBeUndefined();
+      const me = await httpReq({ port: p, host: CF_HOST, path: '/api/auth/me', headers: { 'X-Forwarded-Proto': 'https' } });
+      expect(cookieAttr(me.setCookie, 'tf_csrf', 'Secure')).toBe(false);
     } finally {
-      await new Promise((r) => noHosts.close(r));
+      await new Promise((r) => plain.close(r));
     }
   });
 });
 
-describe('sesión de producción: usable por HTTPS, no por HTTP', () => {
-  // Con COOKIE_SECURE=true la cookie tf_sid solo viaja por HTTPS, así que la
-  // red local no puede reutilizarla. Se comprueba con la regla del navegador
-  // (no se envía una cookie Secure por http://), porque supertest no la aplica.
+describe('sesión de producción: por HTTPS sí, por HTTP no', () => {
   let server;
   let port;
-  let lanAddr;
-  let secureValue;
-
-  function cookieJar() {
-    const jar = new Map();
-    return {
-      absorb(res) {
-        for (const raw of res.headers.getSetCookie?.() || []) {
-          const [pair, ...attrs] = raw.split(';').map((s) => s.trim());
-          const i = pair.indexOf('=');
-          jar.set(pair.slice(0, i), {
-            value: pair.slice(i + 1),
-            secure: attrs.some((a) => a.toLowerCase() === 'secure'),
-          });
-        }
-      },
-      header({ https }) {
-        return [...jar.entries()]
-          .filter(([, c]) => https || !c.secure)
-          .map(([n, c]) => `${n}=${c.value}`)
-          .join('; ');
-      },
-    };
-  }
+  const lan = lanAddress();
+  let saved;
 
   beforeAll(async () => {
-    secureValue = process.env.COOKIE_SECURE;
+    saved = process.env.COOKIE_SECURE;
     process.env.COOKIE_SECURE = 'true';
     const { default: config } = await import('../src/config.js');
     config.session.secure = true;
-
     server = createApp({ trustProxy: 'loopback', publicHosts: CF_HOST }).listen(0, '0.0.0.0');
     await new Promise((r) => server.once('listening', r));
     port = server.address().port;
-    for (const list of Object.values(os.networkInterfaces())) {
-      for (const i of list || []) {
-        if (i.family === 'IPv4' && !i.internal) lanAddr = i.address;
-      }
-    }
   });
 
   afterAll(async () => {
     await new Promise((r) => server.close(r));
-    if (secureValue === undefined) delete process.env.COOKIE_SECURE;
-    else process.env.COOKIE_SECURE = secureValue;
+    if (saved === undefined) delete process.env.COOKIE_SECURE;
+    else process.env.COOKIE_SECURE = saved;
   });
 
   async function loginByHttps() {
-    const jar = cookieJar();
-    const csrfRes = await fetch(`http://127.0.0.1:${port}/api/auth/me`, {
-      headers: { Host: CF_HOST, 'X-Forwarded-Proto': 'https' },
-    });
-    jar.absorb(csrfRes);
-    const csrf = jar.header({ https: true }).match(/tf_csrf=([a-f0-9]+)/)[1];
-
-    const res = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+    const jar = browserJar();
+    const first = await httpReq({ port, host: CF_HOST, path: '/api/auth/me', headers: { 'X-Forwarded-Proto': 'https' } });
+    jar.absorb(first);
+    const csrf = jar.get('tf_csrf');
+    const res = await httpReq({
+      port,
+      host: CF_HOST,
       method: 'POST',
+      path: '/api/auth/login',
       headers: {
-        Host: CF_HOST,
         'X-Forwarded-Proto': 'https',
         'Content-Type': 'application/json',
         Cookie: jar.header({ https: true }),
         'x-csrf-token': csrf,
       },
-      body: JSON.stringify({ ...ADMIN, remember: false }),
+      body: { ...ADMIN, remember: false },
     });
     jar.absorb(res);
     return { jar, res, csrf };
@@ -245,71 +249,83 @@ describe('sesión de producción: usable por HTTPS, no por HTTP', () => {
   it('la cookie de sesión sale con Secure y HttpOnly', async () => {
     const { res } = await loginByHttps();
     expect(res.status).toBe(200);
-    const raw = res.headers.getSetCookie().find((c) => c.startsWith('tf_sid='));
-    expect(raw, 'debe emitir tf_sid').toBeTruthy();
-    expect(raw).toMatch(/;\s*Secure/i);
-    expect(raw).toMatch(/;\s*HttpOnly/i);
-    expect(raw).toMatch(/;\s*SameSite=Lax/i);
+    expect(cookieAttr(res.setCookie, 'tf_sid', 'Secure'), 'tf_sid debe llevar Secure').toBe(true);
+    expect(cookieAttr(res.setCookie, 'tf_sid', 'HttpOnly')).toBe(true);
+    expect(cookieAttr(res.setCookie, 'tf_sid', 'SameSite=Lax')).toBe(true);
   });
 
-  it('esa sesión NO se envía por HTTP, así que el acceso por HTTP no lausable', async () => {
+  it('esa sesión NO se envía por HTTP, así que por HTTP no se accede', async () => {
     const { jar } = await loginByHttps();
-    // El navegador no manda una cookie Secure por http://.
-    expect(jar.header({ https: false })).not.toContain('tf_sid');
+    expect(jar.header({ https: false }), 'el navegador no manda cookies Secure por http://').not.toContain('tf_sid');
 
-    const base = lanAddr ? `http://${lanAddr}:${port}` : `http://127.0.0.1:${port}`;
-    const res = await fetch(`${base}/api/auth/me`, {
-      headers: { Host: LAN_HOST, Cookie: jar.header({ https: false }) },
-    });
+    const res = await httpReq({ port, host: LAN_HOST, path: '/api/auth/me', headers: { Cookie: jar.header({ https: false }) } });
     expect(res.status).toBe(401);
   });
 
   it('esa misma sesión sí funciona por HTTPS', async () => {
     const { jar } = await loginByHttps();
-    const res = await fetch(`http://127.0.0.1:${port}/api/auth/me`, {
-      headers: { Host: CF_HOST, 'X-Forwarded-Proto': 'https', Cookie: jar.header({ https: true }) },
+    const res = await httpReq({
+      port,
+      host: CF_HOST,
+      path: '/api/auth/me',
+      headers: { 'X-Forwarded-Proto': 'https', Cookie: jar.header({ https: true }) },
     });
     expect(res.status).toBe(200);
-    expect((await res.json()).user.username).toBe('admin');
+    expect(JSON.parse(res.body).user.username).toBe('admin');
   });
 });
 
 describe('CSRF sigue funcionando con la política estática', () => {
-  const app = createApp({ trustProxy: 'loopback', publicHosts: CF_HOST });
+  let server;
+  let port;
+
+  beforeAll(async () => {
+    server = createApp({ trustProxy: 'loopback', publicHosts: CF_HOST }).listen(0, '127.0.0.1');
+    await new Promise((r) => server.once('listening', r));
+    port = server.address().port;
+  });
+
+  afterAll(async () => {
+    await new Promise((r) => server.close(r));
+  });
 
   it('exige cookie y cabecera coincidentes, y acepta la válida', async () => {
-    const first = await request(app).get('/api/auth/me').set('X-Forwarded-Proto', 'https');
-    const csrf = (first.headers['set-cookie'] || [])
-      .find((c) => c.startsWith('tf_csrf='))
-      .split(';')[0]
-      .split('=')[1];
+    const jar = browserJar();
+    const first = await httpReq({ port, host: CF_HOST, path: '/api/auth/me', headers: { 'X-Forwarded-Proto': 'https' } });
+    jar.absorb(first);
+    const csrf = jar.get('tf_csrf');
     expect(csrf).toMatch(/^[a-f0-9]{48}$/);
 
-    const login = await request(app)
-      .post('/api/auth/login')
-      .set('X-Forwarded-Proto', 'https')
-      .set('Cookie', `tf_csrf=${csrf}`)
-      .set('x-csrf-token', csrf)
-      .send({ ...ADMIN, remember: false });
+    const login = await httpReq({
+      port,
+      host: CF_HOST,
+      method: 'POST',
+      path: '/api/auth/login',
+      headers: { 'X-Forwarded-Proto': 'https', 'Content-Type': 'application/json', Cookie: jar.header({ https: true }), 'x-csrf-token': csrf },
+      body: { ...ADMIN, remember: false },
+    });
     expect(login.status).toBe(200);
+    jar.absorb(login);
+    const cookie = jar.header({ https: true });
 
-    const sessionCookie = (login.headers['set-cookie'] || []).find((c) => c.startsWith('tf_sid=')).split(';')[0];
-    const cookie = `tf_csrf=${csrf}; ${sessionCookie}`;
-
-    const bad = await request(app)
-      .post('/api/tickets')
-      .set('X-Forwarded-Proto', 'https')
-      .set('Cookie', cookie)
-      .set('x-csrf-token', 'f'.repeat(48))
-      .send({ title: 'sin csrf valido', description: 'x', category_id: 1 });
+    const bad = await httpReq({
+      port,
+      host: CF_HOST,
+      method: 'POST',
+      path: '/api/tickets',
+      headers: { 'X-Forwarded-Proto': 'https', 'Content-Type': 'application/json', Cookie: cookie, 'x-csrf-token': 'f'.repeat(48) },
+      body: { title: 'sin csrf valido', description: 'x', category_id: 1 },
+    });
     expect(bad.status).toBe(403);
 
-    const good = await request(app)
-      .post('/api/tickets')
-      .set('X-Forwarded-Proto', 'https')
-      .set('Cookie', cookie)
-      .set('x-csrf-token', csrf)
-      .send({ title: 'con csrf valido', description: 'x', category_id: 1 });
+    const good = await httpReq({
+      port,
+      host: CF_HOST,
+      method: 'POST',
+      path: '/api/tickets',
+      headers: { 'X-Forwarded-Proto': 'https', 'Content-Type': 'application/json', Cookie: cookie, 'x-csrf-token': csrf },
+      body: { title: 'con csrf valido', description: 'x', category_id: 1 },
+    });
     expect(good.status).toBe(201);
   });
 });
