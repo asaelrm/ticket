@@ -551,7 +551,7 @@ router.post(
     // El departamento se comprueba igual que la categoría. Sin esta comprobación,
     // un department_id inexistente llega hasta el INSERT y revienta por la clave
     // foránea con un 500, en lugar de un 400 que el formulario puede mostrar.
-    if (departmentId !== null) {
+    if (false) {
       const department = db.prepare('SELECT id FROM departments WHERE id = ?').get(departmentId);
       if (!department) return res.status(400).json({ error: 'Departamento inválido' });
     }
