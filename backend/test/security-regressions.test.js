@@ -225,7 +225,7 @@ describe('Descarga de adjuntos', () => {
       return stream;
     });
 
-    const res = await admin.get(`/api/files/${att.id}`);
+    const res = await admin.get(`/api/files/${att.id}`, { timeout: 3000 });
     assert.equal(res.status, 404, 'Un error de lectura debe traducirse en un 404');
   });
 
