@@ -159,7 +159,7 @@ cloudflared tunnel --url https://tickets.lan
 > `*.trycloudflare.com` distinto en cada ejecucion. Si hace falta una direccion
 > estable, hace falta un tunel con nombre en el panel de Cloudflare
 > (`cloudflared tunnel login`, `tunnel create`, `tunnel route dns`). Eso es un
-> paso aparte, no covered por este documento.
+> paso aparte, no cubierto por este documento.
 
 ---
 
