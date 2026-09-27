@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { createClient } from './helpers.js';
 import config from '../src/config.js';
 import { attachmentPath } from '../src/utils/fileType.js';
@@ -192,27 +193,42 @@ describe('Restablecimiento de contraseña por administrador', () => {
 });
 
 describe('Descarga de adjuntos', () => {
-  it('un fichero borrado del disco responde 404 y no revienta el proceso', async () => {
-    const admin = createClient();
-    await admin.login('admin', '123456');
-    const t = await admin.postMultipart(
-      '/api/tickets',
-      { title: 'Adjunto huérfano', description: 'D', category_id: 1, priority: 'LOW' },
-      [IMG_PNG]
-    );
-    const att = t.body.attachments[0];
-    const abs = attachmentPath(att.stored_name);
-    assert.ok(abs, 'El adjunto debería estar en disco');
-    fs.unlinkSync(abs);
-
-    const res = await admin.get(`/api/files/${att.id}`);
-    assert.equal(res.status, 404);
-  });
-
   it('attachmentPath rechaza rutas fuera del directorio de subidas', () => {
     assert.equal(attachmentPath('../secret.txt'), null);
     assert.equal(attachmentPath('/etc/passwd'), null);
     assert.equal(attachmentPath('sub/carpeta.png'), null);
     assert.equal(attachmentPath(`${path.basename(config.uploadDir)}-evil.png`), null);
+  });
+
+  it('si la lectura falla a mitad de descarga responde 404 en vez de tumbar el proceso', async (t) => {
+    const admin = createClient();
+    await admin.login('admin', '123456');
+    const creado = await admin.postMultipart(
+      '/api/tickets',
+      { title: 'Adjunto huérfano', description: 'D', category_id: 1, priority: 'LOW' },
+      [IMG_PNG]
+    );
+    const att = creado.body.attachments[0];
+
+    // existsSync() dice que el fichero está, pero la lectura falla: es lo que
+    // pasa si el fichero se borra entre ambas comprobaciones. Se simula porque
+    // la carrera real no se puede provocar de forma determinista.
+    // createReadStream se emite en un 'error' sin ningún 'listener': antes del
+    // arreglo eso era una excepción no capturada que mataba el proceso Node.
+    t.mock.method(fs, 'createReadStream', () => {
+      const stream = new Readable({ read() {} });
+      process.nextTick(() => stream.emit('error', new Error('ENOENT')));
+      return stream;
+    });
+
+    const res = await admin.get(`/api/files/${att.id}`);
+    assert.equal(res.status, 404, 'Un error de lectura debe traducirse en un 404');
+  });
+
+  it('un adjunto inexistente responde 404', async () => {
+    const admin = createClient();
+    await admin.login('admin', '123456');
+    const res = await admin.get('/api/files/999999');
+    assert.equal(res.status, 404);
   });
 });
