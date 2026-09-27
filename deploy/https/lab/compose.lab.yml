@@ -38,6 +38,10 @@ services:
       PUBLIC_HOSTS: tickets.lan
       MAX_UPLOAD_SIZE_MB: "5"
       MAX_FILES_PER_TICKET: "5"
+      # Solo para poder iniciar sesion en el laboratorio.
+      SEED_ADMIN_USERNAME: admin
+      SEED_ADMIN_EMAIL: admin@lab.local
+      SEED_ADMIN_PASSWORD: lab-admin-123
     volumes:
       - ../../../backend:/app/backend
       - lab_backend_node_modules:/app/backend/node_modules
