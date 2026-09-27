@@ -167,14 +167,14 @@ export default function NewTicket() {
 
           <div>
             <label className="label" htmlFor="description">
-              DescripciÃ³n detallada *
+              Descripción detallada *
             </label>
             <textarea
               id="description"
               className="input min-h-[130px] resize-y"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describa el problema, pasos para reproducirlo y cualquier detalle relevanteâ€¦"
+              placeholder="Describa el problema, pasos para reproducirlo y cualquier detalle relevante…"
               maxLength={10000}
               required
             />
@@ -188,7 +188,7 @@ export default function NewTicket() {
               </svg>
               <span className="text-sm font-medium text-slate-600">Haga clic para adjuntar fotos o archivos</span>
               <span className="text-xs text-slate-400">
-                JPG, PNG, WEBP, PDF, DOC/DOCX, XLS/XLSX, TXT Â· MÃ¡x. {MAX_SIZE_MB} MB Â· {MAX_FILES} archivos
+                JPG, PNG, WEBP, PDF, DOC/DOCX, XLS/XLSX, TXT · Máx. {MAX_SIZE_MB} MB · {MAX_FILES} archivos
               </span>
               <input type="file" className="hidden" multiple onChange={onFiles} />
             </label>
