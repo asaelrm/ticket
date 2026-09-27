@@ -248,11 +248,9 @@ function FileThumb({ file }) {
   const [url, setUrl] = useState('');
 
   useEffect(() => {
-    const objectUrl = URL.createObjectURL(file);
-    setUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
+    setUrl(URL.createObjectURL(file));
   }, [file]);
 
   if (!url) return <span className="h-10 w-10 rounded-md bg-slate-100" aria-hidden="true" />;
-  return <img src={url} alt="" className="h-10 w-10 rounded-md object-cover" />;
+  return <img src={url} alt="" className="h-10 w-10 rounded-md object-cover" onLoad={(e) => URL.revokeObjectURL(e.target.src)} />;
 }
