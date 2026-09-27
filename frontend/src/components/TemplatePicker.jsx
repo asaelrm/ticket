@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+﻿import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -171,7 +171,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
             // (blanco puro) con texto slate-800, que en esta paleta también es
             // blanco: títulos y vista previa invisibles. Ahora usa las mismas
             // superficies oscuras que el resto de la aplicación.
-            className="z-50 overflow-hidden rounded-xl border border-cyan-300/40 bg-[#0e3a50] shadow-xl"
+            className="z-50 overflow-hidden rounded-xl border border-cyan-300/40 bg-white shadow-xl"
           >
             <div className="border-b border-cyan-300/20 p-3">
               <label className="sr-only" htmlFor="canned-search">
@@ -228,7 +228,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
                       index === highlight ? 'bg-brand-500/20 ring-1 ring-inset ring-brand-400/40' : ''
                     }`}
                   >
-                    <span className="block font-medium text-slate-700">{t.title}</span>
+                    <span className="block font-medium text-slate-800">{t.title}</span>
                     <span className="block truncate text-xs text-slate-500">
                       {t.scope === 'TEAM' ? `${t.team_name} · ` : ''}
                       {t.body.slice(0, 80)}
