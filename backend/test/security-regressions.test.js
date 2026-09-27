@@ -93,6 +93,37 @@ describe('Robustez del listado', () => {
   });
 });
 
+describe('Integridad de referencias al crear un ticket', () => {
+  it('un departamento inexistente responde 400 y no un 500 por clave foránea', async () => {
+    const emp = createClient();
+    await emp.login('empleado', 'Empleado1234!');
+
+    // La categoría se validaba contra la tabla y el departamento no. Con la FK
+    // activa, un department_id inexistente reventaba en el INSERT.
+    const res = await emp.post('/api/tickets', {
+      title: 'Ticket con departamento imposible',
+      description: 'D',
+      category_id: 1,
+      priority: 'LOW',
+      department_id: 999999,
+    });
+    assert.equal(res.status, 400, 'Un departamento inexistente debe ser un 400 controlado');
+    assert.equal(res.body.error, 'Departamento inválido');
+  });
+
+  it('una categoría inexistente también', async () => {
+    const emp = createClient();
+    await emp.login('empleado', 'Empleado1234!');
+    const res = await emp.post('/api/tickets', {
+      title: 'Ticket con categoría imposible',
+      description: 'D',
+      category_id: 999999,
+      priority: 'LOW',
+    });
+    assert.equal(res.status, 400);
+  });
+});
+
 describe('Límites del cuerpo multipart', () => {
   it('rechaza un número excesivo de campos de texto', async () => {
     const { id } = await ticketDeAdmin('Ticket con abuso de campos');
