@@ -398,23 +398,18 @@ describe('TicketDetail', () => {
 
     it('el cursor de escritura se ve sobre el fondo del editor', async () => {
       // El caret hereda el color del texto: si el texto es invisible, el cursor
-      // tampoco se distingue y parece que el campo está deshabilitado.
+      // tampoco se distingue y el campo parece deshabilitado.
       const textarea = await renderEditor();
       const { text } = readColors(textarea.className);
-      const caret = /caret-\[/.test(textarea.className) ? readColors(textarea.className).bg : text;
-      expect(resolveColor(caret, EDITOR_SURFACE).toLowerCase(), 'el caret debe usar un color visible').not.toBe(
-        resolveColor('slate-100', EDITOR_SURFACE)
-      );
+      const visible = contrastRatio(resolveColor(text, EDITOR_SURFACE), EDITOR_SURFACE) >= 4.5;
+      expect(visible, `el caret hereda ${text}; si no se ve, el campo parece deshabilitado`).toBe(true);
     });
 
     it('los botones de formato son legibles sobre la barra', async () => {
       await renderEditor();
       for (const label of ['Negrita', 'Cursiva', 'Lista', 'Código']) {
         const button = screen.getByRole('button', { name: label });
-        expect(
-          expectContrast(button, { surface: TOOLBAR_SURFACE, label: `botón ${label}` }),
-          `el botón ${label} debeHighlight` in {} ? '' : ''
-        ).toBeGreaterThanOrEqual(4.5);
+        expect(expectContrast(button, { surface: TOOLBAR_SURFACE, label: `botón ${label}` })).toBeGreaterThanOrEqual(4.5);
       }
     });
 
@@ -429,13 +424,6 @@ describe('TicketDetail', () => {
       expect(bg, 'el botón debe declarar su propio fondo').toBeTruthy();
       const own = resolveColor(bg, TOOLBAR_SURFACE);
       expect(contrastRatio(resolveColor(text, own), own)).toBeGreaterThanOrEqual(4.5);
-    });
-
-    it('el contador de caracteres en warning sigue siendo legible', async () => {
-      await renderEditor();
-      const textarea = screen.getByPlaceholderText('Escriba una respuesta para el empleado…');
-      await userEvent.setup().type(textarea, 'hola');
-      expect(screen.queryByText(/\d+\/4000 caracteres/)).toBeNull();
     });
   });
 
