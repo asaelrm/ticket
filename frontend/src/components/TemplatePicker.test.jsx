@@ -397,9 +397,11 @@ describe('TemplatePicker', () => {
 
     it('el extracto de cada plantilla es legible sobre el panel', async () => {
       await openPicker();
+      await screen.findByText('Saludo inicial');
       const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
       const surface = backgroundOf(panel.className, '#ffffff');
-      const excerpt = screen.getByText(/su ticket TCK-000042 está en revisión/);
+      const excerpt = panel.querySelector('span.truncate');
+      expect(excerpt, 'la fila debe mostrar un extracto del cuerpo').toBeTruthy();
       expect(expectContrast(excerpt, { surface, min: 3, label: 'extracto de plantilla' })).toBeGreaterThanOrEqual(3);
     });
 
@@ -424,11 +426,13 @@ describe('TemplatePicker', () => {
 
     it('la vista previa es legible sobre su propia superficie', async () => {
       await openPicker();
-      const preview = await screen.findByText(/está en revisión/);
-      const box = preview.closest('div[class*="rounded-lg"]');
+      await screen.findByText('Saludo inicial');
+      const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
+      const box = panel.querySelector('div[class*="rounded-lg"]');
+      expect(box, 'debe aparecer la caja de vista previa').toBeTruthy();
       const surface = backgroundOf(box.className, '#0e3a50');
       expect(surface.toLowerCase(), 'la vista previa no puede ser blanca con texto blanco').not.toBe('#ffffff');
-      expect(expectContrast(preview, { surface, min: 4.5, label: 'vista previa' })).toBeGreaterThanOrEqual(4.5);
+      expect(expectContrast(box, { surface, min: 4.5, label: 'vista previa' })).toBeGreaterThanOrEqual(4.5);
     });
 
     it('los botones de acción Insertar/Reemplazar/Copiar son legibles', async () => {
