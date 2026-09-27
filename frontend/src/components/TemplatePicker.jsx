@@ -147,7 +147,10 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
       <button
         ref={buttonRef}
         type="button"
-        className="rounded-md border border-white/20 bg-white/5 px-2 py-1 text-xs font-medium text-slate-100 transition hover:border-white/30 hover:bg-white/15"
+        // text-slate-600 y no text-slate-100: con la paleta invertida de
+        // index.css, slate-100 es un azul marino (#0C3347) que sobre la barra
+        // del editor (#08283d) quedaba en 1.05:1, es decir invisible.
+        className="rounded-md border border-white/25 bg-white/10 px-2 py-1 text-xs font-semibold text-slate-700 transition hover:border-white/40 hover:bg-white/20"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={open}
