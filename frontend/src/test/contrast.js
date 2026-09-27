@@ -58,11 +58,15 @@ export function contrastRatio(fg, bg) {
   return (a + 0.05) / (b + 0.05);
 }
 
-/** Compone un color con alfa sobre un fondo, en hexadecimal opaco. */
+/**
+ * Compone un color con alfa sobre un fondo, en hexadecimal opaco.
+ * `alpha` acepta tanto fracción (0.25) como porcentaje de Tailwind (25).
+ */
 export function composite(fgHex, alpha, bgHex) {
+  const a = alpha > 1 ? alpha / 100 : alpha;
   const fg = hexToRgb(fgHex);
   const bg = hexToRgb(bgHex);
-  return rgbToHex(fg.map((v, i) => v * alpha + bg[i] * (1 - alpha)));
+  return rgbToHex(fg.map((v, i) => v * a + bg[i] * (1 - a)));
 }
 
 /**
