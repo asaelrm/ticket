@@ -105,7 +105,7 @@ export default function NewTicket() {
         <form onSubmit={onSubmit} className="space-y-5 px-6 py-5" noValidate>
           <div>
             <label className="label" htmlFor="title">
-              TÃ­tulo *
+              Título *
             </label>
             <input
               id="title"
@@ -121,11 +121,11 @@ export default function NewTicket() {
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="category">
-                CategorÃ­a *
+                Categoría *
               </label>
               <select id="category" className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
                 <option value="" disabled>
-                  Seleccioneâ€¦
+                  Seleccione…
                 </option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
