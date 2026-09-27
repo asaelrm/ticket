@@ -5,6 +5,15 @@ import userEvent from '@testing-library/user-event';
 import TicketDetail from './TicketDetail';
 import { api } from '../lib/api';
 import { renderWithProviders } from '../test/utils';
+import {
+  EDITOR_SURFACE,
+  TOOLBAR_SURFACE,
+  contrastRatio,
+  expectContrast,
+  expectPlaceholderContrast,
+  readColors,
+  resolveColor,
+} from '../test/contrast';
 
 const { authState } = vi.hoisted(() => ({
   authState: { user: null },
