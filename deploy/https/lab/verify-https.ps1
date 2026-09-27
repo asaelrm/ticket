@@ -55,8 +55,8 @@ CurlLab -b $jar -c $jar -D h1.txt -o b1.txt -X POST -H "Content-Type: applicatio
 $login = Get-Content h1.txt -Raw
 Check "login correcto" ($login -match "200 OK") "estado: $((Select-String -Path h1.txt -Pattern '^HTTP/' | ForEach-Object { $_.Line }))"
 Check "tf_sid con Secure"  ($login -match "tf_sid=[^;]*;[^\r\n]*Secure")  "falta Secure"
-Check "tf_sid con HttpOnly" ($login -match "tf_sid=[^;]*HttpOnly")          "falta HttpOnly"
-Check "tf_sid con SameSite" ($login -match "tf_sid=[^;]*SameSite")          "falta SameSite"
+Check "tf_sid con HttpOnly" ($login -match "tf_sid=[^;]*;[^\r\n]*HttpOnly")      "falta HttpOnly"
+Check "tf_sid con SameSite" ($login -match "tf_sid=[^;]*;[^\r\n]*SameSite")      "falta SameSite"
 
 "== 4. Sin entrada HTTP directa al backend =="
 # El puerto 8443 del laboratorio es el 443 de Caddy, que solo habla TLS.
