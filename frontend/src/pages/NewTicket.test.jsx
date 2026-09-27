@@ -137,8 +137,10 @@ describe('NewTicket', () => {
 
     const png = (name) => new File(['x'], name, { type: 'image/png' });
     fireEvent.change(input, { target: { files: [png('a.png')] } });
-    const primera = await screen.findByRole('img');
-    expect(primera.getAttribute('src')).toBe('blob:mock/1');
+    // alt="" hace que la miniatura no exponga el rol img, así que se busca el
+    // nodo directamente.
+    await waitFor(() => expect(container.querySelector('img')).not.toBeNull());
+    expect(container.querySelector('img').getAttribute('src')).toBe('blob:mock/1');
 
     // Cambiar el archivo por otro debe revocar la URL anterior, no dejarla viva.
     fireEvent.change(input, { target: { files: [png('b.png')] } });
