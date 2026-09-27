@@ -45,16 +45,18 @@ function rgbToHex([r, g, b]) {
   return `#${[r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
 }
 
+/** Luminancia relativa WCAG de un color, de 0 (negro) a 1 (blanco). */
+export function luminance(hex) {
+  const [r, g, b] = hexToRgb(hex).map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 /** Ratio de contraste WCAG 2.1 entre dos colores, de 1 a 21. */
 export function contrastRatio(fg, bg) {
-  const lum = (hex) => {
-    const [r, g, b] = hexToRgb(hex).map((v) => {
-      const c = v / 255;
-      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  };
-  const [a, b] = [lum(fg), lum(bg)].sort((x, y) => y - x);
+  const [a, b] = [luminance(fg), luminance(bg)].sort((x, y) => y - x);
   return (a + 0.05) / (b + 0.05);
 }
 
