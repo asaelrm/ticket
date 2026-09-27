@@ -39,6 +39,13 @@ const config = {
     rememberMaxAge: 30 * 24 * 60 * 60 * 1000,
   },
 
+  // Rutas de transporte. `trustProxy` se aplica a Express tal cual; vacío o
+  // 'false' significa no confiar en ninguna cabecera de proxy (comportamiento
+  // actual). Ver src/transportSecurity.js.
+  trustProxy: process.env.TRUST_PROXY || '',
+  // Hosts públicos que deben recibir HSTS, separados por comas.
+  publicHosts: process.env.PUBLIC_HOSTS || '',
+
   uploads: {
     maxSizeMb: int(process.env.MAX_UPLOAD_SIZE_MB, 5),
     maxFilesPerTicket: int(process.env.MAX_FILES_PER_TICKET, 5),
