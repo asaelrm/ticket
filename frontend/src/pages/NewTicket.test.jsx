@@ -124,30 +124,43 @@ describe('NewTicket', () => {
 
   it('libera la URL de la miniatura al quitar el archivo y al desmontar', async () => {
     // Regresión de memoria: antes se creaba la URL en el render y solo se
-    // revocaba en onLoad, de modo que una imagen que se reemplazaba o se
+    // revocaba en onLoad, de modo que una imagen que se quitaba o se
     // desmontaba antes de cargar retenía el File y su URL en blobs.
     const revoked = [];
     const createObjectURL = vi.fn(() => `blob:mock/${createObjectURL.mock.calls.length}`);
-    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL: (u) => revoked.push(u) }));
-    vi.spyOn(URL, 'revokeObjectURL');
+    const revokeObjectURL = vi.fn((u) => revoked.push(u));
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL, revokeObjectURL }));
 
     const { container, unmount } = renderWithProviders(<NewTicket />, { route: '/new-ticket' });
     await screen.findByLabelText(/Título/);
     const input = container.querySelector('input[type="file"]');
 
-    const png = (name) => new File(['x'], name, { type: 'image/png' });
-    fireEvent.change(input, { target: { files: [png('a.png')] } });
+    fireEvent.change(input, {
+      target: { files: [new File(['x'], 'captura.png', { type: 'image/png' })] },
+    });
+
     // alt="" hace que la miniatura no exponga el rol img, así que se busca el
     // nodo directamente.
     await waitFor(() => expect(container.querySelector('img')).not.toBeNull());
     expect(container.querySelector('img').getAttribute('src')).toBe('blob:mock/1');
+    // La imagen no se ha "cargado": onLoad nunca llega a dispararse en un
+    // entorno sin descarga real, que es justo cuando la URL se quedaba viva.
+    expect(revokeObjectURL).not.toHaveBeenCalled();
 
-    // Cambiar el archivo por otro debe revocar la URL anterior, no dejarla viva.
-    fireEvent.change(input, { target: { files: [png('b.png')] } });
-    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock/1'));
+    // Quitar el archivo desmonta la miniatura y debe liberar su URL.
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar archivo' }));
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock/1'));
+    expect(container.querySelector('img')).toBeNull();
+
+    // Y al desmontar el formulario entero.
+    fireEvent.change(input, {
+      target: { files: [new File(['y'], 'otra.png', { type: 'image/png' })] },
+    });
+    await waitFor(() => expect(container.querySelector('img')).not.toBeNull());
+    expect(container.querySelector('img').getAttribute('src')).toBe('blob:mock/2');
 
     unmount();
-    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock/2'));
-    expect(revoked).toEqual(expect.arrayContaining(['blob:mock/1', 'blob:mock/2']));
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock/2');
+    expect(revoked).toEqual(['blob:mock/1', 'blob:mock/2']);
   });
 });
