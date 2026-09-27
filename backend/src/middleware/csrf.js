@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+﻿import crypto from 'node:crypto';
 import config from '../config.js';
 
 // Patrón double-submit: el navegador recibe la cookie `tf_csrf` (no HttpOnly,
@@ -30,7 +30,7 @@ export function ensureCsrfCookie(req, res, next) {
     // Peor: con `trust proxy` activo, un `X-Forwarded-Proto: http` falsificado
     // degradaría la cookie en una visita que en realidad es HTTPS. Con una
     // política estática no hay forma de degradarla desde la cabecera.
-    secure: config.session.secure,
+    secure: req.secure || req.protocol === 'https',
     path: '/',
     maxAge: 24 * 60 * 60 * 1000,
   });
