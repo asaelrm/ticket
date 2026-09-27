@@ -225,7 +225,8 @@ describe('Descarga de adjuntos', () => {
 
   // El manejador de 'error' del stream (routes/files.js) NO tiene cobertura
   // automática a propósito: solo se dispara si el fichero desaparece ENTRE el
-  // existsSync y la lectura, una carrera que no se puede provoked de forma
+  // existsSync y la lectura, una carrera que no se puede provocar de forma
   // determinista. Simularla con mock.method(fs, 'createReadStream') cuelga la
   // suite, porque supertest usa fs por dentro y recibe el stream falso. Se
-  // verificó a mano que sin el manejador la petición se queda colgada.});
+  // verificó a mano que sin el manejador la petición se queda colgada.
+});
