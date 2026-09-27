@@ -21,8 +21,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let cachedCss = null;
 
-function themeColors() {
-  if (cachedCss) return cachedCss;
+/** Los tokens de color declarados en @theme. */
+export function themeColors() {
+  if (cachedCss) return { ...cachedCss };
   const css = fs.readFileSync(path.join(__dirname, '..', 'index.css'), 'utf8');
   const block = css.match(/@theme\s*\{([\s\S]*?)\n\}/);
   if (!block) throw new Error('No se encontró el bloque @theme en index.css');
@@ -31,12 +32,7 @@ function themeColors() {
     out[`${m[1]}-${m[2]}`] = m[3];
   }
   cachedCss = out;
-  return out;
-}
-
-/** Los tokens de color declarados en @theme. */
-export function themeColorsPublic() {
-  return { ...themeColors() };
+  return { ...out };
 }
 
 function hexToRgb(hex) {
