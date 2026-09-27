@@ -8,7 +8,7 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "db:migrate": "node --env-file-if-exists=.env src/scripts/migrate.js",
     "db:seed": "node --env-file-if-exists=.env src/scripts/seed.js",
-    "test": "node --test --env-file-if-exists=.env \"test/*.test.js\""
+    "test": "node --test --import ./test/setup.js --env-file-if-exists=.env \"test/*.test.js\""
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
