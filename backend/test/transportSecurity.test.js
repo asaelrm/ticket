@@ -13,11 +13,12 @@ const ADMIN = { account: 'admin', password: '123456' };
 // `fetch` no deja fijar la cabecera Host (es *forbidden header name*), así que
 // el hostSeen por el servidor acababa siendo 127.0.0.1 y HSTS nunca se podía
 // comprobar. Con node:http el Host se manda tal cual, que es lo que hace un
-// proxy real.
-function httpReq({ port, host, method = 'GET', path = '/', headers = {}, body }) {
+// proxy real. `connectHost` permite entrar por otra interfaz para que la IP de
+// SOCKET que ve Express sea distinta.
+function httpReq({ port, host, connectHost = '127.0.0.1', method = 'GET', path = '/', headers = {}, body }) {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host: '127.0.0.1', port, method, path, headers: { Host: host, ...headers } },
+      { host: connectHost, port, method, path, headers: { Host: host, ...headers } },
       (res) => {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
@@ -164,11 +165,23 @@ describe('confianza en el proxy, con sockets reales', () => {
     expect(viaProxy.headers['strict-transport-security']).toMatch(/max-age=\d+/);
 
     // Entra por la interfaz de red: la cabecera se ignora aunque afirme https.
-    const viaClient = await httpReq({ port, host: CF_HOST, path: '/api/health', headers: { 'X-Forwarded-Proto': 'https' } });
+    const viaClient = await httpReq({
+      port,
+      connectHost: lan,
+      host: CF_HOST,
+      path: '/api/health',
+      headers: { 'X-Forwarded-Proto': 'https' },
+    });
     expect(viaClient.headers['strict-transport-security']).toBeUndefined();
 
     // Y la cookie CSRF de ese cliente tampoco se marca como Secure.
-    const csrf = await httpReq({ port, host: CF_HOST, path: '/api/auth/me', headers: { 'X-Forwarded-Proto': 'https' } });
+    const csrf = await httpReq({
+      port,
+      connectHost: lan,
+      host: CF_HOST,
+      path: '/api/auth/me',
+      headers: { 'X-Forwarded-Proto': 'https' },
+    });
     expect(cookieAttr(csrf.setCookie, 'tf_csrf', 'Secure')).toBe(false);
   });
 
