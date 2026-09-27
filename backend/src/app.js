@@ -7,6 +7,7 @@ import config from './config.js';
 import SqliteSessionStore from './utils/sessionStore.js';
 import { ensureCsrfCookie, csrfProtect } from './middleware/csrf.js';
 import { rateLimit } from './utils/rateLimit.js';
+import { resolveTrustProxy, shouldSendHsts } from './transportSecurity.js';
 import { errorHandler } from './middleware/errors.js';
 
 import authRoutes from './routes/auth.js';
@@ -26,14 +27,31 @@ import settingsRoutes from './routes/settings.js';
 import notificationsRoutes from './routes/notifications.js';
 import auditRoutes from './routes/audit.js';
 
-export function createApp() {
+export function createApp(options = {}) {
   const app = express();
   app.disable('x-powered-by');
 
-  // No se confía en headers X-Forwarded-*: detrás de un proxy real debe
-  // habilitarse únicamente con la IP del proxy (evita evadir el rate limit
-  // falseando X-Forwarded-For).
-  // app.set('trust proxy', 1);
+  // Confianza en proxies. Vacío o 'false' = no se cree ninguna cabecera de
+  // proxy, que es el estado actual y el más seguro por defecto. Hay que
+  // configurarlo de forma explícita para que `req.protocol` refleje el HTTPS
+  // real de Cloudflare; si seActivationa a ciegas, cualquier cliente podría
+  // inyectar X-Forwarded-Proto (ver src/transportSecurity.js).
+  const trust = options.trustProxy !== undefined ? resolveTrustProxy(options.trustProxy) : resolveTrustProxy(config.trustProxy);
+  if (trust.value) app.set('trust proxy', trust.value);
+  if (trust.warning) console.warn(`[transporte] ${trust.warning}`);
+
+  const publicHosts = options.publicHosts !== undefined ? options.publicHosts : config.publicHosts;
+  // HSTS por host y solo sobre HTTPS verificado. La app sirve hoy HTTPS por
+  // Cloudflare y HTTP desde la LAN en la MISMA instancia, así que no se emite
+  // HSTS incondicionalmente: el nombre interno de la LAN no debe quedar
+  // anclado a HTTPS, ni un despliegue HTTP de pruebas debe quedar inutilizado
+  // en el navegador.
+  app.use((req, res, next) => {
+    if (shouldSendHsts({ host: req.hostname, isHttps: req.secure, publicHosts })) {
+      res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
 
   app.use(
     helmet({
