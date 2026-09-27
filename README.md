@@ -85,15 +85,16 @@ debe restablecerlas antes de que puedan entrar.
 
 ## Cuentas iniciales (seed)
 
-En **desarrollo** se crean automáticamente estas cuentas de demostración:
+En **desarrollo** se crean automáticamente tres cuentas de demostración —`admin`,
+`tecnico` y `empleado`— con una contraseña de ejemplo definida en
+[`backend/src/seed.js`](backend/src/seed.js). **No se documentan aquí a
+propósito**: una contraseña de ejemplo escrita en el README acaba en
+producción, en una captura de pantalla o en un ticket, y con ella cualquiera que
+lea el repositorio entra como administrador.
 
-| Rol        | Usuario  | Contraseña      |
-| ---------- | -------- | --------------- |
-| Admin      | `admin`  | `123456`        |
-| Técnico    | `tecnico`| `Tecnico1234!`  |
-| Empleado   | `empleado`| `Empleado1234!` |
-
-> Cambie estas contraseñas tras el primer inicio.
+> **Cámbielas en el primer inicio**, antes de usar el sistema con datos de
+> verdad. La contraseña se cambia en *Mi perfil* y desde *Usuarios* para las
+> cuentas de los demás.
 
 En **producción** las cuentas demo con contraseña conocida **no se crean**. El
 administrador inicial se crea al arrancar solo si define `SEED_ADMIN_PASSWORD`
@@ -125,6 +126,17 @@ compruebe que puede entrar y quite las dos variables.
 | `npm run db:migrate`     | Aplica migraciones (idempotente)  |
 | `npm run db:seed`        | Siembra roles, permisos y datos   |
 
+### Tests del backend
+
+`npm test` carga [`backend/test/setup.js`](backend/test/setup.js), que crea una
+base de datos **temporal**, la migra, la siembra y la borra al terminar. Por eso
+la suite nunca escribe en `backend/data/tickets.db`, aunque se ejecute desde
+cualquier carpeta.
+
+Lance siempre los tests con `npm test`. Si los arranca a mano con
+`node --test test/loquesea.test.js` **sin** el `--import`, los archivos que no
+usan `test/helpers.js` se conectan con la base de datos real.
+
 ## Producción
 
 1. `npm run build` (frontend a `frontend/dist`).
@@ -138,7 +150,7 @@ compruebe que puede entrar y quite las dos variables.
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `NODE_ENV`             | `production` activa validaciones estrictas (exige `SESSION_SECRET`).                                                                   |
 | `SESSION_SECRET`       | **Obligatoria en producción.** El arranque falla si `NODE_ENV=production` y no está definida.                                          |
-| `PUBLIC_URL`           | URL pública (sin slash final) usada para construir los enlaces absolutos de los correos, p. ej. el de recuperación de contraseña.      |
+| `PUBLIC_URL`           | URL pública (sin slash final) usada para construir los enlaces absolutos de los correos, p. ej. el de recuperación de contraseña. Si no se define, se toma el origen del frontend (`CORS_ORIGIN`), no el puerto de la API. |
 | `CORS_ORIGIN`          | Origen permitido por CORS. En producción con la SPA servida por el propio backend, use el mismo valor que `PUBLIC_URL`.                |
 | `CORS_ORIGINS`         | Alternativa a `CORS_ORIGIN`: lista de orígenes separados por comas. Tiene prioridad sobre `CORS_ORIGIN`.                               |
 | `COOKIE_SECURE`        | `true` cuando se sirve por HTTPS para que la cookie de sesión solo viaje por canales seguros.                                          |
