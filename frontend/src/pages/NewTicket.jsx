@@ -76,7 +76,7 @@ export default function NewTicket() {
       resized.push(f);
     }
     if (oversized.length) {
-      setError(`Archivos demasiado grandes: ${oversized.join(', ')}. MÃ¡ximo ${MAX_SIZE_MB} MB por archivo.`);
+      setError(`Archivos demasiado grandes: ${oversized.join(', ')}. Máximo ${MAX_SIZE_MB} MB por archivo.`);
       return;
     }
     setError('');
@@ -92,7 +92,7 @@ export default function NewTicket() {
     createMutation.mutate();
   }
 
-  if (loadingInit) return <LoadingScreen text="Cargando formularioâ€¦" />;
+  if (loadingInit) return <LoadingScreen text="Cargando formulario…" />;
 
   return (
     <div className="mx-auto max-w-2xl">
