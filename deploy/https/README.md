@@ -22,7 +22,7 @@ Medido en el laboratorio (`deploy/https/lab`):
 
 | Comprobacion | Resultado |
 |---|---|
-| HTTPS端 a extremo, certificado de la CA local | correcto |
+| HTTPS de extremo a extremo, certificado de la CA local | correcto |
 | HSTS solo en el host declarado | correcto |
 | Cliente falsifica `X-Forwarded-Proto: http` | **ignorado** por Caddy |
 | `tf_sid` con `Secure` + `HttpOnly` + `SameSite` | correcto |
