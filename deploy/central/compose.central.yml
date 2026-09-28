@@ -1,0 +1,36 @@
+﻿services:
+  ticket:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: ticket-central
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      SESSION_SECRET: "${SESSION_SECRET}"
+      COOKIE_SECURE: "false"
+      CORS_ORIGIN: "${PUBLIC_URL}"
+      PUBLIC_URL: "${PUBLIC_URL}"
+
+      # La base ya tendrá usuarios.
+      # No crear cuentas automáticamente.
+      SEED_ADMIN_PASSWORD: ""
+      SEED_DEMO_ACCOUNTS: "false"
+
+    volumes:
+      - ticket_data:/app/backend/data
+      - ticket_uploads:/app/backend/uploads
+
+    ports:
+      - "${TAILSCALE_IP}:4000:4000"
+
+volumes:
+  ticket_data:
+    external: true
+    name: ticket_central_data
+
+  ticket_uploads:
+    external: true
+    name: ticket_central_uploads

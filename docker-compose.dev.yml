@@ -54,7 +54,7 @@ volumes:
   frontend_node_modules:
   ticket_data:
     external: true
-    name: ticket_ticket_data
+    name: ticket_dev_data
   ticket_uploads:
     external: true
-    name: ticket_ticket_uploads
+    name: ticket_dev_uploads
