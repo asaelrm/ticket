@@ -61,6 +61,27 @@ function sla(overrides = {}) {
   };
 }
 
+// Por defecto el endpoint de triaje devuelve datos: aunque la sección ya no se
+// pinta, el dashboard no debe pedirlo y las pruebas lo comprueban.
+function attention() {
+  return {
+    data: [
+      {
+        id: 11,
+        ticket_number: 'TCK-000011',
+        title: 'Servidor caído',
+        status: 'IN_PROGRESS',
+        priority: 'CRITICAL',
+        technician_name: 'Luis Pérez',
+        category_name: 'Redes',
+        sla_due_at: '2020-01-01T00:00:00Z',
+        reasons: ['SLA_OVERDUE', 'CRITICAL'],
+      },
+    ],
+    totals: { total: 1, overdue: 1, critical: 1, dueSoon: 0, unassigned: 0 },
+  };
+}
+
 function setup(overrides = {}) {
   const payload = {
     summary: summary(),
@@ -80,6 +101,9 @@ function setup(overrides = {}) {
     if (url === '/api/dashboard/trend?range=day') return Promise.resolve({ data: [{ label: '2026-09-01', created: 2, resolved: 1 }] });
     if (url === '/api/dashboard/recent') return Promise.resolve(payload.recent);
     if (url === '/api/dashboard/sla') return Promise.resolve(payload.sla);
+    // Sigue mockeado aunque nadie lo pida: así la prueba que afirma que el
+    // dashboard NO lo llama no depende de un 404 que se trague un .catch().
+    if (url === '/api/dashboard/needs-attention') return Promise.resolve(attention());
     return Promise.reject(new Error(`404 ${url}`));
   });
 }
@@ -89,8 +113,24 @@ beforeEach(() => {
   setup();
 });
 
+// Las seis tarjetas superiores son enlaces. Se localizan por el texto del rótulo
+// y se devuelven como <a>, que es lo que hace clicables y navegables con teclado.
+function shortcut(label) {
+  return screen.getByRole('link', { name: new RegExp(`^${label}`) });
+}
+
 function cardValue(label) {
   return within(screen.getByText(label, { selector: 'p.truncate' }).closest('.card')).getByText(/^\d+$/);
+}
+
+// "Fuera de plazo" y "Por vencer" son rótulos que se repiten en varias tarjetas
+// del dashboard, así que las aserciones de "Tiempos de atención" también se acotan.
+function timesCard() {
+  return screen.getByRole('link', { name: /Ver retrasados/ }).closest('.card');
+}
+
+function timesStat(label) {
+  return within(timesCard()).getByText(label, { selector: 'p' }).parentElement;
 }
 
 describe('Dashboard', () => {
@@ -136,36 +176,46 @@ describe('Dashboard', () => {
     expect(api.get).toHaveBeenCalledWith('/api/dashboard/summary');
   });
 
-  it('muestra el estado de atención SLA y la tabla de top tickets', async () => {
+  it('muestra los tiempos de atención y la tabla de top tickets', async () => {
     renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
 
     expect(await screen.findByText(/#TCK-000005/)).toBeInTheDocument();
     expect(screen.getByText('Impresora no imprime')).toBeInTheDocument();
     expect(screen.getByText('Luis')).toBeInTheDocument();
-    expect(screen.getByText('Vencidos').parentElement).toHaveTextContent('1');
-    expect(screen.getByText('Próximas 24 h').parentElement).toHaveTextContent('2');
-    expect(screen.getByText('Dentro de plazo').parentElement).toHaveTextContent('4');
+    expect(screen.getByText('Tiempos de atención')).toBeInTheDocument();
+    expect(screen.getByText('Seguimiento de los tiempos establecidos según la prioridad')).toBeInTheDocument();
+    expect(within(timesStat('Fuera de plazo')).getByText(/^\d+$/)).toHaveTextContent('1');
+    expect(within(timesStat('Por vencer')).getByText(/^\d+$/)).toHaveTextContent('2');
+    expect(within(timesStat('En tiempo')).getByText(/^\d+$/)).toHaveTextContent('4');
     expect(screen.getByText(/Vence en/)).toBeInTheDocument();
 
     const overdueLink = screen.getByRole('link', { name: /Ver retrasados/ });
     expect(overdueLink).toHaveAttribute('href', '/app/tickets?view=overdue');
   });
 
-  it('muestra tickets vencidos con aviso de SLA', async () => {
+  it('no muestra la sigla SLA en los textos visibles', async () => {
+    renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
+
+    await screen.findByText('Tiempos de atención');
+    expect(within(timesCard()).queryByText(/SLA/)).not.toBeInTheDocument();
+    expect(screen.getByText('Carga por técnico').closest('.card').textContent).not.toMatch(/SLA/);
+  });
+
+  it('muestra tickets fuera de plazo con su cuenta atrás', async () => {
     setup({
       sla: sla({ top: [{ id: 5, ticket_number: 'TCK-000005', title: 'Impresora no imprime', reporter_name: 'Luis', priority: 'CRITICAL', sla_due_at: '2020-01-01T00:00:00Z', is_overdue: true }] }),
     });
 
     renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
     await screen.findByText(/#TCK-000005/);
-    expect(screen.getByText(/Vencido hace/)).toBeInTheDocument();
+    expect(within(timesCard()).getByText(/Vencido hace/)).toBeInTheDocument();
   });
 
-  it('muestra el mensaje cuando no hay tickets con SLA', async () => {
+  it('avisa cuando no hay tickets con tiempo de atención definido', async () => {
     setup({ sla: sla({ top: [] }) });
 
     renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
-    expect(await screen.findByText('Sin tickets abiertos con SLA definido.')).toBeInTheDocument();
+    expect(await screen.findByText('Sin tickets abiertos con tiempo de atención definido.')).toBeInTheDocument();
   });
 
   it('muestra los gráficos por estado y los listados de categorías y departamentos', async () => {
@@ -195,6 +245,76 @@ describe('Dashboard', () => {
 
     renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
     expect(await screen.findAllByText('Sin datos')).toHaveLength(2);
+  });
+
+  // Accesos rápidos. Los destinos usan solo filtros que /api/tickets ya soporta:
+  // `status` y `priority` son listas de su enum, y `active=1` acota a los estados
+  // no terminales. Se comprueba el href exacto, que es lo que acabará navegando.
+  it.each([
+    ['Abiertos', '/app/tickets?status=OPEN'],
+    ['Asignados', '/app/tickets?status=ASSIGNED'],
+    ['En proceso', '/app/tickets?status=IN_PROGRESS'],
+    ['Pendientes', '/app/tickets?status=PENDING'],
+    ['Resueltos', '/app/tickets?status=RESOLVED'],
+  ])('convierte la tarjeta "%s" en un acceso al filtro de tickets', async (label, href) => {
+    renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
+
+    await screen.findByText('Abiertos');
+    expect(shortcut(label)).toHaveAttribute('href', href);
+  });
+
+  it('lleva la tarjeta Críticos solo a los críticos activos', async () => {
+    renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
+
+    await screen.findByText('Abiertos');
+    // `active=1` es lo que hace que la lista cuadre con el contador: sin él
+    // saldrían también los críticos ya resueltos, cerrados o cancelados.
+    expect(shortcut('Críticos')).toHaveAttribute('href', '/app/tickets?priority=CRITICAL&active=1');
+  });
+
+  it('deja las tarjetas en el orden de tabulación y con foco visible', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
+
+    await screen.findByText('Abiertos');
+    // Es un <a href>, así que entra en el tabulador sin tabindex artificial y
+    // Enter navega por la ruta del enlace sin ningún manejador propio.
+    const card = shortcut('Abiertos');
+    expect(card).not.toHaveAttribute('tabindex');
+    await user.tab();
+    expect(card).toHaveFocus();
+
+    // El foco de teclado tiene que verse: sin `focus-visible` el usuario de
+    // teclado no distingue dónde está.
+    expect(card.className).toContain('focus-visible:outline-2');
+    expect(card.className).toContain('cursor-pointer');
+  });
+
+  it('ya no pide ni muestra la sección "Requieren atención"', async () => {
+    renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
+
+    await screen.findByText('Tiempos de atención');
+    expect(screen.queryByText('Requieren atención')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tickets que requieren seguimiento inmediato')).not.toBeInTheDocument();
+    expect(screen.queryByText(/No hay tickets que requieran atención/)).not.toBeInTheDocument();
+    // El ticket del fixture de triaje no aparece por ninguna otra vía.
+    expect(screen.queryByText('Servidor caído')).not.toBeInTheDocument();
+
+    // El endpoint se conserva en el backend, pero el dashboard deja de llamarlo.
+    expect(api.get).not.toHaveBeenCalledWith('/api/dashboard/needs-attention');
+    expect(api.get.mock.calls.map(([url]) => url)).not.toContain('/api/dashboard/needs-attention');
+  });
+
+  it('mantiene el resto de secciones tras retirar el triaje', async () => {
+    renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
+
+    await screen.findByText('Tiempos de atención');
+    expect(screen.getByText('Carga por técnico')).toBeInTheDocument();
+    expect(screen.getByText('Tickets por estado')).toBeInTheDocument();
+    expect(screen.getByText('Tickets por categoría')).toBeInTheDocument();
+    expect(screen.getByText('Tickets por departamento')).toBeInTheDocument();
+    expect(screen.getByText('Tickets recientes')).toBeInTheDocument();
+    expect(screen.getByText('Tendencia últimos 14 días')).toBeInTheDocument();
   });
 
   it('se suscribe a la invalidación por eventos de tickets', async () => {

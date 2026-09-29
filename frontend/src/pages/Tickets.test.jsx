@@ -288,7 +288,32 @@ describe('Tickets', () => {
     });
   });
 
+  // `active=1` es el filtro que /api/tickets ya soporta para acotar a los
+  // estados no terminales (buildConditions) y el que usa el acceso directo
+  // "Críticos" del dashboard. Si parseFilters lo ignorara, la URL llegaría sin
+  // efecto y la pantalla mostraría críticos ya resueltos o cerrados.
+  it('reenvía el filtro active de la URL para acotar a los tickets activos', async () => {
+    renderWithProviders(<Tickets />, { route: '/app/tickets?priority=CRITICAL&active=1' });
+    await screen.findByText('TCK-000001');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?'));
+      expect(calls.length).toBeGreaterThan(0);
+      const last = calls[calls.length - 1][0];
+      expect(last).toContain('active=1');
+      expect(last).toContain('priority=CRITICAL');
+    });
+  });
+
+  it('no manda active cuando la URL no lo trae', async () => {
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.not.stringContaining('active')));
+  });
+
   it('cancela un ticket con motivo y refresca el listado', async () => {
+
     const user = userEvent.setup();
     renderWithProviders(<Tickets />, { route: '/app/tickets' });
     await screen.findByText('TCK-000001');

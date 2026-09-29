@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { api, STATUS_LABEL, PRIORITY_LABEL, formatDate } from '../lib/api';
-import { LoadingScreen, Spinner, ErrorBox } from '../components/ui';
+import { LoadingScreen, ErrorBox } from '../components/ui';
 
 const STATUS_COLORS = {
   OPEN: '#f59e0b',
@@ -53,16 +53,25 @@ const ICON = {
   ),
 };
 
-function Card({ label, value, hint, icon, color = '#22c77a' }) {
+// Tarjeta de acceso rápido a la pantalla de tickets. Es un <Link> y no un <div>
+// con onClick: aporta un href real (se puede abrir en pestaña nueva, copiar y se
+// anuncia como enlace), el foco por teclado y la activación con Enter vienen de
+// serie, y el aspecto es el de la tarjeta informativa de siempre. El hover solo
+// sube el borde y añade un halo verde; el foco dibuja el mismo outline que los
+// botones (.btn:focus-visible). Sin transiciones llamativas: 150 ms de color.
+function Card({ label, value, hint, icon, color = '#22c77a', to }) {
   return (
-    <div className="card relative overflow-hidden p-4">
+    <Link
+      to={to}
+      className="card group relative block cursor-pointer overflow-hidden p-4 transition duration-150 hover:border-brand-400/60 hover:ring-1 hover:ring-brand-400/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500/70"
+    >
       <span
         className="absolute inset-x-0 top-0 h-0.5"
         style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }}
       />
       <div className="flex items-center gap-3">
         <span
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl transition group-hover:scale-105"
           style={{ background: `${color}1f`, color, boxShadow: `0 0 0 1px ${color}40` }}
         >
           {icon}
@@ -73,27 +82,33 @@ function Card({ label, value, hint, icon, color = '#22c77a' }) {
         </div>
       </div>
       {hint && <p className="mt-2 text-xs text-slate-400">{hint}</p>}
-    </div>
+    </Link>
   );
 }
 
+// Indicador de una cifra de gestión. El rótulo NO lleva `truncate`: con la
+// ayuda en la misma línea, un título como "FUERA DE PLAZO" se cortaba a
+// "FUERA DE PLAZ…". Ahora el texto se parte en dos líneas si hace falta y la
+// ayuda va DEBAJO de la cifra, en vez de competir por el ancho en horizontal.
 function SlaStat({ label, value, tone, hint }) {
   return (
     <div
-      className="flex items-center gap-3 rounded-xl border px-4 py-3"
+      className="flex items-start gap-3 rounded-xl border px-4 py-3"
       style={{ borderColor: `${tone}40`, background: `${tone}14` }}
     >
       <span
-        className="grid h-9 w-9 shrink-0 place-items-center rounded-lg"
+        className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg"
         style={{ background: `${tone}22`, color: tone }}
       >
         <span className="h-2 w-2 rounded-full" style={{ background: tone }} />
       </span>
-      <div className="min-w-0">
-        <p className="truncate text-xs font-semibold uppercase tracking-wider text-slate-400">{label}</p>
-        <p className="text-2xl font-extrabold leading-tight text-slate-800">{value}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-semibold uppercase leading-tight tracking-wide text-slate-400">
+          {label}
+        </p>
+        <p className="mt-1 text-2xl font-extrabold leading-tight text-slate-800">{value}</p>
+        {hint && <p className="mt-1 text-[11px] leading-tight text-slate-400">{hint}</p>}
       </div>
-      {hint && <p className="ml-auto hidden text-right text-[11px] text-slate-400 sm:block">{hint}</p>}
     </div>
   );
 }
@@ -105,6 +120,12 @@ function slaRel(iso, overdue) {
   const t = h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} d`;
   return overdue ? `Vencido hace ${t}` : `Vence en ${t}`;
 }
+
+// La sección "Requieren atención" se retiró del dashboard para que la pantalla
+// se lea de un vistazo. Su lógica NO se pierde: /api/dashboard/needs-attention y
+// sus pruebas siguen en el backend, así que la sección se puede recuperar tal
+// cual con el endpoint, sus cuatro motivos y la fila de detalle que ya usaba.
+// Aquí no queda ninguna llamada, variable ni componente sin uso.
 
 export default function Dashboard() {
   const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
@@ -191,21 +212,81 @@ export default function Dashboard() {
         )}
       </div>
 
+      {/* Accesos rápidos. Cada destino usa solo filtros que /api/tickets ya
+          soporta (backend/src/routes/tickets.js, buildConditions): `status` y
+          `priority` aceptan una lista de su enum, y `active=1` acota a los
+          estados no terminales.
+
+          Se usa `status=` y no las `view=` de los chips de Tickets porque estas
+          tarjetas cuentan por estado EXACTO (/summary agrupa por `status`): con
+          `view=open` la lista traería también asignados, en proceso y
+          pendientes, y su total no cuadraría con la cifra de la tarjeta. Por el
+          mismo motivo "Pendientes" apunta a `status=PENDING` y no al chip
+          "Pendientes", cuya `view=pending` es OPEN+PENDING.
+
+          "Críticos" necesita además `active=1`: el contador del resumen solo mira
+          los estados no terminales, así que sin ese filtro saldrían también los
+          tickets críticos ya resueltos, cerrados o cancelados. La lista queda
+          entonces alineada con la cifra. */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <Card label="Abiertos" value={counts.OPEN ?? 0} icon={ICON.open} color="#f59e0b" hint="En espera de atención" />
-        <Card label="Asignados" value={counts.ASSIGNED ?? 0} icon={ICON.assigned} color="#20c7b7" hint="Llamado por el equipo" />
-        <Card label="En proceso" value={counts.IN_PROGRESS ?? 0} icon={ICON.progress} color="#22c77a" hint="Siendo atendido" />
-        <Card label="Pendientes" value={counts.PENDING ?? 0} icon={ICON.pending} color="#2196f3" hint="Programados o en pausa" />
-        <Card label="Resueltos" value={counts.RESOLVED ?? 0} icon={ICON.resolved} color="#59b77c" hint="Atención completada" />
-        <Card label="Críticos" value={summary?.critical ?? 0} icon={ICON.critical} color="#dc2626" hint="Críticos abiertos" />
+        <Card
+          label="Abiertos"
+          value={counts.OPEN ?? 0}
+          icon={ICON.open}
+          color="#f59e0b"
+          hint="En espera de atención"
+          to="/app/tickets?status=OPEN"
+        />
+        <Card
+          label="Asignados"
+          value={counts.ASSIGNED ?? 0}
+          icon={ICON.assigned}
+          color="#20c7b7"
+          hint="Llamado por el equipo"
+          to="/app/tickets?status=ASSIGNED"
+        />
+        <Card
+          label="En proceso"
+          value={counts.IN_PROGRESS ?? 0}
+          icon={ICON.progress}
+          color="#22c77a"
+          hint="Siendo atendido"
+          to="/app/tickets?status=IN_PROGRESS"
+        />
+        <Card
+          label="Pendientes"
+          value={counts.PENDING ?? 0}
+          icon={ICON.pending}
+          color="#2196f3"
+          hint="Programados o en pausa"
+          to="/app/tickets?status=PENDING"
+        />
+        <Card
+          label="Resueltos"
+          value={counts.RESOLVED ?? 0}
+          icon={ICON.resolved}
+          color="#59b77c"
+          hint="Atención completada"
+          to="/app/tickets?status=RESOLVED"
+        />
+        <Card
+          label="Críticos"
+          value={summary?.critical ?? 0}
+          icon={ICON.critical}
+          color="#dc2626"
+          hint="Críticos abiertos"
+          to="/app/tickets?priority=CRITICAL&active=1"
+        />
       </div>
 
-      {/* SLA · Estado de atención */}
+      {/* Tiempos de atención */}
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
           <div>
-            <h3 className="text-sm font-semibold text-slate-700">SLA · Estado de atención</h3>
-            <p className="text-xs text-slate-400">Plazo estimado de resolución según prioridad</p>
+            <h3 className="text-sm font-semibold text-slate-700">Tiempos de atención</h3>
+            <p className="text-xs text-slate-400">
+              Seguimiento de los tiempos establecidos según la prioridad
+            </p>
           </div>
           <Link
             to="/app/tickets?view=overdue"
@@ -216,9 +297,24 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 px-5 pb-5 sm:grid-cols-3">
-          <SlaStat label="Vencidos" value={sla?.overdue ?? 0} tone="#ef4444" hint="Fuera del plazo SLA" />
-          <SlaStat label="Próximas 24 h" value={sla?.atRisk ?? 0} tone="#f59e0b" hint="Vencen en menos de 24 h" />
-          <SlaStat label="Dentro de plazo" value={sla?.healthy ?? 0} tone="#22c77a" hint="Con SLA en orden" />
+          <SlaStat
+            label="Fuera de plazo"
+            value={sla?.overdue ?? 0}
+            tone="#ef4444"
+            hint="Tiempo de atención excedido"
+          />
+          <SlaStat
+            label="Por vencer"
+            value={sla?.atRisk ?? 0}
+            tone="#f59e0b"
+            hint="Vencen en menos de 24 h"
+          />
+          <SlaStat
+            label="En tiempo"
+            value={sla?.healthy ?? 0}
+            tone="#22c77a"
+            hint="Dentro de los tiempos previstos"
+          />
         </div>
 
         {sla?.top?.length ? (
@@ -230,7 +326,7 @@ export default function Dashboard() {
                   <th className="th">Título</th>
                   <th className="th hidden md:table-cell">Solicitante</th>
                   <th className="th">Prioridad</th>
-                  <th className="th">SLA</th>
+                  <th className="th">Tiempo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -265,7 +361,7 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="border-t border-slate-200 px-5 py-6 text-center text-sm text-slate-400">
-            Sin tickets abiertos con SLA definido.
+            Sin tickets abiertos con tiempo de atención definido.
           </div>
         )}
       </div>
@@ -292,7 +388,12 @@ export default function Dashboard() {
             tone="#22c77a"
             hint={`${techTotals.technicians} con carga`}
           />
-          <SlaStat label="SLA vencido" value={techTotals.overdue} tone="#ef4444" hint="Fuera del plazo SLA" />
+          <SlaStat
+            label="Fuera de plazo"
+            value={techTotals.overdue}
+            tone="#ef4444"
+            hint="Tiempo de atención excedido"
+          />
           <SlaStat label="Sin asignar" value={unassigned} tone="#f59e0b" hint="Abiertos sin técnico" />
         </div>
 
@@ -311,7 +412,7 @@ export default function Dashboard() {
                   <th className="th hidden sm:table-cell">Asignados</th>
                   <th className="th">En proceso</th>
                   <th className="th hidden md:table-cell">Pendientes</th>
-                  <th className="th">Vencidos</th>
+                  <th className="th">Fuera de plazo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

@@ -24,6 +24,11 @@ function parseFilters(searchParams) {
     user: o.user || '',
     assigned: o.assigned || '',
     team: o.team || '',
+    // Acota a los estados no terminales. Es el mismo filtro que ya usa Inbox y
+    // que buildConditions de /api/tickets entiende como bandera de verdad; sin
+    // leerlo aquí, la URL que llega desde un acceso directo se descartaría y la
+    // pantalla mostraría la lista completa.
+    active: o.active || '',
     period: o.period || '',
     date: o.date || '',
     from: o.from || '',
