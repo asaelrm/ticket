@@ -283,3 +283,99 @@ describe('Dashboard SLA', () => {
     assert.ok(first.ticket_number && first.sla_due_at, 'debe incluir número y fecha SLA');
   });
 });
+
+describe('Dashboard por técnico', () => {
+  async function load() {
+    const res = await adminC.get('/api/dashboard/by-technician');
+    assert.equal(res.status, 200);
+    const rowOf = (id) => res.body.data.find((r) => r.id === id);
+    return { ...res.body, rowOf };
+  }
+
+  it('reparte la carga por estado y cuenta aparte los que no tienen dueño', async () => {
+    const iso = (ms) => new Date(Date.now() + ms).toISOString();
+    const before = await load();
+
+    // Un ticket por cada estado, todos del mismo técnico.
+    const assigned = await newTicket(adminC);
+    const progress = await newTicket(adminC);
+    const pending = await newTicket(adminC);
+    for (const [ticket, status] of [[assigned, 'ASSIGNED'], [progress, 'IN_PROGRESS'], [pending, 'PENDING']]) {
+      const res = await adminC.patch(`/api/tickets/${ticket.id}`, { status, assigned_to_id: techId });
+      assert.equal(res.status, 200, `debe poder pasar el ticket a ${status}`);
+    }
+    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(iso(-2 * 3600000), assigned.id);
+    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(iso(6 * 3600000), progress.id);
+    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(iso(-30 * 60000), pending.id);
+
+    // Este sí se queda abierto y sin dueño, así que debe sumar uno a `unassigned`.
+    const orphan = await newTicket(adminC);
+    assert.equal(orphan.status, 'OPEN');
+
+    const after = await load();
+    assert.equal(after.unassigned, before.unassigned + 1, 'el OPEN sin dueño se cuenta aparte');
+
+    const row = after.rowOf(techId);
+    assert.ok(row, 'el técnico con carga debe aparecer en el reparto');
+    assert.equal(row.technician, 'Técnico Feature', 'debe traer el nombre completo');
+
+    const prev = before.rowOf(techId);
+    assert.equal(row.assigned - (prev?.assigned || 0), 1);
+    assert.equal(row.in_progress - (prev?.in_progress || 0), 1);
+    assert.equal(row.pending - (prev?.pending || 0), 1);
+    assert.equal(row.overdue - (prev?.overdue || 0), 2, 'solo los dos con plazo pasado cuentan como vencidos');
+    assert.equal(
+      row.active,
+      row.open + row.assigned + row.in_progress + row.pending,
+      'el total debe ser la suma de los cuatro estados'
+    );
+
+    // Los totales se calculan sobre todos los técnicos, no solo sobre las filas
+    // que devuelve el endpoint, así que deben cuadrar con la suma de la lista.
+    assert.ok(after.totals.technicians >= 1);
+    assert.equal(after.totals.active, after.data.reduce((a, b) => a + b.active, 0));
+    assert.equal(after.totals.overdue, after.data.reduce((a, b) => a + b.overdue, 0));
+  });
+
+  it('cuenta como carga el OPEN que ya tiene dueño sin haber cambiado de estado', async () => {
+    // Reproduce el caso de DEV: "Asignarme" en Inbox/Tickets envía solo
+    // assigned_to_id, y tickets.js NO mueve el status al asignar. Queda un
+    // OPEN con dueño, que antes no aparecía en ninguna fila ni en `unassigned`.
+    const t = await newTicket(adminC);
+    assert.equal(t.status, 'OPEN');
+
+    const patch = await adminC.patch(`/api/tickets/${t.id}`, { assigned_to_id: techId });
+    assert.equal(patch.status, 200);
+    assert.equal(patch.body.ticket.assigned_to_id, techId, 'el ticket ya tiene dueño');
+    assert.equal(patch.body.ticket.status, 'OPEN', 'pero sigue OPEN: asignar no cambia el estado');
+
+    const row = (await load()).rowOf(techId);
+    assert.ok(row, 'un OPEN con dueño debe aparecer en la carga del técnico');
+    assert.ok(row.open >= 1, 'y computar entre sus abiertos');
+    assert.ok(
+      row.active >= row.open + row.assigned + row.in_progress + row.pending - 1e-9,
+      'el OPEN con dueño está dentro del total'
+    );
+  });
+
+  it('no deja ningún ticket abierto fuera de la sección', async () => {
+    // Mezcla exacta de DEV: un OPEN sin dueño y un OPEN ya asignado.
+    const orphan = await newTicket(adminC);
+    const taken = await newTicket(adminC);
+    assert.equal(orphan.status, 'OPEN');
+    await adminC.patch(`/api/tickets/${taken.id}`, { assigned_to_id: techId });
+
+    const dash = await load();
+    const summary = await adminC.get('/api/dashboard/summary');
+    assert.equal(summary.status, 200);
+
+    // Invariante de la sección: cada ticket abierto está en la fila de un
+    // técnico o en el contador de sin dueño. Si falta uno, los dos números
+    // muestran menos de lo que el resumen dice que hay abiertos.
+    assert.equal(
+      dash.totals.active + dash.unassigned,
+      summary.body.openTotal,
+      'activos + sin asignar debe igualar el total de abiertos del resumen'
+    );
+  });
+});

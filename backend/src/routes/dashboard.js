@@ -104,6 +104,75 @@ router.get('/by-department', (req, res) => {
   res.json({ data });
 });
 
+// Reparto de la carga entre los técnicos.
+//
+// La carga se decide por la PROPIEDAD (assigned_to_id), no por el estado: un
+// ticket pertenece a su técnico desde el momento en que se le asigna, y el
+// estado es solo su avance dentro del trabajo. Los dos pueden divergir de forma
+// real: "Asignarme" en Inbox/Tickets y la asignación masiva envían PATCH con
+// solo assigned_to_id, y el PATCH de tickets.js NO mueve el status, así que
+// queda `OPEN` con dueño. Si esta sección se filtrara por la lista
+// ASSIGNED/IN_PROGRESS/PENDING, esos tickets no aparecerían en ninguna fila ni
+// en `unassigned`: la sección informaría de menos tickets abiertos de los que
+// el resumen declara, que es la contradicción que se vio en DEV.
+//
+// Por eso se cuentan todos los estados no terminales CON dueño, y `unassigned`
+// son los no terminales SIN dueño. La suma de ambos tiene que dar exactamente
+// el `openTotal` de /summary; lo fija la prueba 'no deja ningún ticket abierto
+// fuera de la sección'.
+//
+// Un ticket asignado a un EQUIPO (assigned_team_id) cuenta como sin dueño: un
+// equipo no es un técnico y no tiene fila propia. tickets.js:506 lo excluye de
+// su contador `unassigned`, pero allí convive con el listado por equipo; aquí
+// excluirlo volvería a hacer desaparecer tickets de esta sección.
+//
+// Se agrupa por `assigned_to_id` y no por rol para no dejar fuera a quien lleva
+// la carga aunque su rol no sea TECHNICIAN (p. ej. un administrador de apoyo).
+router.get('/by-technician', (req, res) => {
+  const nowIso = new Date().toISOString();
+  const openPh = OPEN_STATUSES.map(() => '?').join(',');
+
+  const data = db
+    .prepare(
+      `SELECT u.id,
+              u.name,
+              u.last_name,
+              u.position,
+              u.name || ' ' || u.last_name AS technician,
+              COUNT(*) AS active,
+              SUM(CASE WHEN t.status = 'OPEN' THEN 1 ELSE 0 END) AS open,
+              SUM(CASE WHEN t.status = 'ASSIGNED' THEN 1 ELSE 0 END) AS assigned,
+              SUM(CASE WHEN t.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS in_progress,
+              SUM(CASE WHEN t.status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
+              SUM(CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ? THEN 1 ELSE 0 END) AS overdue
+       FROM tickets t
+       JOIN users u ON u.id = t.assigned_to_id
+       WHERE t.status IN (${openPh})
+       GROUP BY u.id
+       ORDER BY active DESC, overdue DESC, technician ASC
+       LIMIT 10`
+    )
+    .all(nowIso, ...OPEN_STATUSES);
+
+  // Los totales se calculan sobre TODOS los técnicos con carga y no solo sobre las
+  // diez filas devueltas, para que el resumen de la cabecera no dependa del corte.
+  const totals = db
+    .prepare(
+      `SELECT COUNT(DISTINCT t.assigned_to_id) AS technicians,
+              COUNT(*) AS active,
+              COALESCE(SUM(CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ? THEN 1 ELSE 0 END), 0) AS overdue
+       FROM tickets t
+       WHERE t.status IN (${openPh}) AND t.assigned_to_id IS NOT NULL`
+    )
+    .get(nowIso, ...OPEN_STATUSES);
+
+  const unassigned = db
+    .prepare(`SELECT COUNT(*) AS n FROM tickets WHERE status IN (${openPh}) AND assigned_to_id IS NULL`)
+    .get(...OPEN_STATUSES).n;
+
+  res.json({ data, unassigned, totals });
+});
+
 router.get('/trend', (req, res) => {
   const range = ['day', 'week', 'month'].includes(req.query.range) ? req.query.range : 'day';
   const data = [];

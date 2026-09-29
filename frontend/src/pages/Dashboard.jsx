@@ -110,7 +110,7 @@ export default function Dashboard() {
   const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard'],
     queryFn: async () => {
-      const [s, st, pr, ca, de, tr, re, sla] = await Promise.all([
+      const [s, st, pr, ca, de, tr, re, sla, tech] = await Promise.all([
         api.get('/api/dashboard/summary'),
         api.get('/api/dashboard/by-status'),
         api.get('/api/dashboard/by-priority'),
@@ -119,6 +119,9 @@ export default function Dashboard() {
         api.get('/api/dashboard/trend?range=day'),
         api.get('/api/dashboard/recent'),
         api.get('/api/dashboard/sla').catch(() => null),
+        // El reparto de carga degrada a cero si falla: es una sección informativa
+        // y no debe vaciar el resto del dashboard.
+        api.get('/api/dashboard/by-technician').catch(() => null),
       ]);
       return {
         summary: s,
@@ -129,6 +132,7 @@ export default function Dashboard() {
         trend: tr.data || [],
         recent: re.data || [],
         sla,
+        technician: tech,
       };
     },
     // Respaldo de polling: los métricas SLA/background cambian con el tiempo
@@ -151,7 +155,7 @@ export default function Dashboard() {
     );
   }
 
-  const { summary, byStatus, byPriority, byCategory, byDepartment, trend, recent, sla } = data;
+  const { summary, byStatus, byPriority, byCategory, byDepartment, trend, recent, sla, technician } = data;
   const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   const counts = summary?.counts || {};
@@ -159,6 +163,11 @@ export default function Dashboard() {
   const statusTotal = byStatus.reduce((a, b) => a + b.n, 0) || 1;
   const maxStatus = Math.max(...byStatus.map((d) => d.n), 1);
   const maxTrend = Math.max(...trend.flatMap((d) => [d.created, d.resolved]), 1);
+
+  const byTechnician = technician?.data || [];
+  const techTotals = technician?.totals || { technicians: 0, active: 0, overdue: 0 };
+  const unassigned = technician?.unassigned ?? 0;
+  const maxTechActive = Math.max(...byTechnician.map((d) => d.active), 1);
 
   const order = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING', 'RESOLVED', 'CLOSED', 'CANCELLED'];
   const statusSorted = [...byStatus].sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status));
@@ -257,6 +266,90 @@ export default function Dashboard() {
         ) : (
           <div className="border-t border-slate-200 px-5 py-6 text-center text-sm text-slate-400">
             Sin tickets abiertos con SLA definido.
+          </div>
+        )}
+      </div>
+
+      {/* Carga por técnico */}
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">Carga por técnico</h3>
+            <p className="text-xs text-slate-400">Tickets activos asignados y su desglose por estado</p>
+          </div>
+          <Link
+            to="/app/tickets?view=open"
+            className="inline-flex items-center gap-1 text-sm font-semibold text-brand-300 hover:text-brand-200"
+          >
+            Ver abiertos <span aria-hidden>→</span>
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 px-5 pb-5 sm:grid-cols-3">
+          <SlaStat
+            label="Activos en cola"
+            value={techTotals.active}
+            tone="#22c77a"
+            hint={`${techTotals.technicians} con carga`}
+          />
+          <SlaStat label="SLA vencido" value={techTotals.overdue} tone="#ef4444" hint="Fuera del plazo SLA" />
+          <SlaStat label="Sin asignar" value={unassigned} tone="#f59e0b" hint="Abiertos sin técnico" />
+        </div>
+
+        {byTechnician.length === 0 ? (
+          <div className="border-t border-slate-200 px-5 py-6 text-center text-sm text-slate-400">
+            Ningún técnico tiene tickets activos asignados.
+          </div>
+        ) : (
+          <div className="overflow-x-auto border-t border-slate-200">
+            <table className="w-full">
+              <thead>
+                <tr>
+                  <th className="th">Técnico</th>
+                  <th className="th">Activos</th>
+                  <th className="th">Abiertos</th>
+                  <th className="th hidden sm:table-cell">Asignados</th>
+                  <th className="th">En proceso</th>
+                  <th className="th hidden md:table-cell">Pendientes</th>
+                  <th className="th">Vencidos</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {byTechnician.map((t) => (
+                  <tr key={t.id} className="hover:bg-slate-50">
+                    <td className="td max-w-[200px]">
+                      <span className="block truncate font-medium text-slate-700">{t.technician}</span>
+                      {t.position && <span className="block truncate text-xs text-slate-400">{t.position}</span>}
+                    </td>
+                    <td className="td whitespace-nowrap">
+                      <span className="font-semibold text-slate-800">{t.active}</span>
+                      <span className="mt-1 block h-1.5 w-16 overflow-hidden rounded-full bg-slate-100 sm:w-20">
+                        <span
+                          className="block h-full rounded-full bg-brand-600"
+                          style={{ width: `${Math.max((t.active / maxTechActive) * 100, 3)}%` }}
+                        />
+                      </span>
+                    </td>
+                    <td className="td whitespace-nowrap text-slate-500">{t.open}</td>
+                    <td className="td hidden whitespace-nowrap text-slate-500 sm:table-cell">{t.assigned}</td>
+                    <td className="td whitespace-nowrap text-slate-500">{t.in_progress}</td>
+                    <td className="td hidden whitespace-nowrap text-slate-500 md:table-cell">{t.pending}</td>
+                    <td className="td whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+                          t.overdue > 0 ? 'text-red-500' : 'text-slate-400'
+                        }`}
+                      >
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full ${t.overdue > 0 ? 'bg-red-500' : 'bg-slate-200'}`}
+                        />
+                        {t.overdue}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
