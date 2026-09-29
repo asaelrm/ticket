@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api, download, STATUS_LABEL, PRIORITY_LABEL, STATUSES, PRIORITIES } from '../lib/api';
 import { LoadingScreen, ErrorBox } from '../components/ui';
+import Select from '../components/Select';
 import { printDocument } from '../lib/print';
 
 const STATUS_COLORS = {
@@ -128,6 +129,25 @@ export default function Reports() {
 
   const departments = departmentsData || [];
   const categories = categoriesData || [];
+
+  // Las opciones vacías eran seleccionables, así que se conservan como primeras
+  // opciones reales. Los ids numéricos siguen llegando como cadena.
+  const statusOptions = useMemo(
+    () => [{ value: '', label: 'Todos' }, ...STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))],
+    []
+  );
+  const priorityOptions = useMemo(
+    () => [{ value: '', label: 'Todas' }, ...PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))],
+    []
+  );
+  const departmentOptions = useMemo(
+    () => [{ value: '', label: 'Todos' }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments]
+  );
+  const categoryOptions = useMemo(
+    () => [{ value: '', label: 'Todas' }, ...categories.map((c) => ({ value: c.id, label: c.name }))],
+    [categories]
+  );
 
   function applyPreset(preset) {
     const r = preset.range();
@@ -260,31 +280,43 @@ export default function Reports() {
           </button>
           <div>
             <label className="label" htmlFor="report-status">Estado</label>
-            <select id="report-status" className="input !w-auto" value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-              <option value="">Todos</option>
-              {STATUSES.map((status) => <option key={status} value={status}>{STATUS_LABEL[status]}</option>)}
-            </select>
+            <Select
+              id="report-status"
+              className="!w-auto"
+              options={statusOptions}
+              value={form.status}
+              onChange={(v) => setForm((f) => ({ ...f, status: v }))}
+            />
           </div>
           <div>
             <label className="label" htmlFor="report-priority">Prioridad</label>
-            <select id="report-priority" className="input !w-auto" value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
-              <option value="">Todas</option>
-              {PRIORITIES.map((priority) => <option key={priority} value={priority}>{PRIORITY_LABEL[priority]}</option>)}
-            </select>
+            <Select
+              id="report-priority"
+              className="!w-auto"
+              options={priorityOptions}
+              value={form.priority}
+              onChange={(v) => setForm((f) => ({ ...f, priority: v }))}
+            />
           </div>
           <div>
             <label className="label" htmlFor="report-department">Departamento</label>
-            <select id="report-department" className="input !w-auto" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}>
-              <option value="">Todos</option>
-              {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
-            </select>
+            <Select
+              id="report-department"
+              className="!w-auto"
+              options={departmentOptions}
+              value={form.department}
+              onChange={(v) => setForm((f) => ({ ...f, department: v }))}
+            />
           </div>
           <div>
             <label className="label" htmlFor="report-category">Categoría</label>
-            <select id="report-category" className="input !w-auto" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
-              <option value="">Todas</option>
-              {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
-            </select>
+            <Select
+              id="report-category"
+              className="!w-auto"
+              options={categoryOptions}
+              value={form.category}
+              onChange={(v) => setForm((f) => ({ ...f, category: v }))}
+            />
           </div>
           <div className="flex flex-wrap gap-1.5">
             {PRESETS.map((p) => (

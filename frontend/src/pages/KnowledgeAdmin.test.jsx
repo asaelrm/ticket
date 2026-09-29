@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import KnowledgeAdmin from './KnowledgeAdmin';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({ authState: { user: null } }));
 
@@ -108,7 +108,7 @@ describe('KnowledgeAdmin · moderación de artículos', () => {
     await screen.findByRole('row', { name: /Restablecer la contraseña/ });
 
     const before = manageCalls().length;
-    await user.selectOptions(screen.getByLabelText('Filtrar por estado'), 'DRAFT');
+    await pickOption(user, screen.getByLabelText('Filtrar por estado'), 'Borrador');
 
     await waitFor(() => expect(lastManageQuery()).toEqual({ perPage: '10', status: 'DRAFT' }));
     expect(manageCalls().length).toBeGreaterThan(before);
@@ -120,14 +120,16 @@ describe('KnowledgeAdmin · moderación de artículos', () => {
     await screen.findByRole('row', { name: /Restablecer la contraseña/ });
 
     const select = screen.getByLabelText('Filtrar por categoría');
-    await waitFor(() => expect(select.options).toHaveLength(3));
-    expect([...select.options].map((o) => o.textContent)).toEqual([
+    expect(select).toHaveTextContent('Todas las categorías');
+    await user.click(select);
+    const listbox = within(screen.getByRole('listbox'));
+    expect(listbox.getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Todas las categorías',
       'Correo',
       'Histórico (inactiva)',
     ]);
 
-    await user.selectOptions(select, '2');
+    await user.click(listbox.getByRole('option', { name: 'Histórico (inactiva)' }));
     await waitFor(() => expect(lastManageQuery()).toEqual({ perPage: '10', category: '2' }));
   });
 

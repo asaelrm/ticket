@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api, formatDateTime } from '../lib/api';
 import { ErrorBox, LoadingScreen, EmptyState, Pagination } from '../components/ui';
+import Select from '../components/Select';
 
 const ACTION_LABEL = {
   CREATED: 'Creación',
@@ -75,6 +76,24 @@ export default function Audit() {
     retry: false,
   });
 
+  // "Todas" y "Todos" eran `<option>` vacías seleccionables: se conservan como
+  // primera opción real para poder volver a ellas. El id numérico del usuario
+  // sigue llegando como cadena, igual que con `event.target.value`.
+  const actionOptions = useMemo(
+    () => [
+      { value: '', label: 'Todas' },
+      ...(list?.actions || []).map((a) => ({ value: a, label: ACTION_LABEL[a] || a })),
+    ],
+    [list]
+  );
+  const userOptions = useMemo(
+    () => [
+      { value: '', label: 'Todos' },
+      ...users.map((u) => ({ value: u.id, label: `${u.name} ${u.last_name}` })),
+    ],
+    [users]
+  );
+
   const applyFilter = (patch) => {
     setApplied((p) => ({ ...p, ...patch }));
     setFilters((p) => ({ ...p, ...patch }));
@@ -99,36 +118,31 @@ export default function Audit() {
               onChange={(e) => setFilters({ ...filters, search: e.target.value })}
             />
           </label>
-          <label className="label">
-            Acción
-            <select
-              className="input"
+          {/* El `<label>` ya no envuelve al control (un `Select` no admite
+              anidamiento), pero conserva la misma retícula y la misma
+              asociación por etiqueta. */}
+          <div>
+            <label className="label" htmlFor="audit-action">
+              Acción
+            </label>
+            <Select
+              id="audit-action"
+              options={actionOptions}
               value={filters.action}
-              onChange={(e) => setFilters({ ...filters, action: e.target.value })}
-            >
-              <option value="">Todas</option>
-              {(list?.actions || []).map((a) => (
-                <option key={a} value={a}>
-                  {ACTION_LABEL[a] || a}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="label">
-            Usuario
-            <select
-              className="input"
+              onChange={(v) => setFilters({ ...filters, action: v })}
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="audit-user">
+              Usuario
+            </label>
+            <Select
+              id="audit-user"
+              options={userOptions}
               value={filters.user}
-              onChange={(e) => setFilters({ ...filters, user: e.target.value })}
-            >
-              <option value="">Todos</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name} {u.last_name}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={(v) => setFilters({ ...filters, user: v })}
+            />
+          </div>
           <label className="label">
             Desde
             <input type="date" className="input" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />

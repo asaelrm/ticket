@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, formatDate } from '../lib/api';
 import { Pagination, ErrorBox, EmptyState, LoadingScreen, Modal, Spinner, ConfirmToggle, ConfirmDialog } from '../components/ui';
+import Select from '../components/Select';
 import {
   parseFilters,
   toQuery,
@@ -114,6 +115,25 @@ function ArticlesTab() {
     queryFn: () => api.get('/api/kb-categories?active=0').then((r) => r.data),
   });
 
+  // Las opciones vacías de estado y categoría eran seleccionables: se conservan
+  // como primeras opciones reales. El sufijo " (inactiva)" lo añadía cada
+  // `<option>` y se mantiene. `ARTICLE_SORTS` no tenía opción vacía.
+  const statusOptions = useMemo(
+    () => [
+      { value: '', label: 'Todos los estados' },
+      ...Object.entries(ARTICLE_STATUS_LABEL).map(([value, label]) => ({ value, label })),
+    ],
+    []
+  );
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Todas las categorías' },
+      ...(categories || []).map((c) => ({ value: c.id, label: `${c.name}${c.active ? '' : ' (inactiva)'}` })),
+    ],
+    [categories]
+  );
+  const sortOptions = useMemo(() => ARTICLE_SORTS.map(([value, label]) => ({ value, label })), []);
+
   const update = useCallback(
     (partial) => {
       const next = { ...filters, ...partial };
@@ -172,48 +192,30 @@ function ArticlesTab() {
               aria-label="Buscar artículos"
             />
           </div>
-          <select
-            className="input sm:w-48"
+          <Select
+            className="sm:w-48"
+            aria-label="Filtrar por estado"
+            options={statusOptions}
             value={status}
-            onChange={(e) => {
-              setStatus(e.target.value);
+            onChange={(v) => {
+              setStatus(v);
               update({ page: 1 });
             }}
-            aria-label="Filtrar por estado"
-          >
-            <option value="">Todos los estados</option>
-            {Object.entries(ARTICLE_STATUS_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input sm:w-48"
-            value={filters.category}
-            onChange={(e) => update({ category: e.target.value })}
+          />
+          <Select
+            className="sm:w-48"
             aria-label="Filtrar por categoría"
-          >
-            <option value="">Todas las categorías</option>
-            {(categories || []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-                {c.active ? '' : ' (inactiva)'}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input sm:w-44"
-            value={filters.sort}
-            onChange={(e) => update({ sort: e.target.value })}
+            options={categoryOptions}
+            value={filters.category}
+            onChange={(v) => update({ category: v })}
+          />
+          <Select
+            className="sm:w-44"
             aria-label="Ordenar artículos"
-          >
-            {ARTICLE_SORTS.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={sortOptions}
+            value={filters.sort}
+            onChange={(v) => update({ sort: v })}
+          />
         </div>
       </div>
 

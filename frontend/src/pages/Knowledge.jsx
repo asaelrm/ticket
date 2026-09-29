@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api, formatDate } from '../lib/api';
 import { useAuth, can } from '../context/AuthContext';
 import { Pagination, ErrorBox, EmptyState, LoadingScreen } from '../components/ui';
+import Select from '../components/Select';
 import { parseFilters, toQuery, ARTICLE_SORTS } from '../lib/kb';
 
 // Listado público de la base de conocimiento. Solo trae artículos publicados:
@@ -24,6 +25,18 @@ export default function Knowledge() {
     queryKey: ['kb-categories'],
     queryFn: () => api.get('/api/kb-categories').then((r) => r.data),
   });
+
+  // "Todas las categorías" era una `<option>` vacía seleccionable, así que se
+  // conserva como opción real. `ARTICLE_SORTS` no tenía opción vacía: se
+  // mantiene tal cual, con `recent` como valor inicial.
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Todas las categorías' },
+      ...(categories || []).map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categories]
+  );
+  const sortOptions = useMemo(() => ARTICLE_SORTS.map(([value, label]) => ({ value, label })), []);
 
   const update = useCallback(
     (partial, { replace = false } = {}) => {
@@ -86,31 +99,20 @@ export default function Knowledge() {
               aria-label="Buscar artículos"
             />
           </div>
-          <select
-            className="input sm:w-56"
-            value={filters.category}
-            onChange={(e) => update({ category: e.target.value })}
+          <Select
+            className="sm:w-56"
             aria-label="Filtrar por categoría"
-          >
-            <option value="">Todas las categorías</option>
-            {(categories || []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input sm:w-48"
-            value={filters.sort}
-            onChange={(e) => update({ sort: e.target.value })}
+            options={categoryOptions}
+            value={filters.category}
+            onChange={(v) => update({ category: v })}
+          />
+          <Select
+            className="sm:w-48"
             aria-label="Ordenar artículos"
-          >
-            {ARTICLE_SORTS.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={sortOptions}
+            value={filters.sort}
+            onChange={(v) => update({ sort: v })}
+          />
         </div>
         {hasFilters && (
           <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">

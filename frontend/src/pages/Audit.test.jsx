@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Audit from './Audit';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual('../lib/api');
@@ -159,11 +159,10 @@ describe('Audit', () => {
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
-    await screen.findByRole('option', { name: 'Resolución' });
 
     await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'impresora');
-    await user.selectOptions(screen.getByLabelText('Acción'), 'RESOLVED');
-    await user.selectOptions(screen.getByLabelText('Usuario'), '2');
+    await pickOption(user, screen.getByLabelText('Acción'), 'Resolución');
+    await pickOption(user, screen.getByLabelText('Usuario'), 'Ada Lovelace');
     await user.type(screen.getByLabelText('Desde'), '2026-09-01');
     await user.type(screen.getByLabelText('Hasta'), '2026-09-30');
 
@@ -177,18 +176,17 @@ describe('Audit', () => {
     );
     expect(auditCalls().length).toBe(before + 1);
     expect(screen.getByPlaceholderText('Ticket, título o detalle…')).toHaveValue('impresora');
-    expect(screen.getByLabelText('Acción')).toHaveValue('RESOLVED');
+    expect(screen.getByLabelText('Acción')).toHaveTextContent('Resolución');
   });
 
   it('la consulta distingue los filtros aplicados en su queryKey', async () => {
     const user = userEvent.setup();
     const { queryClient } = renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
-    await screen.findByRole('option', { name: 'Creación' });
 
     expect(queryClient.getQueryData(['audit', { search: '', action: '', user: '', from: '', to: '', page: 1, perPage: 10 }])).toBeDefined();
 
-    await user.selectOptions(screen.getByLabelText('Acción'), 'CREATED');
+    await pickOption(user, screen.getByLabelText('Acción'), 'Creación');
     await user.click(screen.getByRole('button', { name: 'Filtrar' }));
 
     await waitFor(() =>
@@ -222,11 +220,13 @@ describe('Audit', () => {
   });
 
   it('ofrece en el filtro de acción solo las acciones existentes', async () => {
+    const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
 
     const select = await screen.findByLabelText('Acción');
-    await within(select).findByRole('option', { name: 'Resolución' });
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+    expect(select).toHaveTextContent('Todas');
+    await user.click(select);
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Todas',
       'Creación',
       'Cambio de estado',
@@ -235,11 +235,13 @@ describe('Audit', () => {
   });
 
   it('lista los usuarios obtenidos para el filtro', async () => {
+    const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
 
     const select = await screen.findByLabelText('Usuario');
-    await within(select).findByRole('option', { name: 'Ada Lovelace' });
-    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Todos', 'Ada Lovelace', 'Grace Hopper']);
+    expect(select).toHaveTextContent('Todos');
+    await user.click(select);
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Todos', 'Ada Lovelace', 'Grace Hopper']);
     expect(api.get).toHaveBeenCalledWith('/api/users');
   });
 
@@ -284,17 +286,27 @@ describe('Audit', () => {
     await user.click(screen.getByRole('button', { name: 'Siguiente →' }));
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=2&perPage=10'));
 
-    await user.selectOptions(screen.getByRole('combobox', { name: /Mostrar/ }), '50');
+    await pickOption(user, screen.getByRole('combobox', { name: /Mostrar/ }), '50');
     await waitFor(() => expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=50'));
   });
 
   it('el selector de registros por página muestra el mismo valor que se envía a la API', async () => {
+    const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
 
     const select = screen.getByRole('combobox', { name: /Mostrar/ });
-    expect(within(select).getAllByRole('option').map((o) => o.value)).toEqual(['10', '25', '50', '100']);
-    expect(select).toHaveValue('10');
+    expect(select).toHaveTextContent('10');
+    // Los tamaños siguen siendo las mismas cuatro opciones, en el mismo orden.
+    // Se acota al `listbox` abierto porque los `<Select>` solo renderizan sus
+    // `<option>` mientras el desplegable está abierto.
+    await user.click(select);
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      '10',
+      '25',
+      '50',
+      '100',
+    ]);
     expect(lastAuditUrl()).toBe('/api/audit?page=1&perPage=10');
   });
 
@@ -318,18 +330,17 @@ describe('Audit', () => {
     const user = userEvent.setup();
     renderWithProviders(<Audit />, { route: '/app/audit' });
     await screen.findByText('TCK-000011');
-    await screen.findByRole('option', { name: 'Ada Lovelace' });
 
     await user.type(screen.getByPlaceholderText('Ticket, título o detalle…'), 'pc');
-    await user.selectOptions(screen.getByLabelText('Acción'), 'CREATED');
-    await user.selectOptions(screen.getByLabelText('Usuario'), '3');
+    await pickOption(user, screen.getByLabelText('Acción'), 'Creación');
+    await pickOption(user, screen.getByLabelText('Usuario'), 'Grace Hopper');
 
     const before = auditCalls().length;
     await user.click(screen.getByRole('button', { name: 'Limpiar' }));
 
     expect(screen.getByPlaceholderText('Ticket, título o detalle…')).toHaveValue('');
-    expect(screen.getByLabelText('Acción')).toHaveValue('');
-    expect(screen.getByLabelText('Usuario')).toHaveValue('');
+    expect(screen.getByLabelText('Acción')).toHaveTextContent('Todas');
+    expect(screen.getByLabelText('Usuario')).toHaveTextContent('Todos');
     expect(screen.getByLabelText('Desde')).toHaveValue('');
     expect(screen.getByLabelText('Hasta')).toHaveValue('');
     expect(auditCalls().length).toBe(before);

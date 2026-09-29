@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import Reports from './Reports';
 import { api } from '../lib/api';
 import { printDocument } from '../lib/print';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 const { download } = vi.hoisted(() => ({
   download: vi.fn(),
@@ -177,8 +177,8 @@ describe('Reports', () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
     await screen.findByText('Total tickets');
 
-    await user.selectOptions(screen.getByLabelText('Estado'), 'OPEN');
-    await user.selectOptions(screen.getByLabelText('Prioridad'), 'HIGH');
+    await pickOption(user, screen.getByLabelText('Estado'), 'Abierto');
+    await pickOption(user, screen.getByLabelText('Prioridad'), 'Alta');
     await user.click(screen.getByRole('button', { name: 'Aplicar' }));
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=OPEN&priority=HIGH')));
@@ -201,8 +201,8 @@ describe('Reports', () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
     await screen.findByText('Total tickets');
 
-    await user.selectOptions(screen.getByLabelText('Departamento'), '2');
-    await user.selectOptions(screen.getByLabelText('Categoría'), '2');
+    await pickOption(user, screen.getByLabelText('Departamento'), 'RRHH');
+    await pickOption(user, screen.getByLabelText('Categoría'), 'Software');
     await user.click(screen.getByRole('button', { name: 'Aplicar' }));
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('department=2&category=2')));

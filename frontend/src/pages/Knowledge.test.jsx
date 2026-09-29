@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Knowledge from './Knowledge';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({ authState: { user: null } }));
 
@@ -168,7 +168,7 @@ describe('Knowledge · filtros y paginación', () => {
     renderWithProviders(<Knowledge />, { route: '/app/knowledge?q=outlook&category=1' });
 
     await screen.findByText('Restablecer la contraseña de Outlook');
-    expect(screen.getByLabelText('Filtrar por categoría')).toHaveValue('1');
+    expect(screen.getByLabelText('Filtrar por categoría')).toHaveTextContent('Correo');
     expect(screen.getByText('1 artículo encontrado')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
@@ -182,9 +182,16 @@ describe('Knowledge · filtros y paginación', () => {
     await screen.findByText('Restablecer la contraseña de Outlook');
 
     const select = screen.getByLabelText('Ordenar artículos');
-    expect(within(select).getAllByRole('option').map((o) => o.value)).toEqual(['recent', 'popular', 'title']);
+    expect(select).toHaveTextContent('Más recientes');
+    await user.click(select);
+    const listbox = within(screen.getByRole('listbox'));
+    expect(listbox.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Más recientes',
+      'Más consultados',
+      'Título (A-Z)',
+    ]);
 
-    await user.selectOptions(select, 'title');
+    await user.click(listbox.getByRole('option', { name: 'Título (A-Z)' }));
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/kb-articles?sort=title&perPage=10'));
   });
 
@@ -206,7 +213,7 @@ describe('Knowledge · filtros y paginación', () => {
     await screen.findByText('Restablecer la contraseña de Outlook');
 
     const before = listCalls().length;
-    await user.selectOptions(screen.getByLabelText('Ordenar artículos'), 'popular');
+    await pickOption(user, screen.getByLabelText('Ordenar artículos'), 'Más consultados');
 
     await waitFor(() =>
       expect(api.get).toHaveBeenCalledWith('/api/kb-articles?sort=popular&perPage=10')
@@ -219,8 +226,24 @@ describe('Knowledge · filtros y paginación', () => {
     renderWithProviders(<Knowledge />, { route: '/app/knowledge' });
     await screen.findByText('Restablecer la contraseña de Outlook');
 
-    await user.selectOptions(screen.getByLabelText(/Mostrar/), '25');
+    await pickOption(user, screen.getByLabelText(/Mostrar/), '25');
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/kb-articles?perPage=25'));
+  });
+
+  it('el número de registros llega como número a la URL, no como texto', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Knowledge />, { route: '/app/knowledge?page=3' });
+    await screen.findByText('Restablecer la contraseña de Outlook');
+
+    // `Pagination` es el único punto que reconvierte a número: el resto de
+    // selectores debe seguir enviando cadenas, como el `value` del nativo.
+    // Aquí importa porque `parseFilters` valida el perPage contra los tamaños
+    // permitidos comparando con `Number(v)`.
+    const show = screen.getByLabelText(/Mostrar/);
+    expect(show).toHaveTextContent('10');
+    await pickOption(user, show, '100');
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/kb-articles?perPage=100'));
   });
 });
 
