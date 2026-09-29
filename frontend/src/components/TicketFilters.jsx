@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, STATUSES, PRIORITIES, STATUS_LABEL, PRIORITY_LABEL } from '../lib/api';
+import Select from './Select';
 
 const PERIODS = [
   ['today', 'Hoy'],
@@ -29,6 +30,34 @@ export default function TicketFilters({ showUser, onChange, onReset, filters }) 
   });
 
   const set = (key, value) => onChange({ ...filters, [key]: value, page: 1 });
+
+  // La opción vacía de cada `<select>` era seleccionable, así que se mantiene
+  // como primera opción real y no como `placeholder`: así se puede volver a ella,
+  // igual que en el nativo. El resto conserva orden y rótulo.
+  const statusOptions = useMemo(
+    () => [{ value: '', label: 'Todos' }, ...STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))],
+    []
+  );
+  const priorityOptions = useMemo(
+    () => [{ value: '', label: 'Todas' }, ...PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))],
+    []
+  );
+  const categoryOptions = useMemo(
+    () => [{ value: '', label: 'Todas' }, ...categories.map((c) => ({ value: c.id, label: c.name }))],
+    [categories]
+  );
+  const departmentOptions = useMemo(
+    () => [{ value: '', label: 'Todos' }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments]
+  );
+  const userOptions = useMemo(
+    () => [{ value: '', label: 'Todos' }, ...users.map((u) => ({ value: u.id, label: `${u.name} ${u.last_name}` }))],
+    [users]
+  );
+  const periodOptions = useMemo(
+    () => [{ value: '', label: '—' }, ...PERIODS.map(([v, l]) => ({ value: v, label: l }))],
+    []
+  );
 
   const activeCount = Object.entries({
     search: filters.search,
@@ -77,72 +106,60 @@ export default function TicketFilters({ showUser, onChange, onReset, filters }) 
       {expanded && (
         <div className="grid gap-3 border-t border-slate-200 p-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <label className="label">Estado</label>
-            <select className="input" value={filters.status || ''} onChange={(e) => set('status', e.target.value)}>
-              <option value="">Todos</option>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABEL[s]}
-                </option>
-              ))}
-            </select>
+            <label className="label" htmlFor="tf-status">Estado</label>
+            <Select
+              id="tf-status"
+              options={statusOptions}
+              value={filters.status || ''}
+              onChange={(v) => set('status', v)}
+            />
           </div>
           <div>
-            <label className="label">Prioridad</label>
-            <select className="input" value={filters.priority || ''} onChange={(e) => set('priority', e.target.value)}>
-              <option value="">Todas</option>
-              {PRIORITIES.map((p) => (
-                <option key={p} value={p}>
-                  {PRIORITY_LABEL[p]}
-                </option>
-              ))}
-            </select>
+            <label className="label" htmlFor="tf-priority">Prioridad</label>
+            <Select
+              id="tf-priority"
+              options={priorityOptions}
+              value={filters.priority || ''}
+              onChange={(v) => set('priority', v)}
+            />
           </div>
           <div>
-            <label className="label">Categoría</label>
-            <select className="input" value={filters.category || ''} onChange={(e) => set('category', e.target.value)}>
-              <option value="">Todas</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <label className="label" htmlFor="tf-category">Categoría</label>
+            <Select
+              id="tf-category"
+              options={categoryOptions}
+              value={filters.category || ''}
+              onChange={(v) => set('category', v)}
+            />
           </div>
           {showUser && (
             <div>
-              <label className="label">Usuario</label>
-              <select className="input" value={filters.user || ''} onChange={(e) => set('user', e.target.value)}>
-                <option value="">Todos</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} {u.last_name}
-                  </option>
-                ))}
-              </select>
+              <label className="label" htmlFor="tf-user">Usuario</label>
+              <Select
+                id="tf-user"
+                options={userOptions}
+                value={filters.user || ''}
+                onChange={(v) => set('user', v)}
+              />
             </div>
           )}
           <div>
-            <label className="label">Departamento</label>
-            <select className="input" value={filters.department || ''} onChange={(e) => set('department', e.target.value)}>
-              <option value="">Todos</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+            <label className="label" htmlFor="tf-department">Departamento</label>
+            <Select
+              id="tf-department"
+              options={departmentOptions}
+              value={filters.department || ''}
+              onChange={(v) => set('department', v)}
+            />
           </div>
           <div>
-            <label className="label">Período</label>
-            <select className="input" value={filters.period || ''} onChange={(e) => set('period', e.target.value)}>
-              <option value="">—</option>
-              {PERIODS.map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </select>
+            <label className="label" htmlFor="tf-period">Período</label>
+            <Select
+              id="tf-period"
+              options={periodOptions}
+              value={filters.period || ''}
+              onChange={(v) => set('period', v)}
+            />
           </div>
           <div>
             <label className="label">Fecha exacta</label>

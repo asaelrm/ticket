@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, PRIORITIES, PRIORITY_LABEL } from '../lib/api';
 import { Modal } from './ui';
 import ResolveTicketsModal from './ResolveTicketsModal';
+import Select from './Select';
 
 // Barra de acciones en lote + sus diálogos. Es la misma pieza para la Bandeja y
 // para la pantalla general de tickets: recibe el estado de `useTicketBulk` y no
@@ -18,6 +20,26 @@ export default function BulkTicketBar({ bulk, canAssign, canManage, canResolve, 
     queryFn: () => api.get('/api/users/assignable').then((d) => d.data || []),
     enabled: bulk.assignOpen && canAssign,
   });
+
+  // La `<option>` vacía era seleccionable, así que se conserva como primera
+  // opción real (no como `placeholder`) para poder volver a ella.
+  const assignOptions = useMemo(
+    () => [
+      { value: '', label: 'Seleccione un técnico…' },
+      ...assignUsers.map((u) => ({
+        value: u.id,
+        label: `${u.name} ${u.last_name}${u.department_name ? ` · ${u.department_name}` : ''}`,
+      })),
+    ],
+    [assignUsers]
+  );
+  const priorityOptions = useMemo(
+    () => [
+      { value: '', label: 'Seleccione una prioridad…' },
+      ...PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] })),
+    ],
+    []
+  );
 
   return (
     <>
@@ -72,20 +94,13 @@ export default function BulkTicketBar({ bulk, canAssign, canManage, canResolve, 
       )}
 
       <Modal open={bulk.assignOpen} onClose={() => bulk.setAssignOpen(false)} title={`Asignar ${selected.size} ticket(s)`}>
-        <label className="label">Técnico asignado</label>
-        <select
-          className="input"
+        <label className="label" htmlFor="bulk-assign">Técnico asignado</label>
+        <Select
+          id="bulk-assign"
+          options={assignOptions}
           value={bulk.assignValue}
-          onChange={(e) => bulk.setAssignValue(e.target.value)}
-        >
-          <option value="">Seleccione un técnico…</option>
-          {assignUsers.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name} {u.last_name}
-              {u.department_name ? ` · ${u.department_name}` : ''}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => bulk.setAssignValue(v)}
+        />
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={() => bulk.setAssignOpen(false)} disabled={busy}>
             Cancelar
@@ -109,19 +124,13 @@ export default function BulkTicketBar({ bulk, canAssign, canManage, canResolve, 
         <p className="text-sm text-slate-600">
           Se aplicará a los tickets seleccionados. El servidor recalculará la fecha límite de SLA según la nueva prioridad.
         </p>
-        <label className="label mt-4">Prioridad</label>
-        <select
-          className="input"
+        <label className="label mt-4" htmlFor="bulk-priority">Prioridad</label>
+        <Select
+          id="bulk-priority"
+          options={priorityOptions}
           value={bulk.priorityValue}
-          onChange={(e) => bulk.setPriorityValue(e.target.value)}
-        >
-          <option value="">Seleccione una prioridad…</option>
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {PRIORITY_LABEL[p]}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => bulk.setPriorityValue(v)}
+        />
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={() => bulk.setPriorityOpen(false)} disabled={busy}>
             Volver

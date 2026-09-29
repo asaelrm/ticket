@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TicketArticles from './TicketArticles';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({ authState: { user: null } }));
 
@@ -308,7 +308,7 @@ describe('TicketArticles · borrador desde el ticket', () => {
     const dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText(/^Resumen/), 'Recrear el perfil de Exchange.');
     await user.type(within(dialog).getByLabelText('Palabras clave'), 'outlook, exchange');
-    await user.selectOptions(within(dialog).getByLabelText('Categoría de conocimiento'), '4');
+    await pickOption(user, within(dialog).getByLabelText('Categoría de conocimiento'), 'Correo');
     await user.click(within(dialog).getByRole('button', { name: 'Crear borrador' }));
 
     await waitFor(() =>

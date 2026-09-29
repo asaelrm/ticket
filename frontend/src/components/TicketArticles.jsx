@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth, can } from '../context/AuthContext';
 import { ErrorBox, Modal, Spinner } from '../components/ui';
+import Select from './Select';
 import { ARTICLE_LIMITS, fieldErrors, toQuery } from '../lib/kb';
 
 // Artículos de la base de conocimiento asociados a un ticket.
@@ -361,6 +362,15 @@ export default function TicketArticles({ ticket }) {
 }
 
 function DraftModal({ open, onClose, loading, error, preview, form, setForm, categories, fields, errorMessage, saving, onSubmit, ticketCategory }) {
+  // Antes del early-return: los hooks no pueden quedar detrás de una salida
+  // condicional.
+  // "Sin categoría" era una `<option>` vacía seleccionable: se conserva como
+  // opción real para poder volver a ella.
+  const categoryOptions = useMemo(
+    () => [{ value: '', label: 'Sin categoría' }, ...(categories || []).map((c) => ({ value: c.id, label: c.name }))],
+    [categories]
+  );
+
   if (!open) return null;
 
   const set = (name, value) => setForm({ ...form, [name]: value });
@@ -473,19 +483,12 @@ function DraftModal({ open, onClose, loading, error, preview, form, setForm, cat
             <label className="label" htmlFor="kb-draft-category">
               Categoría de conocimiento
             </label>
-            <select
+            <Select
               id="kb-draft-category"
-              className="input"
+              options={categoryOptions}
               value={form.category_id}
-              onChange={(e) => set('category_id', e.target.value)}
-            >
-              <option value="">Sin categoría</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => set('category_id', v)}
+            />
             <p className="mt-1 text-xs text-slate-400">
               Es el tema de documentación, no la categoría de la incidencia ({ticketCategory || 'sin categoría'}).
             </p>

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Drawer, ErrorBox, Spinner } from './ui';
 import { api } from '../lib/api';
+import Select from './Select';
 
 export default function ResolveDrawer({ open, onClose, ticket, options, onDone }) {
   const [resolution, setResolution] = useState('');
@@ -13,6 +14,29 @@ export default function ResolveDrawer({ open, onClose, ticket, options, onDone }
   const [notify, setNotify] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // "Sin especificar" era la `<option>` vacía seleccionable, así que se conserva
+  // como primera opción real y no como `placeholder`, para poder volver a ella.
+  // El `FormData` se arma a mano con el estado, así que lo que llega a `onSubmit`
+  // es idéntico al de antes.
+  const causeOptions = useMemo(
+    () => [{ value: '', label: 'Sin especificar' }, ...(options?.root_causes || []).map((c) => ({ value: c, label: c }))],
+    [options]
+  );
+  const resolutionCategoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Sin especificar' },
+      ...(options?.resolution_categories || []).map((c) => ({ value: c, label: c })),
+    ],
+    [options]
+  );
+  const unitOptions = useMemo(
+    () => [
+      { value: 'minutes', label: 'Minutos' },
+      { value: 'hours', label: 'Horas' },
+    ],
+    []
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -102,32 +126,23 @@ export default function ResolveDrawer({ open, onClose, ticket, options, onDone }
             <label className="label" htmlFor="root_cause">
               Causa
             </label>
-            <select id="root_cause" className="input" value={cause} onChange={(e) => setCause(e.target.value)}>
-              <option value="">Sin especificar</option>
-              {(options?.root_causes || []).map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="root_cause"
+              options={causeOptions}
+              value={cause}
+              onChange={setCause}
+            />
           </div>
           <div>
             <label className="label" htmlFor="resolution_category">
               Categoría de solución
             </label>
-            <select
+            <Select
               id="resolution_category"
-              className="input"
+              options={resolutionCategoryOptions}
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              <option value="">Sin especificar</option>
-              {(options?.resolution_categories || []).map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+              onChange={setCategory}
+            />
           </div>
         </div>
 
@@ -146,10 +161,13 @@ export default function ResolveDrawer({ open, onClose, ticket, options, onDone }
               onChange={(e) => setTime(e.target.value)}
               placeholder="0"
             />
-            <select className="input !w-36" value={unit} onChange={(e) => setUnit(e.target.value)}>
-              <option value="minutes">Minutos</option>
-              <option value="hours">Horas</option>
-            </select>
+            <Select
+              className="!w-36"
+              aria-label="Unidad de tiempo"
+              options={unitOptions}
+              value={unit}
+              onChange={setUnit}
+            />
           </div>
         </div>
 

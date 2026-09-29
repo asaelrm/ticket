@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { STATUS_LABEL, STATUS_COLOR, PRIORITY_LABEL, PRIORITY_COLOR } from '../lib/api';
+import Select from './Select';
 
 export function Spinner({ className = '' }) {
   return (
@@ -206,6 +207,10 @@ export function Drawer({ open, onClose, title, subtitle, children, footer, wide 
 export function Pagination({ page, pages, total, onChange, perPage, onPerPage }) {
   const start = total === 0 ? 0 : (page - 1) * (perPage || 15) + 1;
   const end = Math.min(total, start + (perPage || 15) - 1);
+  // Los tamaños siguen siendo números en el estado; `Select` entrega el valor
+  // como cadena (igual que `event.target.value`), así que la conversión a
+  // número se mantiene aquí para no cambiar lo que recibe el padre.
+  const perPageOptions = useMemo(() => [10, 25, 50, 100].map((n) => ({ value: n, label: String(n) })), []);
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-600">
       <div className="flex items-center gap-3">
@@ -214,19 +219,18 @@ export function Pagination({ page, pages, total, onChange, perPage, onPerPage })
           {pages > 1 ? ` · Página ${page} de ${pages}` : ''}
         </span>
         {onPerPage && (
-          <label className="flex items-center gap-1.5 text-slate-500">
+          <label className="flex items-center gap-1.5 text-slate-500" htmlFor="pagination-per-page">
             Mostrar
-            <select
-              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm focus:border-brand-400 focus:outline-none"
+            <Select
+              id="pagination-per-page"
+              // `!w-auto !px-2 !py-1` reconstruyen el tamaño compacto que tenía
+              // el `<select>` inline: `.select-trigger` es una regla sin capa y,
+              // por eso, necesita `!important` para no imponerse.
+              className="!w-auto !px-2 !py-1"
+              options={perPageOptions}
               value={perPage}
-              onChange={(e) => onPerPage(Number(e.target.value))}
-            >
-              {[10, 25, 50, 100].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => onPerPage(Number(v))}
+            />
           </label>
         )}
       </div>

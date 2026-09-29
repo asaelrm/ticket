@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, STATUSES, PRIORITIES, STATUS_LABEL, PRIORITY_LABEL } from '../lib/api';
 import { useAuth, can } from '../context/AuthContext';
 import { Modal, Spinner } from './ui';
+import Select from './Select';
 
 // Campos que gestiona la búsqueda avanzada (no incluye la vista ni la búsqueda simple).
 export const ADVANCED_KEYS = [
@@ -85,6 +86,40 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
 
   const set = (key, value) => setForm({ ...form, [key]: value });
 
+  // La opción vacía ("Todos"/"Todas") del `<select>` nativo era seleccionable, así
+  // que se mantiene como primera opción real y no como `placeholder`: con un
+  // placeholder no se podría volver a ella. Orden y rótulos idénticos.
+  const statusOptions = useMemo(
+    () => [{ value: '', label: 'Todos' }, ...STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }))],
+    []
+  );
+  const priorityOptions = useMemo(
+    () => [{ value: '', label: 'Todas' }, ...PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))],
+    []
+  );
+  const categoryOptions = useMemo(
+    () => [{ value: '', label: 'Todas' }, ...options.categories.map((c) => ({ value: c.id, label: c.name }))],
+    [options.categories]
+  );
+  const departmentOptions = useMemo(
+    () => [{ value: '', label: 'Todos' }, ...options.departments.map((d) => ({ value: d.id, label: d.name }))],
+    [options.departments]
+  );
+  const userOptions = useMemo(
+    () => [{ value: '', label: 'Todos' }, ...options.users.map((u) => ({ value: u.id, label: `${u.name} ${u.last_name}` }))],
+    [options.users]
+  );
+  const teamOptions = useMemo(
+    () => [
+      { value: '', label: 'Todos' },
+      ...options.teams.map((t) => ({
+        value: t.id,
+        label: `${t.name}${t.member_count ? ` (${t.member_count})` : ''}`,
+      })),
+    ],
+    [options.teams]
+  );
+
   function onReset() {
     setForm(EMPTY);
     onClear?.();
@@ -106,84 +141,68 @@ export default function AdvancedSearchModal({ open, onClose, filters, onApply, o
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="label" htmlFor="adv-status">Estado</label>
-          <select id="adv-status" className="input" value={form.status} onChange={(e) => set('status', e.target.value)}>
-            <option value="">Todos</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {STATUS_LABEL[s]}
-              </option>
-            ))}
-          </select>
+          <Select
+            id="adv-status"
+            options={statusOptions}
+            value={form.status}
+            onChange={(v) => set('status', v)}
+          />
         </div>
         <div>
           <label className="label" htmlFor="adv-priority">Prioridad</label>
-          <select id="adv-priority" className="input" value={form.priority} onChange={(e) => set('priority', e.target.value)}>
-            <option value="">Todas</option>
-            {PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {PRIORITY_LABEL[p]}
-              </option>
-            ))}
-          </select>
+          <Select
+            id="adv-priority"
+            options={priorityOptions}
+            value={form.priority}
+            onChange={(v) => set('priority', v)}
+          />
         </div>
         <div>
           <label className="label" htmlFor="adv-category">Categoría</label>
-          <select id="adv-category" className="input" value={form.category} onChange={(e) => set('category', e.target.value)}>
-            <option value="">Todas</option>
-            {options.categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            id="adv-category"
+            options={categoryOptions}
+            value={form.category}
+            onChange={(v) => set('category', v)}
+          />
         </div>
         <div>
           <label className="label" htmlFor="adv-department">Departamento</label>
-          <select id="adv-department" className="input" value={form.department} onChange={(e) => set('department', e.target.value)}>
-            <option value="">Todos</option>
-            {options.departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            id="adv-department"
+            options={departmentOptions}
+            value={form.department}
+            onChange={(v) => set('department', v)}
+          />
         </div>
         {canViewAll ? (
           <>
             <div>
               <label className="label" htmlFor="adv-user">Solicitante</label>
-              <select id="adv-user" className="input" value={form.user} onChange={(e) => set('user', e.target.value)}>
-                <option value="">Todos</option>
-                {options.users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} {u.last_name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="adv-user"
+                options={userOptions}
+                value={form.user}
+                onChange={(v) => set('user', v)}
+              />
             </div>
             <div>
               <label className="label" htmlFor="adv-assigned">Técnico asignado</label>
-              <select id="adv-assigned" className="input" value={form.assigned} onChange={(e) => set('assigned', e.target.value)}>
-                <option value="">Todos</option>
-                <option value="none">Sin asignar</option>
-                {options.users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name} {u.last_name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="adv-assigned"
+                options={[{ value: '', label: 'Todos' }, { value: 'none', label: 'Sin asignar' }, ...userOptions.slice(1)]}
+                value={form.assigned}
+                onChange={(v) => set('assigned', v)}
+              />
             </div>
             <div className="sm:col-span-2">
               <label className="label" htmlFor="adv-team">Equipo asignado</label>
-              <select id="adv-team" className="input" value={form.team} onChange={(e) => set('team', e.target.value)}>
-                <option value="">Todos</option>
-                {options.teams.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                    {t.member_count ? ` (${t.member_count})` : ''}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="adv-team"
+                options={teamOptions}
+                value={form.team}
+                onChange={(v) => set('team', v)}
+              />
             </div>
           </>
         ) : (
