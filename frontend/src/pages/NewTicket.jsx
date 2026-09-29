@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api, PRIORITIES, PRIORITY_LABEL, isImage } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
+import Select from '../components/Select';
 
 const MAX_SIZE_MB = 5;
 const MAX_FILES = 5;
@@ -41,6 +42,18 @@ export default function NewTicket() {
   const loadingInit = categoriesQuery.isLoading || departmentsQuery.isLoading;
   const categories = categoriesQuery.data || [];
   const departments = departmentsQuery.data || [];
+
+  // "Sin departamento" era una `<option>` vacía seleccionable, así que se
+  // conserva como opción real. En cambio la de categoría venía `disabled`, de
+  // modo que no se podía elegir: eso equivale a un `placeholder`.
+  // El `required` del `<select>` era inerte (el `<form>` va con `noValidate`) y la
+  // validación real la hace el servidor, así que no se pierde ninguna.
+  const categoryOptions = useMemo(() => categories.map((c) => ({ value: c.id, label: c.name })), [categories]);
+  const departmentOptions = useMemo(
+    () => [{ value: '', label: 'Sin departamento' }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments]
+  );
+  const priorityOptions = useMemo(() => PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] })), []);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -123,28 +136,19 @@ export default function NewTicket() {
               <label className="label" htmlFor="category">
                 Categoría *
               </label>
-              <select id="category" className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)} required>
-                <option value="" disabled>
-                  Seleccione…
-                </option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <Select
+                id="category"
+                placeholder="Seleccione…"
+                options={categoryOptions}
+                value={categoryId}
+                onChange={setCategoryId}
+              />
             </div>
             <div>
               <label className="label" htmlFor="priority">
                 Prioridad *
               </label>
-              <select id="priority" className="input" value={priority} onChange={(e) => setPriority(e.target.value)}>
-                {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>
-                    {PRIORITY_LABEL[p]}
-                  </option>
-                ))}
-              </select>
+              <Select id="priority" options={priorityOptions} value={priority} onChange={setPriority} />
             </div>
           </div>
 
@@ -152,14 +156,12 @@ export default function NewTicket() {
             <label className="label" htmlFor="department">
               Departamento
             </label>
-            <select id="department" className="input" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-              <option value="">Sin departamento</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+            <Select
+              id="department"
+              options={departmentOptions}
+              value={departmentId}
+              onChange={setDepartmentId}
+            />
             <p className="mt-1 text-xs text-slate-400">
               Por defecto se usa su departamento ({user?.department_name || 'sin asignar'}).
             </p>

@@ -1,11 +1,11 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import KnowledgeEditor from './KnowledgeEditor';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({ authState: { user: null } }));
 
@@ -87,7 +87,7 @@ async function fillValid(user) {
   await user.type(field('Descripción *'), 'Ocurre tras el cambio de red.');
   await user.type(field('Solución *'), '1. Reiniciar el spooler');
   await user.type(field('Palabras clave'), 'impresora, red');
-  await user.selectOptions(field('Categoría'), '2');
+  await pickOption(user, field('Categoría'), 'Redes');
 }
 
 beforeEach(() => {
@@ -112,11 +112,20 @@ describe('KnowledgeEditor · creación', () => {
   });
 
   it('ofrece las categorías activas del servidor', async () => {
+    const user = userEvent.setup();
     renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
+    // "Sin categoría" sigue siendo la primera opción seleccionable, igual que en
+    // el `<select>` nativo, y las dos activas mantienen su orden.
     const select = await screen.findByLabelText('Categoría');
-    await waitFor(() => expect(select.options).toHaveLength(3));
-    expect([...select.options].map((o) => o.textContent)).toEqual(['Sin categoría', 'Correo', 'Redes']);
+    expect(select).toHaveTextContent('Sin categoría');
+    await user.click(select);
+    await waitFor(() => expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(3));
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Sin categoría',
+      'Correo',
+      'Redes',
+    ]);
   });
 
   it('exige título, resumen, descripción y solución antes de llamar a la API', async () => {
@@ -183,7 +192,8 @@ describe('KnowledgeEditor · creación', () => {
     renderEditor('/app/knowledge/new', '/app/knowledge/new');
 
     await fillValid(user);
-    await user.selectOptions(screen.getByLabelText('Categoría'), '');
+    // Volver a "Sin categoría" debe seguir siendo posible tras haber elegido una.
+    await pickOption(user, screen.getByLabelText('Categoría'), 'Sin categoría');
     await user.click(screen.getByRole('button', { name: /Guardar borrador/ }));
 
     await waitFor(() =>
@@ -258,7 +268,8 @@ describe('KnowledgeEditor · edición', () => {
     renderEditor('/app/knowledge/5/edit');
 
     await waitFor(() => expect(field('Título *')).toHaveValue('Restablecer la contraseña de Outlook'));
-    expect(field('Categoría')).toHaveValue('1');
+    // El `Select` refleja la categoría cargada en su rótulo, no en un atributo `value`.
+    await waitFor(() => expect(field('Categoría')).toHaveTextContent('Correo'));
     expect(field('Palabras clave')).toHaveValue('correo, contraseña');
     expect(screen.getByText('Publicado')).toBeInTheDocument();
 
@@ -326,12 +337,16 @@ describe('KnowledgeEditor · edición', () => {
           })
     );
 
+    const user = userEvent.setup();
     renderEditor('/app/knowledge/5/edit');
 
-    // Sin esta opción, el <select> quedaría sin nada seleccionado y al guardar se
+    // Sin esta opción, el selector quedaría sin nada seleccionado y al guardar se
     // enviaría un id que el servidor rechaza.
-    await waitFor(() => expect(field('Categoría')).toHaveValue('7'));
-    expect([...field('Categoría').options].map((o) => o.textContent)).toEqual([
+    await waitFor(() => expect(field('Categoría')).toHaveTextContent('Histórico (desactivada)'));
+
+    await user.click(field('Categoría'));
+    await waitFor(() => expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(3));
+    expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Sin categoría',
       'Redes',
       'Histórico (desactivada)',

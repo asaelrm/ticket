@@ -6,7 +6,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import NewTicket from './NewTicket';
 import { api } from '../lib/api';
-import { createQueryClient, renderWithProviders } from '../test/utils';
+import { createQueryClient, renderWithProviders, pickOption, optionLabels } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({
   authState: { user: null },
@@ -69,8 +69,46 @@ describe('NewTicket', () => {
     expect(screen.getByLabelText(/Descripción detallada/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Crear ticket' })).toBeInTheDocument();
 
-    expect(screen.getByLabelText(/^Departamento$/)).toHaveValue('3');
+    // El valor numérico vive en el rótulo del control, no en un atributo `value`.
+    expect(screen.getByLabelText(/^Departamento$/)).toHaveTextContent('TI');
     expect(screen.getByText(/Por defecto se usa su departamento \(TI\)/)).toBeInTheDocument();
+  });
+
+  it('la categoría no ofrece opción vacía porque el <select> la tenía deshabilitada', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<NewTicket />, { route: '/new-ticket' });
+    await screen.findByLabelText(/Título/);
+
+    const category = screen.getByLabelText(/Categoría/);
+    expect(await optionLabels(user, category)).toEqual(['Hardware', 'Software']);
+    // El `required` del `<select>` era inerte (`noValidate`); el rótulo inicial
+    // se mantiene como `placeholder` y el backend sigue validando.
+    expect(category).toHaveTextContent('Seleccione…');
+    expect(category).toHaveAttribute('data-placeholder', 'true');
+  });
+
+  it('el departamento vuelve a "Sin departamento" y lo envía vacío', async () => {
+    const user = userEvent.setup();
+    renderWithNavigation(<NewTicket />, { route: '/new-ticket' });
+
+    // El departamento venía preseleccionado y su `<option value="">` era
+    // seleccionable, así que se podía quitar sin recargar la pantalla.
+    const department = await screen.findByLabelText(/^Departamento$/);
+    expect(department).toHaveTextContent('TI');
+    expect(await optionLabels(user, department)).toEqual(['Sin departamento', 'TI', 'Contabilidad']);
+    await pickOption(user, department, 'Sin departamento');
+    expect(department).toHaveTextContent('Sin departamento');
+
+    await user.type(screen.getByLabelText(/Título/), 'Sin departamento');
+    await pickOption(user, screen.getByLabelText(/Categoría/), 'Hardware');
+    await user.type(screen.getByLabelText(/Descripción detallada/), 'Prueba');
+    await user.click(screen.getByRole('button', { name: 'Crear ticket' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets', null, expect.any(FormData)));
+    const [, , fd] = api.post.mock.calls.find(([url]) => url === '/api/tickets');
+    // El `FormData` se arma a mano y solo añade el campo si tiene valor, así que
+    // sin departamento el campo no viaja: igual que con el `<select>` nativo.
+    expect(fd.get('department_id')).toBeNull();
   });
 
   it('rechaza archivos demasiado grandes sin crear el ticket', async () => {
@@ -89,7 +127,7 @@ describe('NewTicket', () => {
     renderWithNavigation(<NewTicket />, { route: '/new-ticket' });
 
     await user.type(await screen.findByLabelText(/Título/), 'No puedo imprimir');
-    await user.selectOptions(screen.getByLabelText(/Categoría/), '1');
+    await pickOption(user, screen.getByLabelText(/Categoría/), 'Hardware');
     await user.type(screen.getByLabelText(/Descripción detallada/), 'La impresora no responde');
     await user.click(screen.getByRole('button', { name: 'Crear ticket' }));
 
@@ -110,7 +148,7 @@ describe('NewTicket', () => {
 
     renderWithProviders(<NewTicket />, { route: '/new-ticket' });
     await user.type(await screen.findByLabelText(/Título/), 'Sin conexión a red');
-    await user.selectOptions(screen.getByLabelText(/Categoría/), '1');
+    await pickOption(user, screen.getByLabelText(/Categoría/), 'Hardware');
     await user.type(screen.getByLabelText(/Descripción detallada/), 'No tengo internet');
     await user.click(screen.getByRole('button', { name: 'Crear ticket' }));
 

@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { renderMessage } from '../lib/markdown';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
+import Select from '../components/Select';
 import { fieldErrors, statusLabel, ARTICLE_STATUS_COLOR, canEditArticle, ARTICLE_LIMITS } from '../lib/kb';
 
 const LIMITS = ARTICLE_LIMITS;
@@ -84,9 +85,9 @@ export default function KnowledgeEditor() {
   });
 
   // Si la categoría del artículo fue desactivada, ya no viene en el catálogo
-  // activo. Sin añadirla a mano el <select> quedaría sin opción seleccionada y al
+  // activo. Sin añadirla a mano el selector quedaría sin opción seleccionada y al
   // guardar se enviaría su id, que el servidor rechaza con 400.
-  const categoryOptions = useMemo(() => {
+  const categoryList = useMemo(() => {
     const list = categories || [];
     if (!article?.category_id || list.some((c) => c.id === article.category_id)) return list;
     return [
@@ -99,6 +100,18 @@ export default function KnowledgeEditor() {
       },
     ];
   }, [categories, article]);
+
+  // "Sin categoría" era una `<option>` vacía seleccionable, así que se mantiene
+  // como primera opción real y no como `placeholder`: así se puede volver a ella,
+  // que es justo lo que necesita el test de `category_id: null`. El sufijo
+  // "(desactivada)" lo añadía cada `<option>` y se conserva igual.
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Sin categoría' },
+      ...categoryList.map((c) => ({ value: c.id, label: `${c.name}${c.active === 0 ? ' (desactivada)' : ''}` })),
+    ],
+    [categoryList]
+  );
 
   useEffect(() => {
     if (!article) return;
@@ -316,20 +329,12 @@ export default function KnowledgeEditor() {
           <label className="label" htmlFor="kb-category">
             Categoría
           </label>
-          <select
+          <Select
             id="kb-category"
-            className="input"
+            options={categoryOptions}
             value={form.category_id}
-            onChange={(e) => set('category_id', e.target.value)}
-          >
-            <option value="">Sin categoría</option>
-            {categoryOptions.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-                {c.active === 0 ? ' (desactivada)' : ''}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => set('category_id', v)}
+          />
         </div>
       </div>
 
