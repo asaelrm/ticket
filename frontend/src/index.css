@@ -42,6 +42,11 @@
   --text-2: #afc4d4;
   --border-glass: rgba(110, 210, 190, 0.2);
   --border-glass-soft: rgba(110, 210, 190, 0.16);
+  /* Flecha de los selects. El trazo normal usa --text-2 y el activo --uce-green:
+     se cambia en hover/focus para que la señal coincida con el borde verde sin
+     recurrir a `filter`, que también tiñería el texto del control. */
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23AFC4D4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --select-arrow-active: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2359B77C' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
 @layer base {
@@ -80,9 +85,22 @@
   select {
     color-scheme: dark;
   }
+  /* Opciones del desplegable. Los colores se derivan de tokens que ya usa el
+     tema (--surface-2, --uce-green, --uce-bright) mezclándolos con `color-mix`,
+     de modo que el menú no introduce una paleta paralela. Ojo: en Windows el
+     popup lo dibuja el sistema y respeta solo el fondo base; el hover y la
+     marcada se ven donde el navegador sí aplica la hoja de estilo. */
   select option {
     background-color: var(--surface-2);
-    color: #e6eef5;
+    color: var(--text-1);
+  }
+  select option:hover {
+    background-color: color-mix(in srgb, var(--uce-green) 16%, var(--surface));
+    color: #ffffff;
+  }
+  select option:checked {
+    background-color: color-mix(in srgb, var(--uce-bright) 30%, var(--surface));
+    color: #ffffff;
   }
   input[type='date']::-webkit-calendar-picker-indicator,
   input[type='time']::-webkit-calendar-picker-indicator,
@@ -235,6 +253,203 @@
     line-height: 1.375;
     color: #c6d6e2;
   }
+}
+
+/* ============================================================
+   Selects · identidad Centro Médico UCE
+   ============================================================
+   El control CERRADO se resuelve entero por CSS: se anula el `appearance`
+   nativo (que en Windows pinta borde y flecha propios) y se dibuja una flecha
+   propia, para que el resultado sea idéntico en todos los navegadores.
+
+   El menú DESPLEGADO no es controlizable: sigue siendo el popup nativo. En
+   Windows lo dibuja el sistema y aplica como mucho el fondo que se le da a
+   `option`; el hover y la opción seleccionada de abajo solo se ven donde el
+   navegador respeta la hoja de estilo. Esa parte quedaría cerrada de verdad
+   con un componente propio, no con más CSS.
+   ============================================================ */
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  /* Hueco para la flecha propia: sin él el texto largo la taparía. */
+  padding-right: 2.5rem;
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1.05rem 1.05rem;
+  cursor: pointer;
+  /* 180 ms, el mismo tiempo que el resto de controles del tema. */
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+/* Verde UCE como acento: el borde se enciende y el fondo sube muy poco. */
+select:hover:not(:disabled) {
+  border-color: var(--uce-green);
+  background-color: rgba(110, 210, 190, 0.09);
+  background-image: var(--select-arrow-active);
+}
+
+/* Al abrirse (clic o teclado) el borde y el anillo pasan a verde UCE. El halo
+   usa el mismo 16 % que el foco de `.input` a propósito: más tenue que la
+   iluminación del elemento activo del sidebar, como pide el diseño. */
+select:focus,
+select:focus-visible {
+  border-color: var(--uce-bright);
+  background-image: var(--select-arrow-active);
+  box-shadow: 0 0 0 3px rgba(34, 199, 122, 0.16);
+}
+
+/* Sin halo ni flecha encendida: se distingue de un control deshabilitado de un
+   control focused solo por opacidad y cursor. */
+select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ============================================================
+   Select propio · identity Centro Médico UCE
+   ============================================================
+   Sustituye al desplegable nativo para poder teñir TODO el control, incluido
+   el menú: el popup del sistema es la única parte que no se puede estilar. Se
+   apoya en los tokens del tema para no abrir una paleta paralela.
+   ============================================================ */
+
+.select-trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 1px solid rgba(110, 210, 190, 0.22);
+  border-radius: 0.75rem;
+  padding: 0.625rem 0.875rem;
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 0.875rem;
+  line-height: 1.375;
+  text-align: left;
+  color: var(--text-1);
+  cursor: pointer;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.select-trigger:hover:not(:disabled) {
+  border-color: var(--uce-green);
+  background: rgba(110, 210, 190, 0.09);
+}
+
+/* El mismo anillo que `.input:focus` (16 %), más tenue que la iluminación del
+   elemento activo del sidebar. Al abrirse el control queda en este mismo
+   estado, de modo que "enfocado" y "abierto" se leen igual. */
+.select-trigger:focus,
+.select-trigger:focus-visible,
+.select-trigger[aria-expanded='true'] {
+  outline: none;
+  border-color: var(--uce-bright);
+  box-shadow: 0 0 0 3px rgba(34, 199, 122, 0.16);
+}
+
+.select-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Sin valor elegido: el texto baja a --text-2 para que se lea como campo
+   vacío y no como un valor más. */
+.select-trigger[data-placeholder='true'] {
+  color: var(--text-2);
+}
+
+.select-arrow {
+  flex-shrink: 0;
+  color: var(--text-2);
+  transition:
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.select-trigger:hover:not(:disabled) .select-arrow,
+.select-trigger:focus .select-arrow,
+.select-trigger[aria-expanded='true'] .select-arrow {
+  color: var(--uce-green);
+}
+
+.select-trigger[aria-expanded='true'] .select-arrow {
+  transform: rotate(180deg);
+}
+
+.select-menu {
+  /* El menú se monta en `document.body` (ver components/Select.jsx) y se
+     posiciona con `fixed` a partir del rectángulo del control.
+
+     El motivo de sacarlo del DOM del control: `.card` y `.panel-glass` usan
+     `backdrop-filter`, que crea un stacking context. Los filtros de la bandeja
+     y la tabla están en dos tarjetas hermanas, así que la tabla se pinta
+     encima de la tarjeta de los filtros, y un `z-index` alto dentro de ella no
+     puede ganar: el contexto se lo traga. Además `backdrop-filter` convierte a
+     la tarjeta en bloque contenedor de `fixed`, así que tampoco basta con
+     cambiar a `fixed`. Al salir a `body` el menú queda por encima de todo y
+     ningún `overflow` lo recorta. */
+  position: fixed;
+  /* Escala de overlays del tema: `z-50` es el nivel de las modales
+     (`fixed inset-0 z-50`) y del `Menu` de components/ui.jsx. El menú es un
+     overlay más, se sitúa en el mismo nivel y no inventa un número nuevo. */
+  z-index: 50;
+  /* Tope por defecto; `Select.jsx` lo recorta inline según el espacio libre
+     que hay entre el control y el borde de la ventana. */
+  max-height: 18rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem;
+  border-radius: 0.75rem;
+}
+
+.select-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  text-align: left;
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+/* Verde oscuro translúcido: el cursor de teclado y el ratón levantan la misma
+   señal, sin necesitar un color distinto para cada uno. */
+.select-option:hover,
+.select-option[data-active='true'] {
+  background: rgba(89, 183, 124, 0.16);
+}
+
+.select-option[aria-selected='true'] {
+  background: rgba(34, 199, 122, 0.28);
+  color: #ffffff;
+}
+
+.select-option[aria-selected='true'][data-active='true'] {
+  background: rgba(34, 199, 122, 0.4);
+}
+
+.select-option[data-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.select-option[data-disabled='true']:hover {
+  background: none;
 }
 
 /* ============================================================
