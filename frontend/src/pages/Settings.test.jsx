@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Settings from './Settings';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({
   authState: { setAppName: vi.fn() },
@@ -178,7 +178,7 @@ describe('Settings', () => {
     const unassigned = screen.getByRole('spinbutton', { name: /Escalar sin asignar después de/ });
     await user.clear(unassigned);
     await user.type(unassigned, '4');
-    await user.selectOptions(screen.getByRole('combobox', { name: /Prioridad al escalar/ }), 'CRITICAL');
+    await pickOption(user, screen.getByRole('combobox', { name: /Prioridad al escalar/ }), 'Crítica');
     await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
 
     await waitFor(() =>

@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Users from './Users';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption, optionLabels } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({
   authState: { user: null },
@@ -81,7 +81,7 @@ function inputFor(labelText, scope = screen) {
 
 function selectFor(labelText, scope = screen) {
   const label = scope.getByText(labelText, { selector: 'label' });
-  return label.closest('div').querySelector('select');
+  return label.closest('div').querySelector('button[aria-haspopup="listbox"]');
 }
 
 describe('Users', () => {
@@ -137,9 +137,46 @@ describe('Users', () => {
     renderWithProviders(<Users />, { route: '/app/users' });
     await screen.findByText('Ada Lovelace');
 
-    await user.selectOptions(screen.getAllByRole('combobox')[0], '1');
+    await pickOption(user, screen.getByLabelText('Filtrar por departamento'), 'TI');
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('department=1')));
+  });
+
+  it('los tres filtros ofrecen su opción vacía y permiten volver a ella', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    // "Todos los deptos", "Todos los roles" y "Activos e inactivos" eran
+    // `<option value="">` seleccionables: siguen estando en la lista, no como
+    // placeholder, para que se pueda quitar el filtro sin recargar la pantalla.
+    const depto = screen.getByLabelText('Filtrar por departamento');
+    const rol = screen.getByLabelText('Filtrar por rol');
+    const estado = screen.getByLabelText('Filtrar por estado');
+    expect(await optionLabels(user, depto)).toEqual(['Todos los deptos', 'TI']);
+    expect(await optionLabels(user, rol)).toEqual(['Todos los roles', 'Administrador', 'Empleado']);
+    expect(await optionLabels(user, estado)).toEqual(['Activos e inactivos', 'Solo activos', 'Solo inactivos']);
+
+    await pickOption(user, depto, 'TI');
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('department=1')));
+    await pickOption(user, depto, 'Todos los deptos');
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('page=1&perPage=15')));
+  });
+
+  it('el rol del modal no ofrece la opción vacía porque el <select> la tenía disabled', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo usuario' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+
+    const roleSelect = selectFor('Rol *', within(dialog));
+    // Sin opción vacía en la lista: el rótulo nunca puede quedar en blanco.
+    expect(await optionLabels(user, roleSelect)).toEqual(['Administrador', 'Empleado']);
+    // El alta preselecciona "Empleado", así que no se muestra el placeholder.
+    expect(roleSelect).toHaveTextContent('Empleado');
+    expect(roleSelect).not.toHaveAttribute('data-placeholder', 'true');
   });
 
   it('pagina a la siguiente página', async () => {
@@ -171,7 +208,7 @@ describe('Users', () => {
     await user.type(inputFor('Usuario *', within(dialog)), 'ghopper');
     await user.type(inputFor('Correo *', within(dialog)), 'grace@example.com');
     await user.type(inputFor('Cargo', within(dialog)), 'Ingeniera');
-    await user.selectOptions(selectFor('Departamento', within(dialog)), '1');
+    await pickOption(user, selectFor('Departamento', within(dialog)), 'TI');
     await user.type(inputFor('Contraseña inicial *', within(dialog)), 'secret1');
     await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
 

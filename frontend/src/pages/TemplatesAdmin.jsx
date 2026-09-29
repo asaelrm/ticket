@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
+import Select from '../components/Select';
 import { renderMessage } from '../lib/markdown';
 import {
   extractVariables,
@@ -95,6 +96,33 @@ export default function TemplatesAdmin() {
     [modal]
   );
 
+  // Las opciones siguen dependiendo de `canGlobal`/`canTeam` igual que antes. "Todos
+  // los ámbitos" era seleccionable, así que se conserva como opción real. El
+  // ámbito del modal NO llevaba opción vacía (solo los permitidos) y el equipo
+  // sí, como "Seleccione un equipo…".
+  const filterScopeOptions = useMemo(
+    () => [
+      { value: '', label: 'Todos los ámbitos' },
+      ...(canGlobal ? [{ value: 'GLOBAL', label: SCOPE_LABEL.GLOBAL }] : []),
+      ...(canTeam ? [{ value: 'TEAM', label: SCOPE_LABEL.TEAM }] : []),
+    ],
+    [canGlobal, canTeam]
+  );
+  const scopeOptions = useMemo(
+    () => [
+      ...(canGlobal ? [{ value: 'GLOBAL', label: SCOPE_LABEL.GLOBAL }] : []),
+      ...(canTeam ? [{ value: 'TEAM', label: SCOPE_LABEL.TEAM }] : []),
+    ],
+    [canGlobal, canTeam]
+  );
+  const teamOptions = useMemo(
+    () => [
+      { value: '', label: 'Seleccione un equipo…' },
+      ...teams.map((t) => ({ value: t.id, label: t.name })),
+    ],
+    [teams]
+  );
+
   const estimate = modal ? estimateLength(modal.form.body) : 0;
   const estimateTooLong = estimate > MAX_COMMENT_LENGTH;
 
@@ -126,16 +154,13 @@ export default function TemplatesAdmin() {
           <label className="sr-only" htmlFor="tpl-filter-scope">
             Filtrar por ámbito
           </label>
-          <select
+          <Select
             id="tpl-filter-scope"
-            className="input !w-auto"
+            className="!w-auto"
+            options={filterScopeOptions}
             value={scope}
-            onChange={(e) => setScope(e.target.value)}
-          >
-            <option value="">Todos los ámbitos</option>
-            {canGlobal && <option value="GLOBAL">Global</option>}
-            {canTeam && <option value="TEAM">Equipo</option>}
-          </select>
+            onChange={setScope}
+          />
           <label className="sr-only" htmlFor="tpl-filter-q">
             Buscar plantillas
           </label>
@@ -247,17 +272,14 @@ export default function TemplatesAdmin() {
                 <label className="label" htmlFor="tpl-scope">
                   Ámbito *
                 </label>
-                <select
+                <Select
                   id="tpl-scope"
-                  className="input"
+                  options={scopeOptions}
                   value={modal.form.scope}
-                  onChange={(e) =>
-                    setModal({ ...modal, form: { ...modal.form, scope: e.target.value, team_id: '' } })
+                  onChange={(v) =>
+                    setModal({ ...modal, form: { ...modal.form, scope: v, team_id: '' } })
                   }
-                >
-                  {canGlobal && <option value="GLOBAL">Global</option>}
-                  {canTeam && <option value="TEAM">Equipo</option>}
-                </select>
+                />
               </div>
             </div>
 
@@ -266,19 +288,12 @@ export default function TemplatesAdmin() {
                 <label className="label" htmlFor="tpl-team">
                   Equipo *
                 </label>
-                <select
+                <Select
                   id="tpl-team"
-                  className="input"
+                  options={teamOptions}
                   value={modal.form.team_id}
-                  onChange={(e) => setModal({ ...modal, form: { ...modal.form, team_id: e.target.value } })}
-                >
-                  <option value="">Seleccione un equipo…</option>
-                  {teams.map((team) => (
-                    <option key={team.id} value={team.id}>
-                      {team.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setModal({ ...modal, form: { ...modal.form, team_id: v } })}
+                />
               </div>
             )}
 

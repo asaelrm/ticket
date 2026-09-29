@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
+import Select from '../components/Select';
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -229,22 +230,22 @@ export default function Settings() {
                   Sube la prioridad de tickets abiertos sin asignar. 0 desactiva la regla.
                 </span>
               </label>
-              <label className="label">
-                Prioridad al escalar
-                <select
-                  className="input"
+              {/* El `<label>` ya no envuelve al control, pero conserva la misma
+                  composición y la asociación por etiqueta. */}
+              <div>
+                <label className="label" htmlFor="settings-escalate-priority">
+                  Prioridad al escalar
+                </label>
+                <Select
+                  id="settings-escalate-priority"
+                  options={ESCALATION_PRIORITY_OPTIONS}
                   value={form.rule_unassigned_priority || 'HIGH'}
-                  onChange={(e) => set('rule_unassigned_priority', e.target.value)}
-                >
-                  <option value="LOW">Baja</option>
-                  <option value="MEDIUM">Media</option>
-                  <option value="HIGH">Alta</option>
-                  <option value="CRITICAL">Crítica</option>
-                </select>
+                  onChange={(v) => set('rule_unassigned_priority', v)}
+                />
                 <span className="mt-1 block text-xs font-normal text-slate-400">
                   Solo se escala si el ticket tiene menor prioridad que la elegida.
                 </span>
-              </label>
+              </div>
               <label className="label">
                 Alertar crítico abierto después de
                 <div className="relative">
@@ -357,6 +358,15 @@ const EMAIL_STATUS_COLOR = {
 };
 
 const EMAIL_STATUS_LABEL = { smtp: 'Enviado', dev: 'Dev', error: 'Error' };
+
+// No llevaba opción vacía: el valor por defecto es 'HIGH' y se aplica con
+// `form.rule_unassigned_priority || 'HIGH'`. Se mantiene el mismo orden.
+const ESCALATION_PRIORITY_OPTIONS = [
+  { value: 'LOW', label: 'Baja' },
+  { value: 'MEDIUM', label: 'Media' },
+  { value: 'HIGH', label: 'Alta' },
+  { value: 'CRITICAL', label: 'Crítica' },
+];
 
 function MailStatus({ mail }) {
   if (!mail) return (

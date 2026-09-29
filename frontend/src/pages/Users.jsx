@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, formatDate, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal, Pagination, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
+import Select from '../components/Select';
 import UserTicketHistory from '../components/UserTicketHistory';
 
 const EMPTY = {
@@ -70,6 +71,32 @@ export default function Users() {
   });
 
   const invalidateUsers = () => queryClient.invalidateQueries({ queryKey: ['users'] });
+
+  // Los tres filtros tenían opción vacía seleccionable, así que se conservan
+  // como primeras opciones reales. Los ids siguen llegando como cadena.
+  const departmentFilterOptions = useMemo(
+    () => [{ value: '', label: 'Todos los deptos' }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments]
+  );
+  const roleFilterOptions = useMemo(
+    () => [{ value: '', label: 'Todos los roles' }, ...roles.map((r) => ({ value: r.id, label: r.name }))],
+    [roles]
+  );
+  const statusFilterOptions = useMemo(
+    () => [
+      { value: '', label: 'Activos e inactivos' },
+      { value: 'active', label: 'Solo activos' },
+      { value: 'inactive', label: 'Solo inactivos' },
+    ],
+    []
+  );
+  // "Sin departamento" también era seleccionable: opción real. El rol NO, su
+  // opción vacía era `disabled` (placeholder) y por eso no entra en la lista.
+  const departmentFormOptions = useMemo(
+    () => [{ value: '', label: 'Sin departamento' }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
+    [departments]
+  );
+  const roleFormOptions = useMemo(() => roles.map((r) => ({ value: r.id, label: r.name })), [roles]);
 
   const saveMutation = useMutation({
     mutationFn: (m) => {
@@ -176,23 +203,27 @@ export default function Users() {
               onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value, page: 1 }))}
             />
           </div>
-          <select className="input !w-auto" value={filters.department || ''} onChange={(e) => setFilters((f) => ({ ...f, department: e.target.value, page: 1 }))}>
-            <option value="">Todos los deptos</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
-          <select className="input !w-auto" value={filters.role || ''} onChange={(e) => setFilters((f) => ({ ...f, role: e.target.value, page: 1 }))}>
-            <option value="">Todos los roles</option>
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-          <select className="input !w-auto" value={filters.status || ''} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value, page: 1 }))}>
-            <option value="">Activos e inactivos</option>
-            <option value="active">Solo activos</option>
-            <option value="inactive">Solo inactivos</option>
-          </select>
+            <Select
+              className="!w-auto"
+              aria-label="Filtrar por departamento"
+              options={departmentFilterOptions}
+              value={filters.department || ''}
+              onChange={(v) => setFilters((f) => ({ ...f, department: v, page: 1 }))}
+            />
+            <Select
+              className="!w-auto"
+              aria-label="Filtrar por rol"
+              options={roleFilterOptions}
+              value={filters.role || ''}
+              onChange={(v) => setFilters((f) => ({ ...f, role: v, page: 1 }))}
+            />
+            <Select
+              className="!w-auto"
+              aria-label="Filtrar por estado"
+              options={statusFilterOptions}
+              value={filters.status || ''}
+              onChange={(v) => setFilters((f) => ({ ...f, status: v, page: 1 }))}
+            />
         </div>
         {user?.permissions?.includes('user.manage') && (
           <button className="btn-primary" onClick={openCreate}>
@@ -289,25 +320,31 @@ export default function Users() {
               <TextField label="Apellidos *" value={modal.form.last_name} onChange={(v) => setModal({ ...modal, form: { ...modal.form, last_name: v } })} />
               <TextField label="Usuario *" value={modal.form.username} onChange={(v) => setModal({ ...modal, form: { ...modal.form, username: v } })} />
               <TextField label="Correo *" type="email" value={modal.form.email} onChange={(v) => setModal({ ...modal, form: { ...modal.form, email: v } })} />
-              <div>
-                <label className="label">Departamento</label>
-                <select className="input" value={modal.form.department_id} onChange={(e) => setModal({ ...modal, form: { ...modal.form, department_id: e.target.value } })}>
-                  <option value="">Sin departamento</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </div>
+                <div>
+                  <label className="label" htmlFor="user-department">Departamento</label>
+                  <Select
+                    id="user-department"
+                    options={departmentFormOptions}
+                    value={modal.form.department_id}
+                    onChange={(v) => setModal({ ...modal, form: { ...modal.form, department_id: v } })}
+                  />
+                </div>
               <TextField label="Cargo" value={modal.form.position} onChange={(v) => setModal({ ...modal, form: { ...modal.form, position: v } })} />
-              <div>
-                <label className="label">Rol *</label>
-                <select className="input" value={modal.form.role_id} onChange={(e) => setModal({ ...modal, form: { ...modal.form, role_id: e.target.value } })} required>
-                  <option value="" disabled>Seleccione…</option>
-                  {roles.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
-                  ))}
-                </select>
-              </div>
+                <div>
+                  <label className="label" htmlFor="user-role">Rol *</label>
+                  {/* La opción vacía era `disabled`, así que se comporta como
+                      placeholder. El formulario es `noValidate` y la validación
+                      real la hace el backend (`err.fields`), por lo que se pierde
+                      el aviso nativo del navegador igual que en el resto de
+                      select migrados. */}
+                  <Select
+                    id="user-role"
+                    placeholder="Seleccione."
+                    options={roleFormOptions}
+                    value={modal.form.role_id}
+                    onChange={(v) => setModal({ ...modal, form: { ...modal.form, role_id: v } })}
+                  />
+                </div>
               {modal.mode === 'create' && (
                 <div className="sm:col-span-2">
                   <TextField label="Contraseña inicial *" type="password" help="Mínimo 6 caracteres." value={modal.form.password} onChange={(v) => setModal({ ...modal, form: { ...modal.form, password: v } })} />

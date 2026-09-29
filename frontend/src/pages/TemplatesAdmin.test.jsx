@@ -4,7 +4,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TemplatesAdmin from './TemplatesAdmin';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption, optionLabels } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({ authState: { user: null } }));
 
@@ -83,11 +83,11 @@ async function openEditor(title = 'Nueva plantilla') {
   return { user, dialog };
 }
 
-async function editCard(user, cardTitle) {
-  const card = screen.getByText(cardTitle).closest('.card');
-  await user.click(within(card).getByRole('button', { name: 'Editar' }));
-  return screen.findByRole('dialog', { name: 'Editar plantilla' });
-}
+  async function editCard(user, cardTitle) {
+    const card = screen.getByText(cardTitle).closest('.card');
+    await user.click(within(card).getByRole('button', { name: 'Editar' }));
+    return screen.findByRole('dialog', { name: 'Editar plantilla' });
+  }
 
 describe('TemplatesAdmin · listado y filtros', () => {
   it('lista globales y de equipo con su ámbito, equipo y contador de uso', async () => {
@@ -114,11 +114,27 @@ describe('TemplatesAdmin · listado y filtros', () => {
     renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
     await screen.findByText('Saludo global');
 
-    await user.selectOptions(screen.getByLabelText('Filtrar por ámbito'), 'GLOBAL');
+    await pickOption(user, screen.getByLabelText('Filtrar por ámbito'), 'Global');
     await waitFor(() => expect(lastGetUrlWith('scope=GLOBAL')).toBeTruthy());
 
-    await user.selectOptions(screen.getByLabelText('Filtrar por ámbito'), 'TEAM');
+    await pickOption(user, screen.getByLabelText('Filtrar por ámbito'), 'Equipo');
     await waitFor(() => expect(lastGetUrlWith('scope=TEAM')).toBeTruthy());
+  });
+
+  it('el filtro de ámbito vuelve a "Todos" y consulta sin scope', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
+    await screen.findByText('Saludo global');
+
+    // "Todos los ámbitos" era una `<option value="">` seleccionable: sin ella
+    // el filtro quedaría atrapado en GLOBAL/TEAM sin forma de quitarlo. La
+    // consulta viaja igual que antes, con `scope=` vacío.
+    await pickOption(user, screen.getByLabelText('Filtrar por ámbito'), 'Global');
+    await waitFor(() => expect(lastGetUrlWith('scope=GLOBAL')).toBeTruthy());
+    await pickOption(user, screen.getByLabelText('Filtrar por ámbito'), 'Todos los ámbitos');
+
+    await waitFor(() => expect(lastGetUrlWith('scope=')).toBeTruthy());
+    expect(screen.getByLabelText('Filtrar por ámbito')).toHaveTextContent('Todos los ámbitos');
   });
 
   it('busca por texto rebuilding la consulta con q', async () => {
@@ -167,14 +183,14 @@ describe('TemplatesAdmin · creación por ámbito', () => {
     renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
     await screen.findByText('Saludo global');
     const { user, dialog } = await openEditor();
-    await user.selectOptions(within(dialog).getByLabelText('Ámbito *'), 'TEAM');
+    await pickOption(user, within(dialog).getByLabelText('Ámbito *'), 'Equipo');
 
     const teamSelect = await within(dialog).findByLabelText('Equipo *');
-    expect(within(teamSelect).getByRole('option', { name: 'Redes' })).toBeInTheDocument();
+    expect(teamSelect).toHaveTextContent('Seleccione un equipo…');
 
     await user.type(within(dialog).getByLabelText('Título *'), 'De red');
     await user.type(within(dialog).getByLabelText('Cuerpo de la respuesta *'), 'Revisamos la red.');
-    await user.selectOptions(teamSelect, '5');
+    await pickOption(user, teamSelect, 'Redes');
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
@@ -223,7 +239,7 @@ describe('TemplatesAdmin · edición y duplicación', () => {
     const dialog = await editCard(user, 'Saludo global');
     expect(within(dialog).getByLabelText('Título *')).toHaveValue('Saludo global');
     expect(within(dialog).getByLabelText('Cuerpo de la respuesta *')).toHaveValue('Hola {{reporter_name}}.');
-    expect(within(dialog).getByLabelText('Ámbito *')).toHaveValue('GLOBAL');
+    expect(within(dialog).getByLabelText('Ámbito *')).toHaveTextContent('Global');
   });
 
   it('al editar una de equipo conserva su equipo seleccionado', async () => {
@@ -231,8 +247,8 @@ describe('TemplatesAdmin · edición y duplicación', () => {
     await screen.findByText('Respuesta de equipo');
     const user = userEvent.setup();
     const dialog = await editCard(user, 'Respuesta de equipo');
-    expect(within(dialog).getByLabelText('Ámbito *')).toHaveValue('TEAM');
-    expect(await within(dialog).findByLabelText('Equipo *')).toHaveValue('4');
+    expect(within(dialog).getByLabelText('Ámbito *')).toHaveTextContent('Equipo');
+    expect(await within(dialog).findByLabelText('Equipo *')).toHaveTextContent('Soporte Nivel 1');
   });
 
   it('envía el PATCH con el mismo contrato que la creación', async () => {
@@ -296,31 +312,30 @@ describe('TemplatesAdmin · activación y desactivación', () => {
 
 describe('TemplatesAdmin · permisos por ámbito', () => {
   it('con ambos permisos se cargan los equipos y se ofrecen los dos ámbitos', async () => {
+    const user = userEvent.setup();
     renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
     await screen.findByText('Saludo global');
     expect(api.get).toHaveBeenCalledWith('/api/teams');
 
     const filter = screen.getByLabelText('Filtrar por ámbito');
-    expect(within(filter).getByRole('option', { name: 'Global' })).toBeInTheDocument();
-    expect(within(filter).getByRole('option', { name: 'Equipo' })).toBeInTheDocument();
+    expect(await optionLabels(user, filter)).toEqual(['Todos los ámbitos', 'Global', 'Equipo']);
 
     const { dialog } = await openEditor();
     const scopeSelect = within(dialog).getByLabelText('Ámbito *');
-    expect(within(scopeSelect).getByRole('option', { name: 'Global' })).toBeInTheDocument();
-    expect(within(scopeSelect).getByRole('option', { name: 'Equipo' })).toBeInTheDocument();
+    expect(await optionLabels(user, scopeSelect)).toEqual(['Global', 'Equipo']);
   });
 
   it('con solo settings.manage no se ofrece el ámbito TEAM ni se cargan los equipos', async () => {
+    const user = userEvent.setup();
     authState.user = SETTINGS_ONLY;
     renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
     await screen.findByText('Saludo global');
     const filter = screen.getByLabelText('Filtrar por ámbito');
-    expect(within(filter).getByRole('option', { name: 'Global' })).toBeInTheDocument();
-    expect(within(filter).queryByRole('option', { name: 'Equipo' })).toBeNull();
+    expect(await optionLabels(user, filter)).toEqual(['Todos los ámbitos', 'Global']);
 
     const { dialog } = await openEditor();
     const scopeSelect = within(dialog).getByLabelText('Ámbito *');
-    expect(within(scopeSelect).queryByRole('option', { name: 'Equipo' })).toBeNull();
+    expect(await optionLabels(user, scopeSelect)).toEqual(['Global']);
     expect(within(dialog).queryByLabelText('Equipo *')).toBeNull();
     // La consulta de equipos no se dispara sin team.manage.
     expect(api.get).not.toHaveBeenCalledWith('/api/teams');
@@ -334,19 +349,19 @@ describe('TemplatesAdmin · permisos por ámbito', () => {
   });
 
   it('con solo team.manage no se ofrece el ámbito GLOBAL', async () => {
+    const user = userEvent.setup();
     authState.user = TEAM_ONLY;
     renderWithProviders(<TemplatesAdmin />, { route: '/app/templates' });
     await screen.findByText('Saludo global');
     const filter = screen.getByLabelText('Filtrar por ámbito');
-    expect(within(filter).queryByRole('option', { name: 'Global' })).toBeNull();
-    expect(within(filter).getByRole('option', { name: 'Equipo' })).toBeInTheDocument();
+    expect(await optionLabels(user, filter)).toEqual(['Todos los ámbitos', 'Equipo']);
 
-    const { user, dialog } = await openEditor();
+    const { user: editorUser, dialog } = await openEditor();
     const scopeSelect = within(dialog).getByLabelText('Ámbito *');
-    expect(within(scopeSelect).queryByRole('option', { name: 'Global' })).toBeNull();
+    expect(await optionLabels(user, scopeSelect)).toEqual(['Equipo']);
     // Sin GLOBAL disponible, la nueva plantilla se crea de equipo.
-    expect(scopeSelect).toHaveValue('TEAM');
-    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    expect(scopeSelect).toHaveTextContent('Equipo');
+    await editorUser.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
   });
 
   it('con solo team.manage no ofrece editar ni conmutar una global: el backend daría 404', async () => {
