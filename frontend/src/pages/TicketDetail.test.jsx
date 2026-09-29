@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TicketDetail from './TicketDetail';
 import { api } from '../lib/api';
@@ -8,6 +8,7 @@ import { renderWithProviders } from '../test/utils';
 import {
   EDITOR_SURFACE,
   TOOLBAR_SURFACE,
+  composite,
   contrastRatio,
   expectContrast,
   expectPlaceholderContrast,
@@ -165,9 +166,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// El panel de gestión expone un `Select` por campo, con su etiqueta enlazada por
+// `htmlFor`, así que se localiza por etiqueta. Antes se alcanzaba el select
+// nativo con `querySelector('select')`; ahora es el propio control.
 function fieldSelect(labelText) {
-  const label = screen.getByText(labelText, { selector: 'label' });
-  return label.closest('div').querySelector('select');
+  return screen.getByLabelText(labelText);
+}
+
+// Abre el desplegable de un campo y elige una opción por su rótulo visible.
+// El menú se monta en `document.body` (portal), así que las opciones se buscan
+// en todo el documento y no dentro del drawer que abrió el control.
+async function pickField(user, labelText, optionName) {
+  await user.click(fieldSelect(labelText));
+  await user.click(screen.getByRole('option', { name: optionName }));
 }
 
 describe('TicketDetail', () => {
@@ -221,7 +232,7 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    await user.selectOptions(fieldSelect('Estado'), 'IN_PROGRESS');
+    await pickField(user, 'Estado', 'En proceso');
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'IN_PROGRESS' }));
   });
 
@@ -230,7 +241,7 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    await user.selectOptions(fieldSelect('Prioridad'), 'LOW');
+    await pickField(user, 'Prioridad', 'Baja');
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { priority: 'LOW' }));
   });
 
@@ -239,7 +250,7 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    await user.selectOptions(fieldSelect('Asignado a'), '5');
+    await pickField(user, 'Asignado a', 'Juan Pérez');
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_to_id: 5 }));
   });
 
@@ -248,7 +259,7 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    await user.selectOptions(fieldSelect('Equipo'), '3');
+    await pickField(user, 'Equipo', 'Soporte');
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_team_id: 3 }));
   });
 
@@ -257,8 +268,100 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    await user.selectOptions(fieldSelect('Categoría'), '2');
+    await pickField(user, 'Categoría', 'Software');
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { category_id: 2 }));
+  });
+
+  it('solo muestra los selectores que el permiso permite', async () => {
+    const user = userEvent.setup();
+    // manage=false pero assign=true: el panel de gestión aparece, con
+    // únicamente los dos selectores de asignación.
+    api.get.mockImplementation((url) => {
+      if (url === '/api/tickets/1')
+        return Promise.resolve(
+          detailData({ can: { comment: true, note: true, manage: false, resolve: false, close: false, cancel: false, reopen: false, assign: true } })
+        );
+      if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
+      if (url === '/api/users/assignable') return Promise.resolve({ data: USERS });
+      if (url === '/api/teams/assignable') return Promise.resolve({ data: TEAMS });
+      if (url === '/api/categories?active=1') return Promise.resolve({ data: CATEGORIES });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+    await screen.findByText('PC no enciende');
+
+    expect(screen.getByLabelText('Asignado a')).toBeInTheDocument();
+    expect(screen.getByLabelText('Equipo')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Estado')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Prioridad')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Categoría')).not.toBeInTheDocument();
+
+    // Y los que sí se pintan siguen funcionando.
+    await pickField(user, 'Equipo', 'Soporte');
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_team_id: 3 }));
+  });
+
+  it('sin permiso de resolver, marcar resuelto va directo al PATCH', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation((url) => {
+      if (url === '/api/tickets/1')
+        return Promise.resolve(
+          detailData({ can: { comment: true, note: true, manage: true, resolve: false, close: false, cancel: false, reopen: false, assign: true } })
+        );
+      if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
+      if (url === '/api/users/assignable') return Promise.resolve({ data: USERS });
+      if (url === '/api/teams/assignable') return Promise.resolve({ data: TEAMS });
+      if (url === '/api/categories?active=1') return Promise.resolve({ data: CATEGORIES });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+    await screen.findByText('PC no enciende');
+
+    await pickField(user, 'Estado', 'Resuelto');
+
+    // Sin `resolve` no se abre el drawer de solución: se hace PATCH directo.
+    expect(screen.queryByRole('dialog', { name: /Resolver/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'RESOLVED' }));
+  });
+
+  it('con permiso de resolver, elegir "Resuelto" abre el drawer de solución', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+    await screen.findByText('PC no enciende');
+
+    await pickField(user, 'Estado', 'Resuelto');
+
+    expect(await screen.findByRole('dialog', { name: /Resol/i })).toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('deshabilita los selectores mientras guarda el cambio', async () => {
+    const user = userEvent.setup();
+    const original = api.patch.getMockImplementation();
+    let finish;
+    api.patch.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+
+    renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+    await screen.findByText('PC no enciende');
+
+    // Antes de guardar están activos.
+    expect(fieldSelect('Estado')).toBeEnabled();
+
+    await user.click(fieldSelect('Estado'));
+    await user.click(screen.getByRole('option', { name: 'En proceso' }));
+
+    await waitFor(() => expect(fieldSelect('Estado')).toBeDisabled());
+    // El bloqueo se extiende a todos los selectores de gestión.
+    expect(fieldSelect('Prioridad')).toBeDisabled();
+    expect(fieldSelect('Asignado a')).toBeDisabled();
+    expect(fieldSelect('Equipo')).toBeDisabled();
+    expect(fieldSelect('Categoría')).toBeDisabled();
+
+    await act(async () => { finish({ data: detailData() }); });
+    await waitFor(() => expect(fieldSelect('Estado')).toBeEnabled());
+    api.patch.mockImplementation(original);
   });
 
   it('resuelve el ticket desde el drawer y envía la solución', async () => {
@@ -346,10 +449,12 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
     await screen.findByText('PC no enciende');
 
-    await user.selectOptions(fieldSelect('Estado'), 'PENDING');
+    await pickField(user, 'Estado', 'Pendiente');
     const drawer = await screen.findByRole('dialog', { name: 'Marcar como pendiente' });
 
-    await user.selectOptions(within(drawer).getAllByRole('combobox')[0], 'Esperando cliente');
+    // El motivo vive en el drawer, pero su menú se portaliza a `document.body`.
+    await user.click(within(drawer).getByLabelText('Motivo'));
+    await user.click(screen.getByRole('option', { name: 'Esperando cliente' }));
     await user.click(within(drawer).getByRole('button', { name: 'Marcar pendiente' }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'PENDING', pending_reason: 'Esperando cliente' }));
@@ -372,8 +477,7 @@ describe('TicketDetail', () => {
     await waitFor(() => expect(screen.getByPlaceholderText('Escriba una respuesta para el empleado…')).toHaveValue(''));
   });
 
-  describe('legibilidad del editor', () => {
-    // La paleta de index.css está invertida para el tema oscuro: slate-50..300
+  describe('legibilidad del editor', () => {    // La paleta de index.css está invertida para el tema oscuro: slate-50..300
     // son superficies oscuras y slate-400..950 textos claros. El editor usaba
     // text-slate-100, que resuelve a un azul marino (#0C3347) sobre un fondo
     // #0b3046: ratio ~1:1 y el texto escrito era invisible. Estos tests leen las
@@ -570,6 +674,133 @@ describe('TicketDetail', () => {
 
     expect(screen.getByText('Satisfacción del usuario:')).toBeInTheDocument();
     expect(screen.getByText(/Excelente atención/)).toBeInTheDocument();
+  });
+
+  describe('legibilidad de la barra de acciones', () => {
+    // .btn-secondary pinta su fondo con un 6 % de blanco sobre el navy de la
+    // página (#061b2c). El botón de cancelar usaba `!text-red-600`, y como el
+    // tema solo reescribe el token `text-red-600` SIN `!`, el texto se quedaba
+    // en el rojo estándar (#dc2626): 2,7:1 sobre esa superficie, por debajo de AA.
+    const CANCEL_SURFACE = composite('#ffffff', 6, '#061b2c');
+
+    it('el botón de cancelar es legible sobre la barra de acciones', async () => {
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      const boton = screen.getByRole('button', { name: 'Cancelar ticket' });
+      expect(expectContrast(boton, { surface: CANCEL_SURFACE, label: 'botón Cancelar ticket' })).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+
+  describe('cabecera y panel lateral', () => {
+    function mockDetalle(ticketOverrides = {}, extra = {}) {
+      api.get.mockImplementation((url) => {
+        if (url === '/api/tickets/1') return Promise.resolve(detailData(extra, ticketOverrides));
+        if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
+        if (url === '/api/users/assignable') return Promise.resolve({ data: USERS });
+        if (url === '/api/teams/assignable') return Promise.resolve({ data: TEAMS });
+        if (url === '/api/categories?active=1') return Promise.resolve({ data: CATEGORIES });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+    }
+
+    it('muestra en la cabecera a quién está asignado el ticket', async () => {
+      mockDetalle({ assigned_to_id: 5, assigned_name: 'Juan Pérez', assigned_team_id: 3, team_name: 'Soporte' });
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      // La asignación decide a qué cola responde el ticket: se lee sin
+      // desplazar hasta el panel lateral.
+      const cabecera = screen.getByText('Asignación').closest('.card');
+      expect(within(cabecera).getByText('Juan Pérez')).toBeInTheDocument();
+      expect(within(cabecera).getByText('Soporte')).toBeInTheDocument();
+    });
+
+    it('advierte cuando el ticket todavía no tiene responsable', async () => {
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      const cabecera = screen.getByText('Asignación').closest('.card');
+      expect(within(cabecera).getByText('Sin asignar')).toBeInTheDocument();
+    });
+
+    it('no repite en el panel lateral los datos que ya muestra la cabecera', async () => {
+      mockDetalle({ reporter_email: 'ana.diaz@uce.edu.ec' }, {
+        can: { comment: false, note: false, manage: false, resolve: false, close: false, cancel: false, reopen: false, assign: false },
+      });
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      // Sin permisos de gestión no hay nada que editar: la tarjeta entera sobra.
+      expect(screen.queryByText('Gestión')).not.toBeInTheDocument();
+
+      // Reportante, departamento y fechas ya están en la cabecera; el panel
+      // conserva solo lo que allí no cabe.
+      const detalles = screen.getByText('Detalles').closest('.card');
+      expect(within(detalles).queryByText('Empleado')).not.toBeInTheDocument();
+      expect(within(detalles).queryByText('Departamento')).not.toBeInTheDocument();
+      expect(within(detalles).queryByText('Creado')).not.toBeInTheDocument();
+      expect(within(detalles).getByText('ana.diaz@uce.edu.ec')).toBeInTheDocument();
+    });
+
+    it('desglosa los adjuntos entre la descripción y la conversación', async () => {
+      mockDetalle({}, {
+        attachments: [
+          { id: 10, comment_id: null, original_name: 'foto.png', mime_type: 'image/png', size_bytes: 2048 },
+          { id: 11, comment_id: 1, original_name: 'log.txt', mime_type: 'text/plain', size_bytes: 512 },
+        ],
+      });
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      // Un total único no correspondía con lo que hay a la vista en pantalla.
+      expect(screen.getByText('1 en la descripción · 1 en la conversación')).toBeInTheDocument();
+    });
+
+    it('indica que no hay archivos adjuntos', async () => {
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      expect(screen.getByText('Sin archivos')).toBeInTheDocument();
+    });
+
+    it('cuenta los mensajes de la conversación', async () => {
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      expect(screen.getByText('1 mensaje')).toBeInTheDocument();
+    });
+
+    it('avisa cuando el ticket se creó sin descripción', async () => {
+      mockDetalle({ description: '   ' });
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      expect(await screen.findByText('El ticket se creó sin descripción.')).toBeInTheDocument();
+    });
+
+    it('muestra el motivo por el que se canceló el ticket', async () => {
+      mockDetalle({ status: 'CANCELLED', cancel_reason: 'El equipo ya fue reemplazado', cancelled_at: '2026-09-22T12:00:00Z' });
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      // El motivo se exige al cancelar, pero no se mostraba en ninguna parte.
+      expect(screen.getByText('Cancelación')).toBeInTheDocument();
+      expect(screen.getByText('El equipo ya fue reemplazado')).toBeInTheDocument();
+    });
+
+    it('motivo de espera visible en su propia tarjeta', async () => {
+      mockDetalle({ status: 'PENDING', pending_reason: 'Esperando repuesto del proveedor' });
+
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      const motivo = screen.getByText('Motivo de espera').closest('.card');
+      expect(within(motivo).getByText('Esperando repuesto del proveedor')).toBeInTheDocument();
+    });
   });
 
   describe('artículos de conocimiento', () => {

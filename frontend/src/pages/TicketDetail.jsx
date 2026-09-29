@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   api,
-  fileUrl,
   STATUSES,
   PRIORITIES,
   STATUS_LABEL,
@@ -13,13 +12,13 @@ import {
   formatDateTime,
   formatSla,
   slaInfo,
-  formatSize,
-  isImage,
   ticketStreamUrl,
 } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen, Modal, Drawer, Avatar } from '../components/ui';
 import TicketTimeline from '../components/TicketTimeline';
+import AttachmentList from '../components/Attachments';
+import Select from '../components/Select';
 import ResolveDrawer from '../components/ResolveDrawer';
 import TemplatePicker from '../components/TemplatePicker';
 import TicketArticles from '../components/TicketArticles';
@@ -108,6 +107,38 @@ export default function TicketDetail() {
     queryFn: () => api.get('/api/categories?active=1').then((d) => d.data || []).catch(() => []),
     enabled: !!data?.can?.manage,
   });
+
+  // Opciones del panel de gestión. Mismos rótulos y mismo orden que los
+  // `<option>` que había antes, incluidas las entradas vacías de asignación,
+  // equipo y categoría. No se marca ninguna opción como deshabilitada: los
+  // permisos se aplican antes, decidiendo si el control se pinta siquiera.
+  const statusOptions = useMemo(() => STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] })), []);
+  const priorityOptions = useMemo(() => PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] })), []);
+  const assigneeOptions = useMemo(
+    () => [
+      { value: '', label: 'Sin asignar' },
+      ...users.map((u) => ({ value: u.id, label: `${u.name} ${u.last_name}` })),
+    ],
+    [users]
+  );
+  const teamOptions = useMemo(
+    () => [
+      { value: '', label: 'Sin equipo' },
+      ...teams.map((tm) => ({ value: tm.id, label: tm.name })),
+    ],
+    [teams]
+  );
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Sin categoría' },
+      ...categories.map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categories]
+  );
+  const pendingReasonOptions = useMemo(
+    () => (options?.pending_reasons || []).map((r) => ({ value: r, label: r })),
+    [options]
+  );
 
   const handleResolved = () => queryClient.invalidateQueries({ queryKey: ['ticket', ticketId] });
 
@@ -257,8 +288,10 @@ export default function TicketDetail() {
     }
   }
 
-  function onStatusSelect(e) {
-    const value = e.target.value;
+  // Los handlers reciben el valor ya convertido, no el evento: es lo que entrega
+  // `Select`. La lógica de permisos, los diálogos de transición y las llamadas a
+  // la API son los mismos que antes, sin cambios.
+  function onStatusSelect(value) {
     if (value === t.status) return;
     if (value === 'RESOLVED' && can.resolve) {
       setResolveOpen(true);
@@ -280,25 +313,21 @@ export default function TicketDetail() {
     patchTicket({ status: value }).catch(() => {});
   }
 
-  function onPriority(e) {
-    const value = e.target.value;
+  function onPriority(value) {
     setPriorityDraft(value);
     if (value !== t.priority) patchTicket({ priority: value }).catch(() => {});
   }
-  function onAssign(e) {
-    const raw = e.target.value;
+  function onAssign(raw) {
     setAssignDraft(raw);
     const value = raw ? Number(raw) : null;
     if (value !== t.assigned_to_id) patchTicket({ assigned_to_id: value }).catch(() => {});
   }
-  function onTeam(e) {
-    const raw = e.target.value;
+  function onTeam(raw) {
     setTeamDraft(raw);
     const value = raw ? Number(raw) : null;
     if (value !== t.assigned_team_id) patchTicket({ assigned_team_id: value }).catch(() => {});
   }
-  function onCategory(e) {
-    const raw = e.target.value;
+  function onCategory(raw) {
     setCategoryDraft(raw);
     const value = raw ? Number(raw) : null;
     if (value !== t.category_id) patchTicket({ category_id: value }).catch(() => {});
@@ -435,44 +464,64 @@ export default function TicketDetail() {
     ...c,
     attachments: data.attachments.filter((a) => a.comment_id === c.id),
   }));
+  // El recuento de adjuntos se desglosa porque los de la descripción y los de
+  // la conversación se ven en sitios distintos de la pantalla: un total único
+  // no correspondía con nada de lo que hay a la vista.
+  const conversationAttachmentCount = data.attachments.length - ticketAttachments.length;
+  const attachmentSummary =
+    [
+      ticketAttachments.length > 0 ? `${ticketAttachments.length} en la descripción` : null,
+      conversationAttachmentCount > 0 ? `${conversationAttachmentCount} en la conversación` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'Sin archivos';
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       {/* Barra de navegación y acciones */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button className="btn-ghost !px-2 text-sm" onClick={() => navigate(-1)}>
+        <button type="button" className="btn-ghost !px-2 text-sm" onClick={() => navigate(-1)}>
           ← Volver
         </button>
         <div className="flex flex-wrap items-center gap-2">
           {can.comment && (
-            <button className="btn-secondary" onClick={() => focusEditor(false)}>
+            <button type="button" className="btn-secondary" onClick={() => focusEditor(false)}>
               Responder
             </button>
           )}
           {can.note && (
-            <button className="btn-secondary" onClick={() => focusEditor(true)}>
-              🔒 Nota interna
+            <button type="button" className="btn-secondary" onClick={() => focusEditor(true)}>
+              <LockIcon /> Nota interna
             </button>
           )}
           {can.resolve && !locked && (
-            <button className="btn-primary" onClick={() => setResolveOpen(true)}>
+            <button type="button" className="btn-primary" onClick={() => setResolveOpen(true)}>
               Resolver ticket
             </button>
           )}
+          {can.reopen && ['RESOLVED', 'CLOSED'].includes(t.status) && (
+            <button type="button" className="btn-secondary" onClick={() => setReopenOpen(true)}>
+              Reabrir
+            </button>
+          )}
           {can.close && t.status !== 'CLOSED' && (
-            <button className="btn-secondary" onClick={() => setCloseOpen(true)}>
+            <button type="button" className="btn-secondary" onClick={() => setCloseOpen(true)}>
               Cerrar
             </button>
           )}
+          {/* Cancelar es la única acción que cierra el ticket sin resolverlo y
+              avisa al reportante: se separa del resto para que no se pulse por
+              inercia al lado de "Cerrar". */}
           {can.cancel && !['CLOSED', 'CANCELLED', 'RESOLVED'].includes(t.status) && (
-            <button className="btn-secondary !text-red-600" onClick={() => setCancelOpen(true)}>
-              Cancelar ticket
-            </button>
-          )}
-          {can.reopen && ['RESOLVED', 'CLOSED'].includes(t.status) && (
-            <button className="btn-secondary" onClick={() => setReopenOpen(true)}>
-              Reabrir
-            </button>
+            <>
+              <span aria-hidden="true" className="hidden h-6 w-px bg-white/10 sm:block" />
+              {/* red-400, no red-600: el tema solo reescribe el token `text-red-600`
+                  sin `!`, así que `!text-red-600` dejaba el texto en un rojo
+                  oscuro que no cumplía AA sobre el botón. */}
+              <button type="button" className="btn-secondary !text-red-400" onClick={() => setCancelOpen(true)}>
+                Cancelar ticket
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -507,6 +556,20 @@ export default function TicketDetail() {
           {t.department_name && <span>· {t.department_name}</span>}
           <span>· Creado {formatDateTime(t.created_at)}</span>
           {t.updated_at && t.updated_at !== t.created_at && <span>· Actualizado {formatDateTime(t.updated_at)}</span>}
+        </div>
+        {/* Quién atiende el ticket es lo primero que se consulta al abrirlo, así
+            que vive en la cabecera y el panel lateral solo ofrece el control. */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Asignación</span>
+          {t.assigned_name ? (
+            <span className="inline-flex items-center gap-1.5 text-sm">
+              <Avatar name={t.assigned_name} size="sm" />
+              <b className="font-medium text-slate-700">{t.assigned_name}</b>
+            </span>
+          ) : (
+            <span className="badge bg-amber-50 text-amber-700 ring-1 ring-amber-600/20">Sin asignar</span>
+          )}
+          {t.team_name && <span className="badge bg-slate-100 text-slate-600 ring-1 ring-slate-500/20">{t.team_name}</span>}
         </div>
       </div>
 
@@ -562,17 +625,17 @@ export default function TicketDetail() {
         <main className="space-y-5">
           <div className="card p-5">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Descripción</h3>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{t.description}</p>
+            {t.description?.trim() ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{t.description}</p>
+            ) : (
+              <p className="text-sm italic text-slate-400">El ticket se creó sin descripción.</p>
+            )}
             {ticketAttachments.length > 0 && (
               <div className="mt-4 border-t border-slate-100 pt-4">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Adjuntos ({ticketAttachments.length})
                 </p>
-                <div className="flex flex-wrap gap-2.5">
-                  {ticketAttachments.map((a) => (
-                    <AttachmentChip key={a.id} a={a} />
-                  ))}
-                </div>
+                <AttachmentList items={ticketAttachments} />
               </div>
             )}
           </div>
@@ -580,15 +643,20 @@ export default function TicketDetail() {
           <div className="card p-5">
             <div className="mb-4 flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Conversación</h3>
-              <span
-                className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-                  live ? 'text-emerald-600' : 'text-slate-400'
-                }`}
-                title={live ? 'Conectado en tiempo real' : 'Reconectando…'}
-              >
-                <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-emerald-500' : 'bg-slate-400'}`} />
-                {live ? 'En vivo' : 'Sin conexión'}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-400">
+                  {data.comments.length} {data.comments.length === 1 ? 'mensaje' : 'mensajes'}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+                    live ? 'text-emerald-600' : 'text-slate-400'
+                  }`}
+                  title={live ? 'Conectado en tiempo real' : 'Reconectando…'}
+                >
+                  <span className={`h-2 w-2 rounded-full ${live ? 'animate-pulse bg-emerald-500' : 'bg-slate-400'}`} />
+                  {live ? 'En vivo' : 'Sin conexión'}
+                </span>
+              </div>
             </div>
             <div ref={scrollRef} className="max-h-[560px] overflow-y-auto pr-1">
               <TicketTimeline history={data.history} comments={commentsWithAttachments} />
@@ -627,7 +695,7 @@ export default function TicketDetail() {
                         internalMode ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                       }`}
                     >
-                      🔒 Nota interna
+                      <LockIcon /> Nota interna
                     </button>
                   )}
                 </div>
@@ -737,93 +805,88 @@ export default function TicketDetail() {
 
         {/* Barra lateral */}
         <aside className="space-y-5">
-          <div className="card p-5">
-            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">Gestión</h3>
-            <div className="space-y-3.5">
-              <Field label="Estado">
-                {can.manage ? (
-                  <select className="input" value={statusDraft} onChange={onStatusSelect} disabled={saving}>
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_LABEL[s]}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-sm font-medium text-slate-700">{STATUS_LABEL[t.status]}</p>
-                )}
-              </Field>
-
-              {t.status === 'PENDING' && t.pending_reason && (
-                <div className="rounded-lg bg-purple-50 px-3 py-2 text-sm text-purple-700">
-                  ⏸ Pendiente: {t.pending_reason}
-                </div>
-              )}
-
-              <Field label="Prioridad">
-                {can.manage ? (
-                  <select className="input" value={priorityDraft} onChange={onPriority} disabled={saving}>
-                    {PRIORITIES.map((p) => (
-                      <option key={p} value={p}>
-                        {PRIORITY_LABEL[p]}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-sm font-medium text-slate-700">{PRIORITY_LABEL[t.priority]}</p>
-                )}
-              </Field>
-
-              <Field label="Asignado a">
-                {can.assign ? (
-                  <select className="input" value={assignDraft} onChange={onAssign} disabled={saving}>
-                    <option value="">Sin asignar</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name} {u.last_name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-sm font-medium text-slate-700">{t.assigned_name || 'Sin asignar'}</p>
-                )}
-              </Field>
-
-              <Field label="Equipo">
-                {can.assign ? (
-                  <select className="input" value={teamDraft} onChange={onTeam} disabled={saving}>
-                    <option value="">Sin equipo</option>
-                    {teams.map((tm) => (
-                      <option key={tm.id} value={tm.id}>
-                        {tm.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-sm font-medium text-slate-700">{t.team_name || 'Sin equipo'}</p>
-                )}
-              </Field>
-
-              <Field label="Categoría">
-                {can.manage ? (
-                  <select className="input" value={categoryDraft} onChange={onCategory} disabled={saving}>
-                    <option value="">Sin categoría</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <p className="text-sm font-medium text-slate-700">{t.category_name || 'Sin categoría'}</p>
-                )}
-              </Field>
+          {t.status === 'PENDING' && t.pending_reason && (
+            <div className="card p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Motivo de espera</h3>
+              <p className="mt-1 text-sm text-purple-700">{t.pending_reason}</p>
             </div>
-          </div>
+          )}
 
-          {(t.resolution || t.resolved_at || t.reopen_reason) && (
+          {/* Solo aparecen los campos que este usuario puede cambiar. Los valores
+              que ya no puede tocar (estado, prioridad, categoría, asignación) se
+              leen en la cabecera, así que repetirlos aquí solo duplicaba datos. */}
+          {(can.manage || can.assign) && (
             <div className="card p-5">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Resolución</h3>
+              <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">Gestión</h3>
+              <div className="space-y-3.5">
+                {can.manage && (
+                  <Field id="ticket-status" label="Estado">
+                    <Select
+                      id="ticket-status"
+                      options={statusOptions}
+                      value={statusDraft}
+                      onChange={onStatusSelect}
+                      disabled={saving}
+                    />
+                  </Field>
+                )}
+
+                {can.manage && (
+                  <Field id="ticket-priority" label="Prioridad">
+                    <Select
+                      id="ticket-priority"
+                      options={priorityOptions}
+                      value={priorityDraft}
+                      onChange={onPriority}
+                      disabled={saving}
+                    />
+                  </Field>
+                )}
+
+                {can.assign && (
+                  <Field id="ticket-assignee" label="Asignado a">
+                    <Select
+                      id="ticket-assignee"
+                      options={assigneeOptions}
+                      value={assignDraft}
+                      onChange={onAssign}
+                      disabled={saving}
+                    />
+                  </Field>
+                )}
+
+                {can.assign && (
+                  <Field id="ticket-team" label="Equipo">
+                    <Select
+                      id="ticket-team"
+                      options={teamOptions}
+                      value={teamDraft}
+                      onChange={onTeam}
+                      disabled={saving}
+                    />
+                  </Field>
+                )}
+
+                {can.manage && (
+                  <Field id="ticket-category" label="Categoría">
+                    <Select
+                      id="ticket-category"
+                      options={categoryOptions}
+                      value={categoryDraft}
+                      onChange={onCategory}
+                      disabled={saving}
+                    />
+                  </Field>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(t.resolution || t.resolved_at || t.reopen_reason || t.cancel_reason || t.cancelled_at) && (
+            <div className="card p-5">
+              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+                {t.status === 'CANCELLED' ? 'Cancelación' : 'Resolución'}
+              </h3>
               {t.resolution && (
                 <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{t.resolution}</p>
               )}
@@ -842,10 +905,16 @@ export default function TicketDetail() {
                 ) : null}
                 {t.reopen_reason && (
                   <div className="rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-700">
-                    ↩ Reabierto: {t.reopen_reason}
+                    Reabierto: {t.reopen_reason}
                     {t.reopened_by_name ? ` — ${t.reopened_by_name}` : ''}
                   </div>
                 )}
+                {t.cancel_reason && (
+                  <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <b className="font-semibold">Motivo:</b> {t.cancel_reason}
+                  </div>
+                )}
+                {t.cancelled_at && <Info label="Fecha de cancelación" value={formatDateTime(t.cancelled_at)} />}
               </dl>
             </div>
           )}
@@ -853,12 +922,14 @@ export default function TicketDetail() {
           <div className="card p-5">
             <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">Detalles</h3>
             <dl className="space-y-2.5">
-              <Info label="Empleado" value={t.reporter_name} />
-              <Info label="Departamento" value={t.department_name || '—'} />
-              <Info label="Vencimiento SLA" value={t.sla_due_at ? formatDateTime(t.sla_due_at) : '—'} />
-              <Info label="Creado" value={formatDateTime(t.created_at)} />
-              <Info label="Actualizado" value={formatDateTime(t.updated_at)} />
-              <Info label="Adjuntos" value={`${data.attachments.length}`} />
+              {t.reporter_email && <Info label="Correo del reportante" value={t.reporter_email} />}
+              <Info
+                label="Vence el"
+                value={t.sla_due_at ? formatDateTime(t.sla_due_at) : 'Sin tiempo de atención definido'}
+              />
+              {/* El recuento se desglosa porque los adjuntos de la descripción
+                  y los de la conversación no se ven en el mismo sitio. */}
+              <Info label="Archivos adjuntos" value={attachmentSummary} />
             </dl>
           </div>
 
@@ -915,7 +986,7 @@ export default function TicketDetail() {
           <button className="btn-secondary" onClick={() => setCancelOpen(false)}>
             Volver
           </button>
-          <button className="btn-secondary !text-red-600" onClick={submitCancel} disabled={saving || !cancelReason.trim()}>
+          <button className="btn-secondary !text-red-400" onClick={submitCancel} disabled={saving || !cancelReason.trim()}>
             {saving && <Spinner className="h-4 w-4 text-red-600" />}
             Cancelar ticket
           </button>
@@ -968,14 +1039,16 @@ export default function TicketDetail() {
           </div>
         }
       >
-        <label className="label">Motivo</label>
-        <select className="input" value={pendingReason} onChange={(e) => setPendingReason(e.target.value)}>
-          {(options?.pending_reasons || []).map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
+        <label className="label" htmlFor="ticket-pending-reason">
+          Motivo
+        </label>
+        <Select
+          id="ticket-pending-reason"
+          options={pendingReasonOptions}
+          value={pendingReason}
+          onChange={setPendingReason}
+          placeholder="Sin motivos configurados"
+        />
         <label className="label mt-4">Detalle (opcional)</label>
         <input
           className="input"
@@ -988,10 +1061,12 @@ export default function TicketDetail() {
   );
 }
 
-function Field({ label, children }) {
+function Field({ id, label, children }) {
   return (
     <div>
-      <label className="label">{label}</label>
+      <label className="label" htmlFor={id}>
+        {label}
+      </label>
       {children}
     </div>
   );
@@ -1006,28 +1081,12 @@ function Info({ label, value }) {
   );
 }
 
-function AttachmentChip({ a }) {
-  if (isImage(a.mime_type)) {
-    return (
-      <a href={fileUrl(a.id)} target="_blank" rel="noreferrer" title={a.original_name}>
-        <img
-          src={fileUrl(a.id)}
-          alt={a.original_name}
-          className="h-20 w-20 rounded-lg object-cover ring-1 ring-slate-200 hover:opacity-80"
-        />
-      </a>
-    );
-  }
+function LockIcon({ className = 'h-4 w-4' }) {
   return (
-    <a
-      href={fileUrl(a.id)}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-200"
-    >
-      📎 {a.original_name || 'Archivo'}
-      <span className="text-slate-400">{formatSize(a.size_bytes)}</span>
-    </a>
+    <svg aria-hidden="true" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path strokeLinecap="round" d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    </svg>
   );
 }
 

@@ -4,7 +4,7 @@ import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Inbox from './Inbox';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({
   authState: { user: null },
@@ -137,9 +137,54 @@ describe('Inbox', () => {
     renderWithProviders(<Inbox />, { route: '/app/inbox' });
     await screen.findByText('TCK-000001');
 
-    await user.selectOptions(screen.getByLabelText('Estado'), 'OPEN');
+    await user.click(screen.getByLabelText('Estado'));
+    await user.click(screen.getByRole('option', { name: 'Abierto' }));
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=OPEN')));
   });
+
+  it('aplica el filtro de prioridad a la consulta', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Prioridad'));
+    await user.click(screen.getByRole('option', { name: 'Crítica' }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('priority=CRITICAL')));
+  });
+
+  it('envía el id de categoría como texto, igual que el select nativo', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Categoría'));
+    await user.click(screen.getByRole('option', { name: 'Hardware' }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('category=1')));
+  });
+
+  it('cambia el orden y deja de enviar el valor por defecto', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    // El valor por defecto no viaja en la URL; al cambiarlo, sí.
+    expect(api.get).toHaveBeenCalledWith(expect.not.stringContaining('sort='));
+
+    await user.click(screen.getByLabelText('Ordenar por'));
+    await user.click(screen.getByRole('option', { name: 'Última actualización' }));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('sort=updated_at')));
+  });
+
+  it('mantiene la etiqueta asociada a cada filtro', async () => {
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.getByLabelText('Estado')).toHaveAttribute('id', 'inbox-status');
+    expect(screen.getByLabelText('Prioridad')).toHaveAttribute('id', 'inbox-priority');
+    expect(screen.getByLabelText('Categoría')).toHaveAttribute('id', 'inbox-category');
+    expect(screen.getByLabelText('Ordenar por')).toHaveAttribute('id', 'inbox-sort');
+  });
+
 
   it('cambia el estado del ticket e invalida el listado', async () => {
     const user = userEvent.setup();
@@ -423,8 +468,11 @@ describe('Inbox · directorio de técnicos asignables', () => {
 
     const dialog = await screen.findByRole('dialog');
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/users/assignable'));
-    await waitFor(() => expect(within(dialog).getByRole('option', { name: /Beto Gómez/ })).toBeInTheDocument());
-    await user.selectOptions(within(dialog).getByRole('combobox'), '9');
+    // El menú del selector se portaliza a `document.body`, así que la opción se
+    // busca en el documento, no dentro del diálogo.
+    await user.click(within(dialog).getByLabelText('Técnico asignado'));
+    await waitFor(() => expect(screen.getByRole('option', { name: /Beto Gómez/ })).toBeInTheDocument());
+    await user.click(screen.getByRole('option', { name: /Beto Gómez/ }));
     await user.click(within(dialog).getByRole('button', { name: 'Asignar' }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_to_id: 9 }));
@@ -479,7 +527,7 @@ describe('Inbox · prioridad en lote y detalle de fallos', () => {
     await user.click(await screen.findByRole('button', { name: 'Prioridad…' }));
 
     const dialog = await screen.findByRole('dialog');
-    await user.selectOptions(within(dialog).getByRole('combobox'), 'LOW');
+    await pickOption(user, within(dialog).getByLabelText('Prioridad'), 'Baja');
     await user.click(within(dialog).getByRole('button', { name: 'Aplicar prioridad' }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { priority: 'LOW' }));
@@ -501,7 +549,7 @@ describe('Inbox · prioridad en lote y detalle de fallos', () => {
     await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
     await user.click(await screen.findByRole('button', { name: 'Prioridad…' }));
     const dialog = await screen.findByRole('dialog');
-    await user.selectOptions(within(dialog).getByRole('combobox'), 'CRITICAL');
+    await pickOption(user, within(dialog).getByLabelText('Prioridad'), 'Crítica');
     await user.click(within(dialog).getByRole('button', { name: 'Aplicar prioridad' }));
 
     await waitFor(() => expect(listCalls()).toBeGreaterThan(before));

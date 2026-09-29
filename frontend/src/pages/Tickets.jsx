@@ -9,6 +9,7 @@ import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearch
 import BulkTicketBar from '../components/BulkTicketBar';
 import { useTicketBulk } from '../lib/useTicketBulk';
 import { LoadingScreen, ErrorBox, Spinner, Menu } from '../components/ui';
+import Select from '../components/Select';
 
 const DEFAULTS = { sort: 'created_at', dir: 'desc', perPage: 15, page: 1 };
 
@@ -121,6 +122,14 @@ export default function Tickets() {
   }, [queryClient]);
 
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
+
+  // Los chips de `VIEWS` cubren status/priority/category en la URL; el único
+  // select de esta pantalla es el orden, que se mantiene idéntico salvo por el
+  // componente: mismo valor, mismo `update` y mismos rótulos "Ordenar: X".
+  const sortOptions = useMemo(
+    () => SORT_OPTIONS.map(([v, l]) => ({ value: v, label: `Ordenar: ${l}` })),
+    []
+  );
 
   function chipActive(key) {
     if (key === 'all') return !filters.view && !filters.status;
@@ -242,18 +251,13 @@ export default function Tickets() {
               Búsqueda avanzada
               {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
             </button>
-            <select
-              className="input !w-auto"
+            <Select
+              className="!w-auto"
+              options={sortOptions}
               value={filters.sort}
-              onChange={(e) => update({ sort: e.target.value })}
+              onChange={(v) => update({ sort: v })}
               title="Ordenar por"
-            >
-              {SORT_OPTIONS.map(([v, l]) => (
-                <option key={v} value={v}>
-                  Ordenar: {l}
-                </option>
-              ))}
-            </select>
+            />
             <button
               type="button"
               className="btn-secondary !px-2.5"

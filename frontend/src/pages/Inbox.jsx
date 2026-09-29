@@ -17,6 +17,7 @@ import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearch
 import BulkTicketBar from '../components/BulkTicketBar';
 import { useTicketBulk } from '../lib/useTicketBulk';
 import { LoadingScreen, ErrorBox, Spinner, Modal } from '../components/ui';
+import Select from '../components/Select';
 
 const TABS = [
   { key: 'mine', label: 'Asignados a mí', counter: 'assigned_to_me' },
@@ -126,6 +127,32 @@ export default function Inbox() {
     queryKey: ['categories'],
     queryFn: () => api.get('/api/categories').then((d) => d.data || []),
   });
+
+  // Opciones de los cuatro filtros. Se memoirean porque `Select` recibe un array
+  // y lo recorre en cada render; la forma `{ value, label }` es la misma que
+  // usaban los `<option>`, así que los valores enviados no cambian.
+  const statusOptions = useMemo(
+    () => [
+      { value: '', label: 'Todos los estados' },
+      ...STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] })),
+    ],
+    []
+  );
+  const priorityOptions = useMemo(
+    () => [
+      { value: '', label: 'Todas las prioridades' },
+      ...PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] })),
+    ],
+    []
+  );
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'Todas las categorías' },
+      ...categories.map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categories]
+  );
+  const sortOptions = useMemo(() => SORT_OPTIONS.map(([v, l]) => ({ value: v, label: l })), []);
 
   const bulk = useTicketBulk({
     user,
@@ -311,38 +338,39 @@ export default function Inbox() {
         <div className="grid gap-3 border-t border-slate-200 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1.4fr_auto_auto] xl:items-end">
           <div>
             <label className="label" htmlFor="inbox-status">Estado</label>
-            <select id="inbox-status" className="input" value={filters.status} onChange={(e) => update({ status: e.target.value })}>
-              <option value="">Todos los estados</option>
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-              ))}
-            </select>
+            <Select
+              id="inbox-status"
+              options={statusOptions}
+              value={filters.status}
+              onChange={(v) => update({ status: v })}
+            />
           </div>
           <div>
             <label className="label" htmlFor="inbox-priority">Prioridad</label>
-            <select id="inbox-priority" className="input" value={filters.priority} onChange={(e) => update({ priority: e.target.value })}>
-              <option value="">Todas las prioridades</option>
-              {PRIORITIES.map((p) => (
-                <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>
-              ))}
-            </select>
+            <Select
+              id="inbox-priority"
+              options={priorityOptions}
+              value={filters.priority}
+              onChange={(v) => update({ priority: v })}
+            />
           </div>
           <div>
             <label className="label" htmlFor="inbox-category">Categoría</label>
-            <select id="inbox-category" className="input" value={filters.category} onChange={(e) => update({ category: e.target.value })}>
-              <option value="">Todas las categorías</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <Select
+              id="inbox-category"
+              options={categoryOptions}
+              value={filters.category}
+              onChange={(v) => update({ category: v })}
+            />
           </div>
           <div>
             <label className="label" htmlFor="inbox-sort">Ordenar por</label>
-            <select id="inbox-sort" className="input" value={filters.sort} onChange={(e) => update({ sort: e.target.value })}>
-              {SORT_OPTIONS.map(([v, l]) => (
-                <option key={v} value={v}>{l}</option>
-              ))}
-            </select>
+            <Select
+              id="inbox-sort"
+              options={sortOptions}
+              value={filters.sort}
+              onChange={(v) => update({ sort: v })}
+            />
           </div>
           <div className="flex items-end">
             <button

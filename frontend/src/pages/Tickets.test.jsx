@@ -4,7 +4,7 @@ import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Tickets from './Tickets';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithProviders, pickOption } from '../test/utils';
 
 const { authState, download } = vi.hoisted(() => ({
   authState: { user: null },
@@ -141,8 +141,52 @@ describe('Tickets', () => {
     renderWithProviders(<Tickets />, { route: '/app/tickets' });
     await screen.findByText('TCK-000001');
 
-    await user.selectOptions(screen.getByTitle('Ordenar por'), 'priority');
+    const sort = screen.getByTitle('Ordenar por');
+    expect(sort).toHaveAttribute('aria-expanded', 'false');
+    // El rótulo visible mantiene el prefijo "Ordenar: " que tenía el <option>.
+    expect(sort).toHaveTextContent('Ordenar: Fecha de creación');
+
+    await user.click(sort);
+    await user.click(screen.getByRole('option', { name: 'Ordenar: Prioridad' }));
+
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('sort=priority')));
+    expect(sort).toHaveTextContent('Ordenar: Prioridad');
+  });
+
+  it('el orden travels junto a dir y no toca el resto de la URL', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets?view=open&status=OPEN' });
+    await screen.findByText('TCK-000001');
+
+    const urls = () => api.get.mock.calls.map(([u]) => u).filter((u) => u.startsWith('/api/tickets?'));
+    expect(urls().some((u) => u.includes('view=open') && u.includes('status=OPEN'))).toBe(true);
+
+    await user.click(screen.getByTitle('Ordenar por'));
+    await user.click(screen.getByRole('option', { name: 'Ordenar: Número de ticket' }));
+
+    await waitFor(() => expect(urls().some((u) => u.includes('sort=ticket_number'))).toBe(true));
+    // dir y los filtros de la URL siguen intactos, y la vista se resetea a la 1.
+    const last = urls().at(-1);
+    expect(last).toContain('view=open');
+    expect(last).toContain('status=OPEN');
+    expect(last).toContain('dir=desc');
+    expect(last).toContain('page=1');
+  });
+
+
+  it('el orden depende de la URL: al limpiar vuelve al valor por defecto', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets?sort=priority' });
+    await screen.findByText('TCK-000001');
+
+    const sort = screen.getByTitle('Ordenar por');
+    expect(sort).toHaveTextContent('Ordenar: Prioridad');
+
+    await user.click(screen.getByRole('button', { name: 'Limpiar' }));
+
+    // El control no guarda estado propio: refleja siempre lo que hay en la URL.
+    await waitFor(() => expect(sort).toHaveTextContent('Ordenar: Fecha de creación'));
   });
 
   it('pagina a la siguiente página', async () => {
@@ -246,7 +290,7 @@ describe('Tickets', () => {
     await user.click(screen.getByRole('button', { name: /Búsqueda avanzada/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
 
-    await user.selectOptions(within(dialog).getAllByRole('combobox')[0], 'IN_PROGRESS');
+    await pickOption(user, within(dialog).getAllByRole('combobox')[0], 'En proceso');
     await user.click(within(dialog).getByRole('button', { name: 'Aplicar filtros' }));
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=IN_PROGRESS')));
@@ -267,8 +311,9 @@ describe('Tickets', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Búsqueda avanzada' });
 
     const combos = within(dialog).getAllByRole('combobox');
-    expect(combos[0]).toHaveValue('PENDING');
-    expect(combos[1]).toHaveValue('HIGH');
+    // El control refleja la URL en su rótulo, no en un atributo `value`.
+    expect(combos[0]).toHaveTextContent('Pendiente');
+    expect(combos[1]).toHaveTextContent('Alta');
   });
 
   it('limpia los filtros avanzados aplicados', async () => {
@@ -545,7 +590,7 @@ describe('Tickets · acciones masivas', () => {
     await user.click(await screen.findByRole('button', { name: 'Prioridad…' }));
 
     const dialog = await screen.findByRole('dialog');
-    await user.selectOptions(within(dialog).getByRole('combobox'), 'CRITICAL');
+    await pickOption(user, within(dialog).getByLabelText('Prioridad'), 'Crítica');
     await user.click(within(dialog).getByRole('button', { name: 'Aplicar prioridad' }));
 
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { priority: 'CRITICAL' }));
