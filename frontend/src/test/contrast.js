@@ -21,6 +21,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let cachedCss = null;
 
+// Tonos de la paleta estándar de Tailwind que el proyecto NO redefine en
+// @theme. Sirven solo de respaldo, cuando el token no aparece ahí, para que las
+// pruebas puedan resolver clases destructivas como `!text-red-400`: sin esto no
+// hay forma de comprobar que un botón de "Cancelar" no queda en un rojo oscuro
+// sobre el panel.
+const DEFAULT_PALETTE = {
+  'red-400': '#f98a8a',
+  'red-500': '#ef4444',
+  'red-600': '#dc2626',
+};
+
 /** Los tokens de color declarados en @theme. */
 export function themeColors() {
   if (cachedCss) return { ...cachedCss };
@@ -85,7 +96,7 @@ export function resolveColor(token, alphaBase = '#ffffff') {
   else if (name === 'black') hex = '#000000';
   else if (name.startsWith('#')) hex = name;
   else {
-    hex = themeColors()[name];
+    hex = themeColors()[name] || DEFAULT_PALETTE[name];
     if (!hex) throw new Error(`Token de color no definido en @theme: ${name}`);
   }
   if (alpha === undefined) return hex;
@@ -107,7 +118,7 @@ function isColorToken(token) {
   if (name.startsWith('#')) return true;
   if (name === 'white' || name === 'black') return true;
   if (!/^[a-z]+-\d{2,3}$/.test(name)) return false;
-  return Boolean(themeColors()[name]);
+  return Boolean(themeColors()[name] || DEFAULT_PALETTE[name]);
 }
 
 /**
@@ -120,8 +131,12 @@ export function readColors(className) {
   const tokens = String(className || '').split(/\s+/).filter(Boolean);
   const out = { text: null, placeholder: null, bg: null };
   for (const raw of tokens) {
-    if (/^(hover|focus|focus-within|focus-visible|active|group-hover|peer-checked|sm|md|lg|xl|2xl|dark):/.test(raw)) continue;
-    const t = raw;
+    // El modificador `!` de Tailwind va en el propio nombre de la clase
+    // (`!text-red-400`); sin quitarlo, el color se declaraba pero no se veía y
+    // las pruebas lo leerían como si el elemento no declarara ningún texto.
+    const token = raw.startsWith('!') ? raw.slice(1) : raw;
+    if (/^(hover|focus|focus-within|focus-visible|active|group-hover|peer-checked|sm|md|lg|xl|2xl|dark):/.test(token)) continue;
+    const t = token;
     if (t.startsWith('placeholder:text-')) {
       const value = t.slice('placeholder:text-'.length);
       if (isColorToken(value)) out.placeholder ??= value;

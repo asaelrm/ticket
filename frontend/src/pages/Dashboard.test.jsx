@@ -95,7 +95,6 @@ function setup(overrides = {}) {
   api.get.mockImplementation((url) => {
     if (url === '/api/dashboard/summary') return Promise.resolve(payload.summary);
     if (url === '/api/dashboard/by-status') return Promise.resolve(payload.byStatus);
-    if (url === '/api/dashboard/by-priority') return Promise.resolve({ data: [{ priority: 'HIGH', n: 2 }] });
     if (url === '/api/dashboard/by-category') return Promise.resolve(payload.byCategory);
     if (url === '/api/dashboard/by-department') return Promise.resolve(payload.byDepartment);
     if (url === '/api/dashboard/trend?range=day') return Promise.resolve({ data: [{ label: '2026-09-01', created: 2, resolved: 1 }] });
@@ -138,7 +137,6 @@ describe('Dashboard', () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/dashboard/summary') return new Promise(() => {});
       if (url === '/api/dashboard/by-status') return Promise.resolve(byStatus());
-      if (url === '/api/dashboard/by-priority') return Promise.resolve({ data: [] });
       if (url === '/api/dashboard/by-category') return Promise.resolve(byCategory());
       if (url === '/api/dashboard/by-department') return Promise.resolve(byDepartment());
       if (url === '/api/dashboard/trend?range=day') return Promise.resolve({ data: [] });

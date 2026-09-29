@@ -131,10 +131,9 @@ export default function Dashboard() {
   const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard'],
     queryFn: async () => {
-      const [s, st, pr, ca, de, tr, re, sla, tech] = await Promise.all([
+      const [s, st, ca, de, tr, re, sla, tech] = await Promise.all([
         api.get('/api/dashboard/summary'),
         api.get('/api/dashboard/by-status'),
-        api.get('/api/dashboard/by-priority'),
         api.get('/api/dashboard/by-category'),
         api.get('/api/dashboard/by-department'),
         api.get('/api/dashboard/trend?range=day'),
@@ -147,7 +146,6 @@ export default function Dashboard() {
       return {
         summary: s,
         byStatus: st.data || [],
-        byPriority: pr.data || [],
         byCategory: ca.data || [],
         byDepartment: de.data || [],
         trend: tr.data || [],
@@ -176,7 +174,7 @@ export default function Dashboard() {
     );
   }
 
-  const { summary, byStatus, byPriority, byCategory, byDepartment, trend, recent, sla, technician } = data;
+  const { summary, byStatus, byCategory, byDepartment, trend, recent, sla, technician } = data;
   const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   const counts = summary?.counts || {};
