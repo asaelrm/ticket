@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Tickets from './Tickets';
-import { api } from '../lib/api';
-import { renderWithProviders, pickOption } from '../test/utils';
+import { api, VIEWS } from '../lib/api';
+import { renderWithProviders, renderWithHistory, pickOption } from '../test/utils';
 
 const { authState, download } = vi.hoisted(() => ({
   authState: { user: null },
@@ -355,6 +355,135 @@ describe('Tickets', () => {
     await screen.findByText('TCK-000001');
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.not.stringContaining('active')));
+  });
+
+  // Los paneles por categoría, por departamento y la fila de cada técnico del
+  // dashboard apuntan aquí con estos mismos parámetros. Si parseFilters dejara
+  // de leer alguno, el listado llegaría sin filtrar y su total no cuadraría con
+  // la cifra del panel de origen.
+  it.each([
+    ['category', '/app/tickets?category=11&active=1'],
+    ['department', '/app/tickets?department=4&active=1'],
+    ['assigned', '/app/tickets?assigned=21&active=1'],
+  ])('reenvía a la API el filtro %s que llega de la URL del dashboard', async (key, route) => {
+    renderWithProviders(<Tickets />, { route });
+    await screen.findByText('TCK-000001');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?'));
+      expect(calls.length).toBeGreaterThan(0);
+      const last = calls[calls.length - 1][0];
+      expect(last).toContain(`${key}=`);
+      // El companion `active=1` debe viajar también: es lo que hace que el
+      // listado cuadre con la cifra de "abiertos" que anuncia la fila.
+      expect(last).toContain('active=1');
+    });
+  });
+
+  it('acepta listas de valores en los filtros por id, como ya hacía la búsqueda avanzada', async () => {
+    renderWithProviders(<Tickets />, { route: '/app/tickets?category=11,12&department=4&assigned=21,22' });
+    await screen.findByText('TCK-000001');
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?'));
+      const last = calls[calls.length - 1][0];
+      expect(last).toContain('category=11%2C12');
+      expect(last).toContain('department=4');
+      expect(last).toContain('assigned=21%2C22');
+    });
+  });
+
+  it('el botón Limpiar borra los filtros que llegaron de la URL', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets?category=11&department=4&assigned=21&active=1' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Limpiar' }));
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?'));
+      const last = calls[calls.length - 1][0];
+      expect(last).not.toContain('category=');
+      expect(last).not.toContain('department=');
+      expect(last).not.toContain('assigned=');
+      expect(last).not.toContain('active=');
+    });
+  });
+
+  // El botón atrás del navegador tiene que devolver al listado con SUS filtros,
+  // no a una lista completa: los parámetros viajan en la URL, que es lo único
+  // que sobrevive a un POP. Se comprueba la URL del enrutador y el chip que
+  // queda marcado —no la llamada a la API— porque el listado ya cacheado puede
+  // no volver a pedir los datos y eso no significaría que se perdió el filtro.
+  it('el botón atrás y adelante del navegador conservan los filtros', async () => {
+    const user = userEvent.setup();
+    // Se usa un enrutador gobernable: el MemoryRouter de renderWithProviders
+    // ignora window.history.back(), así que con él no se puede reproducir un
+    // POP. `router.navigate(-1)` sí lo hace.
+    const { history } = renderWithHistory(<Tickets />, { route: '/app/tickets', path: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    const search = () => new URLSearchParams(history.location.search);
+    // queryByRole: algunos chips no se pintan según permisos, y getByRole
+    // lanzaría dentro del .find() en vez de devolver false.
+    const activeChip = () =>
+      VIEWS.find((v) =>
+        screen.queryByRole('button', { name: new RegExp(`^${v.label}`) })?.className.includes('bg-brand-600')
+      )?.key;
+    const go = async (delta) => {
+      await act(async () => {
+        history.go(delta);
+      });
+    };
+
+    await user.click(screen.getByRole('button', { name: /^Abiertos/ }));
+    await waitFor(() => expect(search().get('view')).toBe('open'));
+    expect(activeChip()).toBe('open');
+
+    await user.click(screen.getByRole('button', { name: /^Retrasados/ }));
+    await waitFor(() => expect(search().get('view')).toBe('overdue'));
+    expect(activeChip()).toBe('overdue');
+
+    await user.click(screen.getByRole('button', { name: 'Limpiar' }));
+    await waitFor(() => expect(history.location.search).toBe(''));
+    expect(activeChip()).toBe('all');
+
+    // Cada paso atrás devuelve a la consulta anterior, con sus filtros.
+    await go(-1);
+    expect(search().get('view')).toBe('overdue');
+    expect(activeChip()).toBe('overdue');
+
+    await go(-1);
+    expect(search().get('view')).toBe('open');
+    expect(activeChip()).toBe('open');
+
+    await go(-1);
+    expect(history.location.search).toBe('');
+    expect(activeChip()).toBe('all');
+
+    // Y adelante se deshace.
+    await go(1);
+    expect(search().get('view')).toBe('open');
+    expect(activeChip()).toBe('open');
+  });
+
+  it('preserva los filtros de la URL al cambiar el orden y la página', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets?category=11&assigned=21&active=1&sort=priority' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByTitle('Ordenar por'));
+    await user.click(screen.getByRole('option', { name: 'Ordenar: Título' }));
+
+    await waitFor(() => {
+      const calls = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?'));
+      const last = calls[calls.length - 1][0];
+      expect(last).toContain('sort=title');
+      // Los filtros de origen siguen ahí: reordenar no puede perderlos.
+      expect(last).toContain('category=11');
+      expect(last).toContain('assigned=21');
+      expect(last).toContain('active=1');
+    });
   });
 
   it('cancela un ticket con motivo y refresca el listado', async () => {

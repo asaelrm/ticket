@@ -81,25 +81,41 @@ router.get('/by-priority', (req, res) => {
   res.json({ data, open });
 });
 
+// `id` viaja en la respuesta porque el panel navega al listado ya filtrado con
+// `?category=<id>`: sin él la fila no tendría a qué enlace apuntar y el nombre
+// no sería un destino válido. Es el mismo parámetro que ya acepta
+// buildConditions en tickets.js, así que no hace falta ningún endpoint nuevo.
+//
+// `n` cuenta TODOS los tickets de la categoría y `open` solo los no terminales.
+// La UI usa `open` para decidir qué paneles merece la pena enseñar y qué filas
+// son navegables.
+//
+// Ya no hay LIMIT: el panel deja ocultas por defecto las categorías sin
+// tickets abiertos y ofrece un "Ver todas", así que recortar el conjunto
+// dejaría esas filas inalcanzables y el interruptor mentiría. El orden por `n`
+// mantiene arriba lo que pesa y el desempate por nombre da una lista estable.
 router.get('/by-category', (req, res) => {
   const data = db.prepare(`
-    SELECT c.name, c.color, COUNT(t.id) AS n,
+    SELECT c.id, c.name, c.color, COUNT(t.id) AS n,
       SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
     FROM categories c
     LEFT JOIN tickets t ON t.category_id = c.id
     WHERE c.active = 1
-    GROUP BY c.id ORDER BY n DESC LIMIT 10
+    GROUP BY c.id ORDER BY n DESC, c.name ASC
   `).all(...OPEN_STATUSES);
   res.json({ data });
 });
 
+// Mismo criterio y mismo `id` navegable que /by-category, con el filtro
+// `department` de buildConditions. Los departamentos no tienen columna `active`
+// en este esquema, así que no se filtra por ella.
 router.get('/by-department', (req, res) => {
   const data = db.prepare(`
-    SELECT d.name, COUNT(t.id) AS n,
+    SELECT d.id, d.name, COUNT(t.id) AS n,
       SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
     FROM departments d
     LEFT JOIN tickets t ON t.department_id = d.id
-    GROUP BY d.id ORDER BY n DESC LIMIT 10
+    GROUP BY d.id ORDER BY n DESC, d.name ASC
   `).all(...OPEN_STATUSES);
   res.json({ data });
 });
@@ -350,13 +366,27 @@ router.get('/trend', (req, res) => {
   res.json({ data });
 });
 
+// Últimos tickets creados, para abrir su ficha desde el panel.
+//
+// `t.id` es imprescindible: la tabla usa `/app/tickets/<id>` como destino del
+// enlace de cada fila y, sin él, cada "Tickets recientes" llevaba a
+// `/app/tickets/undefined`. Se añade al SELECT de este endpoint ya existente en
+// lugar de crear otro, porque es el mismo dato y la misma consulta.
+//
+// `assigned_name` llega con un LEFT JOIN a users por `assigned_to_id` —el
+// mismo criterio de dueño que usa /by-technician, no el estado— para que la fila
+// muestre a quién se le asignó sin que la UI tenga que pedir un ticket por
+// persona. Son dos uniones en una consulta: no hay N+1 ni llamadas extra.
 router.get('/recent', (req, res) => {
   const data = db.prepare(`
-    SELECT t.ticket_number, t.title, t.status, t.priority, t.created_at,
-      c.name AS category_name, r.name || ' ' || r.last_name AS reporter_name
+    SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.created_at,
+      c.name AS category_name,
+      r.name || ' ' || r.last_name AS reporter_name,
+      a.name || ' ' || a.last_name AS assigned_name
     FROM tickets t
     JOIN users r ON r.id = t.reporter_id
     LEFT JOIN categories c ON c.id = t.category_id
+    LEFT JOIN users a ON a.id = t.assigned_to_id
     ORDER BY t.created_at DESC LIMIT 8`).all();
   res.json({ data });
 });

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
@@ -121,6 +122,47 @@ function slaRel(iso, overdue) {
   return overdue ? `Vencido hace ${t}` : `Vence en ${t}`;
 }
 
+// Aspecto de una fila que lleva al listado de tickets filtrado. El hover sube el
+// fondo un paso y el foco dibuja el mismo outline que los botones
+// (.btn:focus-visible), de modo que el usuario de teclado ve dónde está sin
+// depender de un tabindex artificial.
+const ROW_HOVER = 'transition hover:bg-slate-50';
+const ROW_FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500/70';
+
+// Los enlaces de cabecera de panel ("Ver todos", "Ver retrasados"…) son igual de
+// pulsables que las filas, así que comparten cursor y foco visible.
+const HEADER_LINK =
+  `inline-flex items-center gap-1 cursor-pointer ${ROW_FOCUS}`;
+
+// Estado vacío de un panel. Se centra en la caja y conserva una altura mínima
+// para que la tarjeta no se encoja ni quede visualmente hueca.
+function PanelEmpty({ children, className = 'min-h-[7rem]' }) {
+  return (
+    <div className={`flex flex-col items-center justify-center px-2 py-8 text-center ${className}`}>
+      <p className="text-sm text-slate-400">{children}</p>
+    </div>
+  );
+}
+
+// Interruptor "Ver todas" / "Ocultar vacías" de los paneles por categoría y por
+// departamento. Solo se pinta cuando hay algo que alternar: un botón que no
+// cambia nada solo añade ruido. Es un <button> real —no un <div> con onClick—
+// para que entre en el tabulador, se active con Enter y Espacio y anuncie su
+// función. El rótulo completo va en `title`, que no sustituye al texto visible
+// como nombre accesible, así que la etiqueta sigue siendo "Ver todas".
+function EmptyToggle({ expanded, onToggle, title }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={title}
+      className={`inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-brand-300 transition hover:border-brand-400/60 hover:text-brand-200 ${ROW_FOCUS}`}
+    >
+      {expanded ? 'Ocultar vacías' : 'Ver todas'}
+    </button>
+  );
+}
+
 // La sección "Requieren atención" se retiró del dashboard para que la pantalla
 // se lea de un vistazo. Su lógica NO se pierde: /api/dashboard/needs-attention y
 // sus pruebas siguen en el backend, así que la sección se puede recuperar tal
@@ -128,6 +170,15 @@ function slaRel(iso, overdue) {
 // Aquí no queda ninguna llamada, variable ni componente sin uso.
 
 export default function Dashboard() {
+  // Interruptores de los paneles por categoría y por departamento. Por defecto
+  // se muestran solo las filas con tickets abiertos (los estados no
+  // terminales): una categoría en cero no aporta nada a una vista de trabajo y
+  // solo empuja hacia abajo las que sí tienen carga. El estado es local de la
+  // pantalla a propósito —no es un filtro del listado— así que no viaja en la
+  // URL y no ensucia los enlaces de navegación.
+  const [showAllCategories, setShowAllCategories] = useState(false);
+  const [showAllDepartments, setShowAllDepartments] = useState(false);
+
   const { data, isLoading, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['dashboard'],
     queryFn: async () => {
@@ -182,6 +233,20 @@ export default function Dashboard() {
   const statusTotal = byStatus.reduce((a, b) => a + b.n, 0) || 1;
   const maxStatus = Math.max(...byStatus.map((d) => d.n), 1);
   const maxTrend = Math.max(...trend.flatMap((d) => [d.created, d.resolved]), 1);
+
+  // Con todos los contadores a cero la gráfica se dibuja como una línea plana
+  // de barras del 2 % de alto: no dice nada y ocupa el mismo espacio que un
+  // período con actividad. En ese caso se sustituye por el estado vacío.
+  const hasTrendData = trend.some((d) => d.created > 0 || d.resolved > 0);
+
+  // "Actividad" es el mismo criterio que usan las cifras del resumen: tickets
+  // en estado no terminal. Es también el que aplica `active=1` en /api/tickets,
+  // así que la fila y su listado de destino cuentan lo mismo.
+  const withActivity = (rows) => rows.filter((d) => d.open > 0);
+  const visibleCategories = showAllCategories ? byCategory : withActivity(byCategory);
+  const visibleDepartments = showAllDepartments ? byDepartment : withActivity(byDepartment);
+  const hiddenCategories = byCategory.length - visibleCategories.length;
+  const hiddenDepartments = byDepartment.length - visibleDepartments.length;
 
   const byTechnician = technician?.data || [];
   const techTotals = technician?.totals || { technicians: 0, active: 0, overdue: 0 };
@@ -288,7 +353,7 @@ export default function Dashboard() {
           </div>
           <Link
             to="/app/tickets?view=overdue"
-            className="inline-flex items-center gap-1 text-sm font-semibold text-brand-300 hover:text-brand-200"
+            className={`${HEADER_LINK} text-sm font-semibold text-brand-300 hover:text-brand-200`}
           >
             Ver retrasados <span aria-hidden>→</span>
           </Link>
@@ -331,12 +396,18 @@ export default function Dashboard() {
                 {sla.top.map((t) => (
                   <tr key={t.id} className="group">
                     <td className="td whitespace-nowrap font-semibold text-brand-300">
-                      <Link to={`/app/tickets/${t.id}`} className="group-hover:underline">
+                      <Link
+                        to={`/app/tickets/${t.id}`}
+                        className={`cursor-pointer group-hover:underline ${ROW_FOCUS}`}
+                      >
                         #{t.ticket_number}
                       </Link>
                     </td>
                     <td className="td max-w-xs">
-                      <Link to={`/app/tickets/${t.id}`} className="block truncate font-medium text-slate-700 group-hover:text-brand-300">
+                      <Link
+                        to={`/app/tickets/${t.id}`}
+                        className={`block cursor-pointer truncate rounded font-medium text-slate-700 group-hover:text-brand-300 ${ROW_FOCUS}`}
+                      >
                         {t.title}
                       </Link>
                     </td>
@@ -373,7 +444,7 @@ export default function Dashboard() {
           </div>
           <Link
             to="/app/tickets?view=open"
-            className="inline-flex items-center gap-1 text-sm font-semibold text-brand-300 hover:text-brand-200"
+            className={`${HEADER_LINK} text-sm font-semibold text-brand-300 hover:text-brand-200`}
           >
             Ver abiertos <span aria-hidden>→</span>
           </Link>
@@ -415,10 +486,22 @@ export default function Dashboard() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {byTechnician.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50">
+                  <tr key={t.id} className="group">
                     <td className="td max-w-[200px]">
-                      <span className="block truncate font-medium text-slate-700">{t.technician}</span>
-                      {t.position && <span className="block truncate text-xs text-slate-400">{t.position}</span>}
+                      {/* El nombre abre el listado del técnico. `assigned` y
+                          `active=1` son los dos filtros que buildConditions ya
+                          acepta, y `active=1` reproduce exactamente los
+                          estados que cuentan las columnas de esta fila, así que
+                          el total del listado cuadra con la cifra de la tabla. */}
+                      <Link
+                        to={`/app/tickets?assigned=${t.id}&active=1`}
+                        className={`block cursor-pointer rounded ${ROW_HOVER} ${ROW_FOCUS}`}
+                      >
+                        <span className="block truncate font-medium text-slate-700 group-hover:text-brand-300">
+                          {t.technician}
+                        </span>
+                        {t.position && <span className="block truncate text-xs text-slate-400">{t.position}</span>}
+                      </Link>
                     </td>
                     <td className="td whitespace-nowrap">
                       <span className="font-semibold text-slate-800">{t.active}</span>
@@ -463,25 +546,33 @@ export default function Dashboard() {
               <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-teal-400" /> Resueltos</span>
             </span>
           </div>
-          <div className="flex h-40 items-end gap-1">
-            {trend.map((d) => (
-              <div key={d.label} className="flex flex-1 flex-col items-center gap-1">
-                <div className="flex w-full flex-1 items-end justify-center gap-0.5">
-                  <div
-                    className="w-2.5 rounded-t bg-brand-600"
-                    style={{ height: `${Math.max((d.created / maxTrend) * 100, 2)}%` }}
-                    title={`${d.label}: ${d.created} creados`}
-                  />
-                  <div
-                    className="w-2.5 rounded-t bg-teal-400"
-                    style={{ height: `${Math.max((d.resolved / maxTrend) * 100, 2)}%` }}
-                    title={`${d.label}: ${d.resolved} resueltos`}
-                  />
+          {/* Sin actividad no se dibujan barras: un período plano se lee como "no hay
+              datos" y no como "no se está midiendo". El mensaje ocupa la misma
+              caja de h-40 que la gráfica, así que la tarjeta no cambia de
+              altura al alternar entre los dos estados. */}
+          {hasTrendData ? (
+            <div className="flex h-40 items-end gap-1">
+              {trend.map((d) => (
+                <div key={d.label} className="flex flex-1 flex-col items-center gap-1">
+                  <div className="flex w-full flex-1 items-end justify-center gap-0.5">
+                    <div
+                      className="w-2.5 rounded-t bg-brand-600"
+                      style={{ height: `${Math.max((d.created / maxTrend) * 100, 2)}%` }}
+                      title={`${d.label}: ${d.created} creados`}
+                    />
+                    <div
+                      className="w-2.5 rounded-t bg-teal-400"
+                      style={{ height: `${Math.max((d.resolved / maxTrend) * 100, 2)}%` }}
+                      title={`${d.label}: ${d.resolved} resueltos`}
+                    />
+                  </div>
+                  <span className="text-[9px] text-slate-400">{d.label.slice(8)}</span>
                 </div>
-                <span className="text-[9px] text-slate-400">{d.label.slice(8)}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <PanelEmpty className="h-40">Sin actividad registrada en este período.</PanelEmpty>
+          )}
         </div>
 
         {/* Por estado */}
@@ -505,37 +596,80 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Por categoría */}
+        {/* Por categoría. Cada fila es un enlace a "Todos los tickets" con
+            `category=<id>` y `active=1`: los dos son filtros que parseFilters de
+            Tickets.jsx ya lee de la URL y que buildConditions de /api/tickets ya
+            aplica, así que no hace falta ningún parámetro nuevo ni una pantalla
+            intermedia. `active=1` recorta a los estados no terminales, que es
+            exactamente la cifra de "abiertos" que muestra la propia fila. */}
         <div className="card p-5">
-          <h3 className="mb-4 text-sm font-semibold text-slate-700">Tickets por categoría</h3>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-700">Tickets por categoría</h3>
+            {/* El interruptor se queda visible mientras esté desplegado: si
+                solo se pintara al haber filas ocultas, "Ver todas" sería un
+                camino de ida y no se podría volver al listado corto. */}
+            {(hiddenCategories > 0 || showAllCategories) && (
+              <EmptyToggle
+                expanded={showAllCategories}
+                onToggle={() => setShowAllCategories((v) => !v)}
+                title={`${showAllCategories ? 'Ocultar' : 'Mostrar'} las ${hiddenCategories} categorías sin tickets abiertos`}
+              />
+            )}
+          </div>
           {byCategory.length === 0 ? (
             <p className="text-sm text-slate-400">Sin datos</p>
+          ) : visibleCategories.length === 0 ? (
+            <PanelEmpty>Ninguna categoría tiene tickets abiertos.</PanelEmpty>
           ) : (
-            <ul className="space-y-2">
-              {byCategory.map((d) => (
-                <li key={d.name} className="flex items-center gap-2 text-sm">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color || '#64748b' }} />
-                  <span className="min-w-0 flex-1 truncate text-slate-600">{d.name}</span>
-                  <span className="font-semibold text-slate-800">{d.n}</span>
-                  <span className="w-10 text-right text-xs text-slate-400">{d.open} abiertos</span>
+            <ul className="space-y-1">
+              {visibleCategories.map((d) => (
+                <li key={d.id}>
+                  <Link
+                    to={`/app/tickets?category=${d.id}&active=1`}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${ROW_HOVER} ${ROW_FOCUS}`}
+                  >
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color || '#64748b' }} />
+                    <span className="min-w-0 flex-1 truncate text-slate-600">{d.name}</span>
+                    <span className="shrink-0 font-semibold text-slate-800">{d.n}</span>
+                    <span className="w-16 shrink-0 text-right text-xs text-slate-400">{d.open} abiertos</span>
+                  </Link>
                 </li>
               ))}
             </ul>
           )}
         </div>
 
-        {/* Por departamento */}
+        {/* Por departamento. Mismo criterio y mismos filtros que el panel de
+            categorías (`department` en vez de `category`), con una fila más
+            compacta: no lleva el punto de color porque el endpoint no lo
+            devuelve y no se inventa. */}
         <div className="card p-5">
-          <h3 className="mb-4 text-sm font-semibold text-slate-700">Tickets por departamento</h3>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-700">Tickets por departamento</h3>
+            {(hiddenDepartments > 0 || showAllDepartments) && (
+              <EmptyToggle
+                expanded={showAllDepartments}
+                onToggle={() => setShowAllDepartments((v) => !v)}
+                title={`${showAllDepartments ? 'Ocultar' : 'Mostrar'} los ${hiddenDepartments} departamentos sin tickets abiertos`}
+              />
+            )}
+          </div>
           {byDepartment.length === 0 ? (
             <p className="text-sm text-slate-400">Sin datos</p>
+          ) : visibleDepartments.length === 0 ? (
+            <PanelEmpty>Ningún departamento tiene tickets abiertos.</PanelEmpty>
           ) : (
-            <ul className="space-y-2">
-              {byDepartment.map((d) => (
-                <li key={d.name} className="flex items-center gap-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate text-slate-600">{d.name}</span>
-                  <span className="font-semibold text-slate-800">{d.n}</span>
-                  <span className="w-10 text-right text-xs text-slate-400">{d.open} abiertos</span>
+            <ul className="space-y-1">
+              {visibleDepartments.map((d) => (
+                <li key={d.id}>
+                  <Link
+                    to={`/app/tickets?department=${d.id}&active=1`}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm ${ROW_HOVER} ${ROW_FOCUS}`}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-slate-600">{d.name}</span>
+                    <span className="shrink-0 font-semibold text-slate-800">{d.n}</span>
+                    <span className="w-16 shrink-0 text-right text-xs text-slate-400">{d.open} abiertos</span>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -543,44 +677,70 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Recientes */}
+      {/* Recientes. Número, título y técnico son enlaces a la ficha
+            (`/app/tickets/<id>`): es la navegación que ya se hacía, ahora con el
+            técnico que /api/dashboard/recent entrega. Para no ensanchar la tabla
+            en móvil, el técnico solo se ve desde lg y las columnas siguen
+            siendo las de siempre. El contenedor conserva `overflow-x-auto` por
+            si aun así no cabe. */}
       <div className="card">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
           <h3 className="text-sm font-semibold text-slate-700">Tickets recientes</h3>
-          <Link to="/app/tickets" className="text-sm font-medium text-brand-600 hover:text-brand-700">
+          <Link
+            to="/app/tickets"
+            className={`${HEADER_LINK} text-sm font-medium text-brand-600 hover:text-brand-700`}
+          >
             Ver todos →
           </Link>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="th">Ticket</th>
-                <th className="th">Título</th>
-                <th className="th">Categoría</th>
-                <th className="th">Prioridad</th>
-                <th className="th">Estado</th>
-                <th className="th">Fecha</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {recent.map((t) => (
-                <tr key={t.id} className="hover:bg-slate-50">
-                  <td className="td font-semibold text-brand-600">
-                    <Link to={`/app/tickets/${t.id}`} className="hover:underline">{t.ticket_number}</Link>
-                  </td>
-                  <td className="td max-w-[220px]">
-                    <Link to={`/app/tickets/${t.id}`} className="block truncate text-slate-700 hover:text-brand-700">{t.title}</Link>
-                  </td>
-                  <td className="td text-slate-500">{t.category_name || '—'}</td>
-                  <td className="td">{PRIORITY_LABEL[t.priority]}</td>
-                  <td className="td">{STATUS_LABEL[t.status]}</td>
-                  <td className="td whitespace-nowrap text-slate-500">{formatDate(t.created_at)}</td>
+        {recent.length === 0 ? (
+          <PanelEmpty className="px-2">Todavía no hay tickets registrados.</PanelEmpty>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="th">Ticket</th>
+                  <th className="th">Título</th>
+                  <th className="th">Categoría</th>
+                  <th className="th">Prioridad</th>
+                  <th className="th">Estado</th>
+                  <th className="th hidden lg:table-cell">Técnico</th>
+                  <th className="th">Fecha</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {recent.map((t) => (
+                  <tr key={t.id} className="group">
+                    <td className="td font-semibold text-brand-600">
+                      <Link
+                        to={`/app/tickets/${t.id}`}
+                        className={`cursor-pointer rounded ${ROW_FOCUS}`}
+                      >
+                        {t.ticket_number}
+                      </Link>
+                    </td>
+                    <td className="td max-w-[220px]">
+                      <Link
+                        to={`/app/tickets/${t.id}`}
+                        className={`block cursor-pointer truncate rounded text-slate-700 group-hover:text-brand-700 ${ROW_FOCUS}`}
+                      >
+                        {t.title}
+                      </Link>
+                    </td>
+                    <td className="td text-slate-500">{t.category_name || '—'}</td>
+                    <td className="td">{PRIORITY_LABEL[t.priority]}</td>
+                    <td className="td">{STATUS_LABEL[t.status]}</td>
+                    <td className="td hidden whitespace-nowrap text-slate-500 lg:table-cell">
+                      {t.assigned_name || '—'}
+                    </td>
+                    <td className="td whitespace-nowrap text-slate-500">{formatDate(t.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

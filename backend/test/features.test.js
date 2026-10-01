@@ -92,17 +92,32 @@ describe('Contadores de filtros rápidos', () => {
     const today = await createTicket(adminC);
     await adminC.post(`/api/tickets/${today.id}/resolve`, { resolution: 'Resolución de prueba' });
 
-    // Cerrado ayer
+    // Cerrado ayer. La referencia es el `resolved_at` que la aplicación acaba de
+    // escribir, no la hora del proceso: si algún POST cruzara la medianoche UTC
+    // entre leer el reloj y leer la fila, un `Date.now() - 24h` caería en un día
+    // que ya no es el anterior y la prueba fallaría sin que haya ningún bug.
+    // Anclando las dos fechas al mismo registro quedan exactamente 24 horas de
+    // distancia, es decir, siempre dos días UTC consecutivos.
     const yesterday = await createTicket(adminC);
-    const yesterISO = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     await adminC.post(`/api/tickets/${yesterday.id}/resolve`, { resolution: 'Resolución de prueba' });
+    const resolvedToday = db.prepare('SELECT resolved_at FROM tickets WHERE id = ?').get(today.id).resolved_at;
+    assert.ok(resolvedToday, 'el ticket de hoy debe tener fecha real de resolución');
+    const yesterISO = new Date(new Date(resolvedToday).getTime() - 24 * 60 * 60 * 1000).toISOString();
     db.prepare('UPDATE tickets SET resolved_at = ?, closed_at = NULL WHERE id = ?').run(yesterISO, yesterday.id);
+
+    // "Ayer" no siempre está en el mismo mes que "hoy": el día 1 del mes cae en
+    // el mes anterior, y el 1 de enero además en el año anterior. Los contadores
+    // aciertan igual; lo que no puede ser constante es la cantidad esperada. Se
+    // compara en UTC, que es la zona con la que la aplicación arma los rangos.
+    // today yesterday no dependen de esto: los dos tickets son días distintos.
+    const sameMonth = yesterISO.slice(0, 7) === resolvedToday.slice(0, 7);
+    const sameYear = yesterISO.slice(0, 4) === resolvedToday.slice(0, 4);
 
     const after = await adminC.get('/api/tickets/counters');
     assert.equal(after.body.closed.today - before.body.closed.today, 1);
     assert.equal(after.body.closed.yesterday - before.body.closed.yesterday, 1);
-    assert.equal(after.body.closed.month - before.body.closed.month, 2);
-    assert.equal(after.body.closed.year - before.body.closed.year, 2);
+    assert.equal(after.body.closed.month - before.body.closed.month, sameMonth ? 2 : 1);
+    assert.equal(after.body.closed.year - before.body.closed.year, sameYear ? 2 : 1);
 
     const listToday = await adminC.get('/api/tickets?view=closed&closed_period=today');
     assert.ok(listToday.body.data.some((x) => x.id === today.id));
