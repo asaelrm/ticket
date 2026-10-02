@@ -16,7 +16,7 @@ export default defineConfig({
     // desactivaría el control y permitiría el envenenamiento de caché y de
     // contraseña a través del Host desde cualquier red, que es justo lo que
     // este control evita. Para un dominio propio, añadirlo aquí explícitamente.
-    allowedHosts: ['tickets.lan'],
+    allowedHosts: ['tickets.lan', '.trycloudflare.com'],
     proxy: {
       '/api': {
         target: 'http://backend:4000',
@@ -39,3 +39,4 @@ export default defineConfig({
     testTimeout: 20000,
   },
 });
+
