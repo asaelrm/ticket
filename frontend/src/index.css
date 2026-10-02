@@ -1,800 +1,180 @@
 @import "tailwindcss";
 
+/* Tokens institucionales SIFHA. Las utilidades Tailwind siguen disponibles;
+   estos tokens gobiernan las superficies compartidas y los dos temas. */
 @theme {
-  --color-brand-50: #e7faf1;
-  --color-brand-100: #c9f3df;
-  --color-brand-200: #9aeac5;
-  --color-brand-300: #63dfa6;
-  --color-brand-400: #3ad48b;
-  --color-brand-500: #22C77A;
-  --color-brand-600: #17a963;
-  --color-brand-700: #128d56;
-  --color-brand-800: #0e6e44;
-  --color-brand-900: #0a5233;
-  --color-brand-950: #06301d;
-
-  --color-slate-50: #0E3A50;
-  --color-slate-100: #0C3347;
-  --color-slate-200: #154E59;
-  --color-slate-300: #2A5F75;
-  --color-slate-400: #8CA5B8;
-  --color-slate-500: #AFC4D4;
-  --color-slate-600: #C6D6E2;
-  --color-slate-700: #DDE8F0;
-  --color-slate-800: #F8FAFC;
-  --color-slate-900: #FFFFFF;
-  --color-slate-950: #FFFFFF;
-
-  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 1px 3px 0 rgb(0 0 0 / 0.08);
-  --shadow-pop: 0 8px 30px rgb(0 0 0 / 0.12);
+  --color-brand-50: #eff6ff;
+  --color-brand-100: #dbeafe;
+  --color-brand-200: #bfdbfe;
+  --color-brand-300: #93c5fd;
+  --color-brand-400: #60a5fa;
+  --color-brand-500: #2563eb;
+  --color-brand-600: #1d4ed8;
+  --color-brand-700: #1e40af;
+  --color-brand-800: #1e3a8a;
+  --color-brand-900: #0a2540;
+  --color-brand-950: #071a2d;
+  --color-slate-50: #f8fafc;
+  --color-slate-100: #f1f5f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #0f172a;
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.05), 0 5px 16px rgb(15 23 42 / 0.06);
+  --shadow-pop: 0 18px 48px rgb(15 23 42 / 0.18);
 }
 
 :root {
-  --navy-1: #061b2c;
-  --navy-2: #08283d;
-  --surface: #0b3046;
-  --surface-2: #0e3a50;
-  --uce-green: #59b77c;
-  --uce-bright: #22c77a;
-  --uce-teal: #20c7b7;
-  --info-blue: #2196f3;
-  --text-1: #f8fafc;
-  --text-2: #afc4d4;
-  --border-glass: rgba(110, 210, 190, 0.2);
-  --border-glass-soft: rgba(110, 210, 190, 0.16);
-  /* Flecha de los selects. El trazo normal usa --text-2 y el activo --uce-green:
-     se cambia en hover/focus para que la señal coincida con el borde verde sin
-     recurrir a `filter`, que también tiñería el texto del control. */
-  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23AFC4D4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  --select-arrow-active: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2359B77C' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  color-scheme: light;
+  --brand: #0a2540;
+  --brand-action: #1d4ed8;
+  --brand-hover: #1e3a8a;
+  --brand-soft: #eff6ff;
+  --page: #f8fafc;
+  --surface: #ffffff;
+  --surface-secondary: #f1f5f9;
+  --surface-elevated: #ffffff;
+  --surface-inverse: #0b0f19;
+  --text: #172033;
+  --text-muted: #64748b;
+  --text-inverse: #f8fafc;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --focus: #1d4ed8;
+  --focus-ring: rgb(29 78 216 / 0.18);
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #b91c1c;
+  --info: #0369a1;
+  --overlay: rgb(2 6 23 / 0.52);
+  --shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 5px 16px rgb(15 23 42 / 0.06);
+  --shadow-overlay: 0 18px 48px rgb(15 23 42 / 0.18);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --brand: #93c5fd;
+  --brand-action: #2563eb;
+  --brand-hover: #3b82f6;
+  --brand-soft: rgb(37 99 235 / 0.16);
+  --page: #0f172a;
+  --surface: #111c30;
+  --surface-secondary: #17243a;
+  --surface-elevated: #1b2940;
+  --surface-inverse: #090d16;
+  --text: #e5edf8;
+  --text-muted: #a8b6ca;
+  --text-inverse: #f8fafc;
+  --border: #2b3a52;
+  --border-strong: #42536c;
+  --focus: #60a5fa;
+  --focus-ring: rgb(96 165 250 / 0.24);
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --info: #7dd3fc;
+  --overlay: rgb(0 0 0 / 0.66);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 22px rgb(0 0 0 / 0.2);
+  --shadow-overlay: 0 20px 56px rgb(0 0 0 / 0.42);
 }
 
 @layer base {
-  html {
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-    color-scheme: dark;
-  }
-  body {
-    color: #dde8f0;
-    background-color: var(--navy-1);
-    background-image:
-      radial-gradient(1000px 620px at 85% -10%, rgba(34, 199, 122, 0.12), transparent 60%),
-      radial-gradient(900px 560px at -12% 25%, rgba(32, 199, 183, 0.1), transparent 55%),
-      radial-gradient(760px 520px at 55% 125%, rgba(33, 150, 243, 0.08), transparent 60%),
-      linear-gradient(165deg, #061b2c 0%, #08283d 48%, #061b2c 100%);
-    background-attachment: fixed;
-    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  }
-  ::selection {
-    background: rgba(34, 199, 122, 0.35);
-  }
-  h1,
-  h2,
-  h3,
-  h4 {
-    letter-spacing: -0.01em;
-  }
-  input[type='checkbox'],
-  input[type='radio'] {
-    accent-color: var(--uce-bright);
-  }
-  input[type='date'],
-  input[type='time'],
-  input[type='datetime-local'],
-  select {
-    color-scheme: dark;
-  }
-  /* Opciones del desplegable. Los colores se derivan de tokens que ya usa el
-     tema (--surface-2, --uce-green, --uce-bright) mezclándolos con `color-mix`,
-     de modo que el menú no introduce una paleta paralela. Ojo: en Windows el
-     popup lo dibuja el sistema y respeta solo el fondo base; el hover y la
-     marcada se ven donde el navegador sí aplica la hoja de estilo. */
-  select option {
-    background-color: var(--surface-2);
-    color: var(--text-1);
-  }
-  select option:hover {
-    background-color: color-mix(in srgb, var(--uce-green) 16%, var(--surface));
-    color: #ffffff;
-  }
-  select option:checked {
-    background-color: color-mix(in srgb, var(--uce-bright) 30%, var(--surface));
-    color: #ffffff;
-  }
-  input[type='date']::-webkit-calendar-picker-indicator,
-  input[type='time']::-webkit-calendar-picker-indicator,
-  input[type='datetime-local']::-webkit-calendar-picker-indicator {
-    filter: invert(0.75) sepia(0.4) saturate(3) hue-rotate(90deg);
-    cursor: pointer;
-  }
+  html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  body { margin: 0; min-width: 320px; color: var(--text); background: var(--page); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  ::selection { background: rgb(29 78 216 / 0.22); }
+  h1, h2, h3, h4 { letter-spacing: -0.01em; }
+  button, input, textarea, select { font: inherit; }
+  input[type='checkbox'], input[type='radio'] { accent-color: var(--brand-action); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 }
 
 @layer components {
-  .btn,
-  .btn-primary,
-  .btn-secondary,
-  .btn-white,
-  .btn-danger,
-  .btn-ghost {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    border-radius: 0.5rem;
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    transition: all 150ms;
+  .btn, .btn-primary, .btn-secondary, .btn-white, .btn-danger, .btn-ghost {
+    display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+    min-height: 2.5rem; border-radius: .55rem; padding: .5rem 1rem; font-size: .875rem;
+    font-weight: 600; line-height: 1.25; transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, color 150ms ease, transform 150ms ease;
   }
-  .btn:focus-visible,
-  .btn-primary:focus-visible,
-  .btn-secondary:focus-visible,
-  .btn-white:focus-visible,
-  .btn-danger:focus-visible,
-  .btn-ghost:focus-visible {
-    outline: 2px solid rgba(34, 199, 122, 0.7);
-    outline-offset: 2px;
+  .btn:disabled, .btn-primary:disabled, .btn-secondary:disabled, .btn-white:disabled, .btn-danger:disabled, .btn-ghost:disabled { cursor: not-allowed; opacity: .58; }
+  .btn-primary { color: #fff; background: var(--brand-action); border: 1px solid var(--brand-action); box-shadow: 0 1px 2px rgb(15 23 42 / .13); }
+  .btn-primary:hover:not(:disabled) { background: var(--brand-hover); border-color: var(--brand-hover); }
+  .btn-primary:active:not(:disabled) { transform: translateY(1px); }
+  .btn-secondary { color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); }
+  .btn-secondary:hover:not(:disabled), .btn-white:hover:not(:disabled) { background: var(--surface-secondary); border-color: var(--brand-action); }
+  .btn-white { color: var(--brand); background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .btn-danger { color: #fff; background: #dc2626; border: 1px solid #dc2626; }
+  .btn-danger:hover:not(:disabled) { background: #b91c1c; border-color: #b91c1c; }
+  .btn-ghost { color: var(--text); background: transparent; border: 1px solid transparent; }
+  .btn-ghost:hover:not(:disabled) { background: var(--surface-secondary); }
+  .input, .select-trigger {
+    width: 100%; min-height: 2.625rem; border: 1px solid var(--border-strong); border-radius: .55rem;
+    padding: .625rem .75rem; color: var(--text); background: var(--surface); font-size: .875rem;
+    transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
   }
-  .btn:disabled,
-  .btn-primary:disabled,
-  .btn-secondary:disabled,
-  .btn-white:disabled,
-  .btn-danger:disabled,
-  .btn-ghost:disabled {
-    cursor: not-allowed;
-    opacity: 0.6;
-  }
-  .btn-primary {
-    color: #fff;
-    box-shadow: 0 8px 24px rgba(34, 199, 122, 0.28);
-    background-image: linear-gradient(135deg, #22c77a, #149e72);
-  }
-  .btn-primary:hover {
-    filter: brightness(1.08);
-    box-shadow: 0 10px 28px rgba(34, 199, 122, 0.38);
-  }
-  .btn-primary:active {
-    transform: translateY(1px);
-  }
-  .btn-secondary {
-    color: #fff;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-  }
-  .btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.11);
-    border-color: rgba(255, 255, 255, 0.18);
-  }
-  .btn-white {
-    background: #f8fafc;
-    color: #08283d;
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
-  }
-  .btn-white:hover {
-    background: #ffffff;
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
-  }
-  .btn-danger {
-    color: #fff;
-    box-shadow: 0 8px 24px rgba(239, 68, 68, 0.28);
-    background-image: linear-gradient(135deg, #f87171, #dc2626);
-  }
-  .btn-danger:hover {
-    filter: brightness(1.08);
-  }
-  .btn-danger:active {
-    transform: translateY(1px);
-  }
-  .btn-ghost {
-    color: #fff;
-  }
-  .btn-ghost:hover {
-    background: rgba(255, 255, 255, 0.07);
-  }
-  .input {
-    width: 100%;
-    border: 1px solid;
-    border-radius: 0.75rem;
-    padding: 0.625rem 0.875rem;
-    font-size: 0.875rem;
-    color: #f8fafc;
-    transition: all 150ms;
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(110, 210, 190, 0.22);
-    color: #e6eef5;
-  }
-  .input::placeholder {
-    color: rgba(175, 196, 212, 0.55);
-  }
-  .input:focus {
-    border-color: rgba(34, 199, 122, 0.6);
-    box-shadow: 0 0 0 3px rgba(34, 199, 122, 0.16);
-  }
-  .label {
-    display: block;
-    margin-bottom: 0.25rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #ffffff;
-  }
-  .card {
-    border: 1px solid;
-    border-radius: 1rem;
-    background: linear-gradient(180deg, rgba(14, 58, 80, 0.88), rgba(11, 48, 70, 0.84));
-    backdrop-filter: blur(22px);
-    -webkit-backdrop-filter: blur(22px);
-    border-color: rgba(110, 210, 190, 0.18);
-    box-shadow: 0 10px 35px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  }
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    border-radius: 9999px;
-    padding: 0.25rem 0.625rem;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.025em;
-    white-space: nowrap;
-  }
-  .th {
-    padding: 0.625rem 0.75rem;
-    text-align: left;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #ffffff;
-  }
-  .td {
-    padding: 0.625rem 0.75rem;
-    font-size: 0.875rem;
-    line-height: 1.375;
-    color: #c6d6e2;
-  }
-  /* Tabla densa para el listado de tickets: con diez columnas, los 24 px de
-     relleno horizontal de cada celda se comían más de 200 px de ancho que no
-     aportaban nada. Se recorta sólo dentro de `.table-compact` (que aplica la
-     tabla de tickets) para no tocar las tablas del Dashboard ni de artículos. */
-  .table-compact .th,
-  .table-compact .td {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-  }
+  .input::placeholder { color: var(--text-muted); opacity: .78; }
+  .input:focus, .select-trigger:focus, .select-trigger[aria-expanded='true'] { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px var(--focus-ring); }
+  .label { display: block; margin-bottom: .375rem; color: var(--text); font-size: .875rem; font-weight: 600; }
+  .card { border: 1px solid var(--border); border-radius: .75rem; background: var(--surface); box-shadow: var(--shadow); }
+  .badge { display: inline-flex; align-items: center; gap: .25rem; border-radius: 9999px; padding: .25rem .625rem; font-size: 11px; font-weight: 700; letter-spacing: .025em; white-space: nowrap; }
+  .th { padding: .625rem .75rem; text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
+  .td { padding: .625rem .75rem; font-size: .875rem; line-height: 1.375; color: var(--text); }
+  .table-compact .th, .table-compact .td { padding-left: .5rem; padding-right: .5rem; }
 }
 
-/* ============================================================
-   Selects · identidad Centro Médico UCE
-   ============================================================
-   El control CERRADO se resuelve entero por CSS: se anula el `appearance`
-   nativo (que en Windows pinta borde y flecha propios) y se dibuja una flecha
-   propia, para que el resultado sea idéntico en todos los navegadores.
+/* Select propio: conserva portal, teclado y posicionamiento; sólo cambia presentación. */
+.select-trigger { display: flex; align-items: center; justify-content: space-between; gap: .5rem; text-align: left; cursor: pointer; }
+.select-trigger:hover:not(:disabled) { border-color: var(--focus); }
+.select-trigger:disabled { cursor: not-allowed; opacity: .58; }
+.select-trigger[data-placeholder='true'], .select-arrow { color: var(--text-muted); }
+.select-trigger[aria-expanded='true'] .select-arrow { color: var(--focus); transform: rotate(180deg); }
+.select-arrow { flex-shrink: 0; transition: color 150ms ease, transform 150ms ease; }
+.select-menu { position: fixed; z-index: 50; max-height: 18rem; overflow-y: auto; padding: .25rem; border: 1px solid var(--border); border-radius: .6rem; background: var(--surface-elevated); box-shadow: var(--shadow-overlay); }
+.select-option { display: flex; width: 100%; align-items: center; gap: .5rem; border-radius: .4rem; padding: .5rem .75rem; color: var(--text); font-size: .875rem; text-align: left; cursor: pointer; }
+.select-option:hover, .select-option[data-active='true'] { background: var(--surface-secondary); }
+.select-option[aria-selected='true'] { color: var(--brand-hover); background: var(--brand-soft); font-weight: 600; }
+.select-option[data-disabled='true'] { opacity: .45; cursor: not-allowed; }
 
-   El menú DESPLEGADO no es controlizable: sigue siendo el popup nativo. En
-   Windows lo dibuja el sistema y aplica como mucho el fondo que se le da a
-   `option`; el hover y la opción seleccionada de abajo solo se ven donde el
-   navegador respeta la hoja de estilo. Esa parte quedaría cerrada de verdad
-   con un componente propio, no con más CSS.
-   ============================================================ */
+/* Capas compartidas del Layout y overlays. */
+.app-sidebar { background: var(--surface-inverse); border-color: rgb(255 255 255 / .1); color: var(--text-inverse); }
+.app-topbar { background: #0b0f19; border-bottom: 1px solid rgb(255 255 255 / .1); color: var(--text-inverse); box-shadow: 0 1px 0 rgb(255 255 255 / .03); }
+.app-nav-section { color: #9db1cc; }
+.app-nav-item { color: #c6d2e2; transition: color 150ms ease, background-color 150ms ease; }
+.app-nav-item:hover { color: #fff; background: rgb(255 255 255 / .08); }
+.app-nav-active { color: #fff !important; background: #1d4ed8; box-shadow: inset 3px 0 0 #93c5fd; }
+.panel-glass, .panel-blur { border: 1px solid var(--border); background: var(--surface-elevated); box-shadow: var(--shadow-overlay); }
 
-select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  /* Hueco para la flecha propia: sin él el texto largo la taparía. */
-  padding-right: 2.5rem;
-  background-image: var(--select-arrow);
-  background-repeat: no-repeat;
-  background-position: right 0.75rem center;
-  background-size: 1.05rem 1.05rem;
-  cursor: pointer;
-  /* 180 ms, el mismo tiempo que el resto de controles del tema. */
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    background-color 180ms ease;
-}
+thead { background: var(--surface-secondary); }
+tbody tr { border-color: var(--border); }
+tbody tr:hover { background: var(--surface-secondary); }
 
-/* Verde UCE como acento: el borde se enciende y el fondo sube muy poco. */
-select:hover:not(:disabled) {
-  border-color: var(--uce-green);
-  background-color: rgba(110, 210, 190, 0.09);
-  background-image: var(--select-arrow-active);
-}
+/* Puente semántico para las clases existentes: evita remaquetar páginas en Foundation. */
+:root[data-theme='dark'] .bg-white, :root[data-theme='dark'] .bg-white\/90, :root[data-theme='dark'] .bg-white\/95 { background-color: var(--surface) !important; }
+:root[data-theme='dark'] .bg-slate-50, :root[data-theme='dark'] .bg-slate-100 { background-color: var(--surface-secondary) !important; }
+:root[data-theme='dark'] .bg-slate-200 { background-color: var(--border) !important; }
+:root[data-theme='dark'] .border-slate-100, :root[data-theme='dark'] .border-slate-200, :root[data-theme='dark'] .border-slate-300 { border-color: var(--border) !important; }
+:root[data-theme='dark'] .text-slate-400, :root[data-theme='dark'] .text-slate-500 { color: var(--text-muted) !important; }
+:root[data-theme='dark'] .text-slate-600, :root[data-theme='dark'] .text-slate-700, :root[data-theme='dark'] .text-slate-800, :root[data-theme='dark'] .text-slate-900 { color: var(--text) !important; }
+:root[data-theme='dark'] .hover\:bg-slate-50:hover, :root[data-theme='dark'] .hover\:bg-slate-100:hover { background-color: var(--surface-secondary) !important; }
 
-/* Al abrirse (clic o teclado) el borde y el anillo pasan a verde UCE. El halo
-   usa el mismo 16 % que el foco de `.input` a propósito: más tenue que la
-   iluminación del elemento activo del sidebar, como pide el diseño. */
-select:focus,
-select:focus-visible {
-  border-color: var(--uce-bright);
-  background-image: var(--select-arrow-active);
-  box-shadow: 0 0 0 3px rgba(34, 199, 122, 0.16);
-}
+/* Estados semánticos: no son color de marca. */
+:root[data-theme='dark'] .bg-red-50 { background-color: rgb(185 28 28 / .18) !important; }
+:root[data-theme='dark'] .bg-amber-50, :root[data-theme='dark'] .bg-amber-100 { background-color: rgb(180 83 9 / .18) !important; }
+:root[data-theme='dark'] .bg-blue-50, :root[data-theme='dark'] .bg-sky-50 { background-color: rgb(3 105 161 / .18) !important; }
+:root[data-theme='dark'] .bg-emerald-50, :root[data-theme='dark'] .bg-teal-50 { background-color: rgb(21 128 61 / .18) !important; }
+:root[data-theme='dark'] .bg-orange-50 { background-color: rgb(194 65 12 / .18) !important; }
+:root[data-theme='dark'] .text-red-600, :root[data-theme='dark'] .text-red-700 { color: #fca5a5 !important; }
+:root[data-theme='dark'] .text-amber-600, :root[data-theme='dark'] .text-amber-700, :root[data-theme='dark'] .text-amber-800 { color: #fcd34d !important; }
+:root[data-theme='dark'] .text-blue-600, :root[data-theme='dark'] .text-blue-700, :root[data-theme='dark'] .text-sky-700 { color: #93c5fd !important; }
+:root[data-theme='dark'] .text-emerald-600, :root[data-theme='dark'] .text-emerald-700, :root[data-theme='dark'] .text-teal-700 { color: #86efac !important; }
+:root[data-theme='dark'] .text-orange-600, :root[data-theme='dark'] .text-orange-700 { color: #fdba74 !important; }
 
-/* Sin halo ni flecha encendida: se distingue de un control deshabilitado de un
-   control focused solo por opacidad y cursor. */
-select:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-/* ============================================================
-   Select propio · identity Centro Médico UCE
-   ============================================================
-   Sustituye al desplegable nativo para poder teñir TODO el control, incluido
-   el menú: el popup del sistema es la única parte que no se puede estilar. Se
-   apoya en los tokens del tema para no abrir una paleta paralela.
-   ============================================================ */
-
-.select-trigger {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  border: 1px solid rgba(110, 210, 190, 0.22);
-  border-radius: 0.75rem;
-  padding: 0.625rem 0.875rem;
-  background: rgba(255, 255, 255, 0.05);
-  font-size: 0.875rem;
-  line-height: 1.375;
-  text-align: left;
-  color: var(--text-1);
-  cursor: pointer;
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    background-color 180ms ease;
-}
-
-.select-trigger:hover:not(:disabled) {
-  border-color: var(--uce-green);
-  background: rgba(110, 210, 190, 0.09);
-}
-
-/* El mismo anillo que `.input:focus` (16 %), más tenue que la iluminación del
-   elemento activo del sidebar. Al abrirse el control queda en este mismo
-   estado, de modo que "enfocado" y "abierto" se leen igual. */
-.select-trigger:focus,
-.select-trigger:focus-visible,
-.select-trigger[aria-expanded='true'] {
-  outline: none;
-  border-color: var(--uce-bright);
-  box-shadow: 0 0 0 3px rgba(34, 199, 122, 0.16);
-}
-
-.select-trigger:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-/* Sin valor elegido: el texto baja a --text-2 para que se lea como campo
-   vacío y no como un valor más. */
-.select-trigger[data-placeholder='true'] {
-  color: var(--text-2);
-}
-
-.select-arrow {
-  flex-shrink: 0;
-  color: var(--text-2);
-  transition:
-    color 180ms ease,
-    transform 180ms ease;
-}
-
-.select-trigger:hover:not(:disabled) .select-arrow,
-.select-trigger:focus .select-arrow,
-.select-trigger[aria-expanded='true'] .select-arrow {
-  color: var(--uce-green);
-}
-
-.select-trigger[aria-expanded='true'] .select-arrow {
-  transform: rotate(180deg);
-}
-
-.select-menu {
-  /* El menú se monta en `document.body` (ver components/Select.jsx) y se
-     posiciona con `fixed` a partir del rectángulo del control.
-
-     El motivo de sacarlo del DOM del control: `.card` y `.panel-glass` usan
-     `backdrop-filter`, que crea un stacking context. Los filtros de la bandeja
-     y la tabla están en dos tarjetas hermanas, así que la tabla se pinta
-     encima de la tarjeta de los filtros, y un `z-index` alto dentro de ella no
-     puede ganar: el contexto se lo traga. Además `backdrop-filter` convierte a
-     la tarjeta en bloque contenedor de `fixed`, así que tampoco basta con
-     cambiar a `fixed`. Al salir a `body` el menú queda por encima de todo y
-     ningún `overflow` lo recorta. */
-  position: fixed;
-  /* Escala de overlays del tema: `z-50` es el nivel de las modales
-     (`fixed inset-0 z-50`) y del `Menu` de components/ui.jsx. El menú es un
-     overlay más, se sitúa en el mismo nivel y no inventa un número nuevo. */
-  z-index: 50;
-  /* Tope por defecto; `Select.jsx` lo recorta inline según el espacio libre
-     que hay entre el control y el borde de la ventana. */
-  max-height: 18rem;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0.25rem;
-  border-radius: 0.75rem;
-}
-
-.select-option {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  text-align: left;
-  color: var(--text-1);
-  cursor: pointer;
-  transition: background-color 150ms ease;
-}
-
-/* Verde oscuro translúcido: el cursor de teclado y el ratón levantan la misma
-   señal, sin necesitar un color distinto para cada uno. */
-.select-option:hover,
-.select-option[data-active='true'] {
-  background: rgba(89, 183, 124, 0.16);
-}
-
-.select-option[aria-selected='true'] {
-  background: rgba(34, 199, 122, 0.28);
-  color: #ffffff;
-}
-
-.select-option[aria-selected='true'][data-active='true'] {
-  background: rgba(34, 199, 122, 0.4);
-}
-
-.select-option[data-disabled='true'] {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.select-option[data-disabled='true']:hover {
-  background: none;
-}
-
-/* ============================================================
-   Identidad Centro Médico UCE · NexTurn
-   ============================================================ */
-
-/* Superficies blancas -> glass navy */
-.bg-white {
-  background-color: rgba(8, 40, 61, 0.78) !important;
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-}
-.bg-white\/90,
-.bg-white\/95 {
-  background-color: rgba(8, 40, 61, 0.86) !important;
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-}
-.hover\:bg-white:hover {
-  background-color: rgba(14, 58, 80, 0.92) !important;
-}
-
-/* Velo de modales y menú móvil */
-.bg-slate-900\/40,
-.bg-slate-900\/50 {
-  background-color: rgba(4, 15, 26, 0.7) !important;
-}
-.bg-red-50\/40 {
-  background-color: rgba(248, 113, 113, 0.1) !important;
-}
-.bg-white\/20 {
-  background-color: rgba(255, 255, 255, 0.14) !important;
-}
-
-/* Acento verde UCE en fondos y textos */
-[class~='bg-brand-50'] {
-  background-color: rgba(34, 199, 122, 0.12) !important;
-}
-[class~='bg-brand-50/40'] {
-  background-color: rgba(34, 199, 122, 0.08) !important;
-}
-[class~='bg-brand-100'] {
-  background-color: rgba(34, 199, 122, 0.18) !important;
-}
-[class~='hover:bg-brand-50']:hover {
-  background-color: rgba(34, 199, 122, 0.16) !important;
-}
-[class~='bg-brand-600'] {
-  background-color: #1fb96f !important;
-}
-[class~='text-brand-500'],
-[class~='text-brand-600'],
-[class~='text-brand-700'],
-[class~='text-brand-800'],
-[class~='hover:text-brand-600']:hover,
-[class~='hover:text-brand-700']:hover {
-  color: #7ae9b6 !important;
-}
-
-/* Chips de estado/prioridad: fondos translúcidos y texto claro */
-[class~='bg-blue-50'] {
-  background-color: rgba(33, 150, 243, 0.16) !important;
-}
-[class~='bg-sky-50'] {
-  background-color: rgba(56, 189, 248, 0.16) !important;
-}
-[class~='bg-indigo-50'] {
-  background-color: rgba(129, 140, 248, 0.16) !important;
-}
-[class~='bg-purple-50'] {
-  background-color: rgba(168, 85, 247, 0.16) !important;
-}
-[class~='bg-teal-50'] {
-  background-color: rgba(32, 199, 183, 0.16) !important;
-}
-[class~='bg-amber-50'],
-[class~='bg-amber-50/70'] {
-  background-color: rgba(245, 158, 11, 0.16) !important;
-}
-[class~='bg-amber-100'] {
-  background-color: rgba(245, 158, 11, 0.22) !important;
-}
-[class~='bg-orange-50'] {
-  background-color: rgba(249, 115, 22, 0.16) !important;
-}
-[class~='bg-emerald-50'] {
-  background-color: rgba(52, 211, 153, 0.16) !important;
-}
-[class~='bg-red-50'] {
-  background-color: rgba(248, 113, 113, 0.16) !important;
-}
-[class~='hover:bg-red-50']:hover {
-  background-color: rgba(248, 113, 113, 0.2) !important;
-}
-
-[class~='text-blue-600'],
-[class~='text-blue-700'] {
-  color: #93c5fd !important;
-}
-[class~='text-sky-700'] {
-  color: #7dd3fc !important;
-}
-[class~='text-indigo-600'],
-[class~='text-indigo-700'] {
-  color: #a5b4fc !important;
-}
-[class~='text-purple-600'],
-[class~='text-purple-700'] {
-  color: #d8b4fe !important;
-}
-[class~='text-teal-600'],
-[class~='text-teal-700'] {
-  color: #5eead4 !important;
-}
-[class~='text-amber-600'],
-[class~='text-amber-700'],
-[class~='text-amber-800'] {
-  color: #fcd34d !important;
-}
-[class~='text-orange-600'],
-[class~='text-orange-700'] {
-  color: #fdba74 !important;
-}
-[class~='text-emerald-600'],
-[class~='text-emerald-700'],
-[class~='text-emerald-800'] {
-  color: #6ee7b7 !important;
-}
-[class~='text-red-600'],
-[class~='text-red-700'] {
-  color: #fca5a5 !important;
-}
-
-/* ------------------------------------------------------------------
-   Utilidades Tailwind del tema claro → escala clara sobre glass navy.
-   Evita texto oscuro/invisible sobre las tarjetas oscuras.
-   ------------------------------------------------------------------ */
-[class~='text-slate-400'],
-[class~='text-slate-500'],
-[class~='text-slate-600'],
-[class~='text-slate-700'],
-[class~='text-slate-800'] {
-  color: #ffffff !important;
-}
-[class~='hover:text-slate-600']:hover {
-  color: #c6d6e2 !important;
-}
-[class~='hover:text-slate-700']:hover {
-  color: #a9c0d0 !important;
-}
-[class~='bg-slate-50'] {
-  background-color: rgba(14, 58, 80, 0.55) !important;
-}
-[class~='bg-slate-100'] {
-  background-color: rgba(255, 255, 255, 0.08) !important;
-}
-[class~='hover:bg-slate-50']:hover {
-  background-color: rgba(255, 255, 255, 0.05) !important;
-}
-[class~='hover:bg-slate-100']:hover {
-  background-color: rgba(255, 255, 255, 0.08) !important;
-}
-[class~='hover:bg-slate-200']:hover {
-  background-color: rgba(255, 255, 255, 0.12) !important;
-}
-
-[class~='border-amber-200'] {
-  border-color: rgba(245, 158, 11, 0.3) !important;
-}
-[class~='border-emerald-200'] {
-  border-color: rgba(52, 211, 153, 0.3) !important;
-}
-[class~='border-red-200'] {
-  border-color: rgba(248, 113, 113, 0.3) !important;
-}
-
-/* Cabeceras de tabla: superficie ligeramente más clara */
-thead {
-  background: rgba(14, 58, 80, 0.6);
-}
-tbody tr:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-tbody.divide-slate-100 > tr + tr {
-  border-color: rgba(175, 196, 212, 0.1) !important;
-}
-
-/* ============================================================
-   Componentes de marca: sidebar, topbar, logo, nav, panels
-   ============================================================ */
-
-.app-sidebar {
-  background: linear-gradient(180deg, rgba(10, 37, 58, 0.96), rgba(6, 27, 44, 0.98)) !important;
-  border-right: 1px solid var(--border-glass-soft);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
-
-.app-topbar {
-  background: rgba(8, 40, 61, 0.78);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
-  border-bottom: 1px solid var(--border-glass-soft);
-}
-
-.app-nav-active {
-  position: relative;
-  background-image: linear-gradient(135deg, #22c77a, #149e72);
-  color: #ffffff !important;
-  box-shadow: 0 8px 20px rgba(34, 199, 122, 0.3);
-}
-
-.app-nav-section {
-  color: rgba(89, 183, 124, 0.85);
-}
-
-.app-nav-item {
-  color: #8ca5b8;
-  transition: color 150ms ease, background-color 150ms ease;
-}
-.app-nav-item:hover {
-  color: #e6eef5;
-  background: rgba(255, 255, 255, 0.05);
-}
-.app-nav-item-white {
-  color: #ffffff !important;
-}
-
-/* Paneles glass (modales, drawer, menús, notificaciones) */
-.panel-glass {
-  background: linear-gradient(180deg, rgba(14, 58, 80, 0.98), rgba(8, 40, 61, 0.98));
-  border: 1px solid var(--border-glass);
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-}
-
-.panel-blur {
-  background: rgba(8, 40, 61, 0.72);
-  border: 1px solid var(--border-glass-soft);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-/* Animaciones (solo micro, 150-250 ms) */
-@keyframes nexfade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-@keyframes nexpop {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes nexslide {
-  from {
-    opacity: 0.4;
-    transform: translateX(48px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.nex-fade {
-  animation: nexfade 200ms ease-out;
-}
-.nex-pop {
-  animation: nexpop 220ms ease-out;
-}
-.nex-slide {
-  animation: nexslide 240ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* El glass se conserva en escritorio; en pantallas pequeñas se prioriza fluidez. */
-@media (max-width: 640px) {
-  body {
-    background-attachment: scroll;
-  }
-  .card,
-  .panel-glass,
-  .panel-blur,
-  .app-sidebar,
-  .app-topbar,
-  .bg-white,
-  .bg-white\/90,
-  .bg-white\/95 {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-  .card,
-  .panel-glass {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(110, 210, 190, 0.25);
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(110, 210, 190, 0.45);
-  background-clip: padding-box;
-  border: 2px solid transparent;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+.nex-fade { animation: sifha-fade 160ms ease-out; }
+.nex-pop { animation: sifha-pop 180ms ease-out; }
+.nex-slide { animation: sifha-slide 200ms ease-out; }
+@keyframes sifha-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sifha-pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes sifha-slide { from { opacity: .5; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

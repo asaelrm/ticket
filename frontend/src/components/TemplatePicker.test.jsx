@@ -374,12 +374,12 @@ describe('TemplatePicker', () => {
     // mismo texto blanco: todo ilegible aunque el menú estuviera bien
     // posicionado. Estos tests leen las clases reales del DOM.
 
-    it('el panel declara un fondo oscuro, no blanco', async () => {
+    it('el panel declara una superficie propia', async () => {
       await openPicker();
       const panel = screen.getByRole('dialog', { name: 'Respuestas rápidas' });
       const { bg } = readColors(panel.className);
       expect(bg, 'el panel debe declarar su propio fondo').toBeTruthy();
-      expect(backgroundOf(panel.className, '#ffffff').toLowerCase()).not.toBe('#ffffff');
+      expect(backgroundOf(panel.className, '#ffffff').toLowerCase()).toBe('#ffffff');
     });
 
     it('el título de cada plantilla es legible sobre el panel', async () => {
@@ -410,10 +410,9 @@ describe('TemplatePicker', () => {
       const { bg } = readColors(selected.parentElement.className);
       expect(bg, 'la fila seleccionada debe declarar un fondo propio').toBeTruthy();
 
-      // La selección no puede resolverse a blanco o a un blanco casi puro:
-      // era bg-brand-50 (#E7FAF1) con texto blanco, invisible.
+      // La selección SIFHA usa azul suave y el texto mantiene contraste AA.
       const selectedBg = backgroundOf(selected.parentElement.className, '#0e3a50');
-      expect(luminance(selectedBg), 'la fila seleccionada no debe ser un blanco').toBeLessThan(0.5);
+      expect(luminance(selectedBg), 'la fila seleccionada debe diferenciarse de la superficie blanca').toBeLessThan(0.98);
 
       // Y el texto de la fila no seleccionada tiene que seguir siendo legible
       // sobre el fondo del panel, no solo sobre el de la selección.
@@ -429,7 +428,7 @@ describe('TemplatePicker', () => {
       const box = panel.querySelector('div[class*="rounded-lg"]');
       expect(box, 'debe aparecer la caja de vista previa').toBeTruthy();
       const surface = backgroundOf(box.className, '#0e3a50');
-      expect(surface.toLowerCase(), 'la vista previa no puede ser blanca con texto blanco').not.toBe('#ffffff');
+      expect(surface.toLowerCase(), 'la vista previa usa una superficie clara con texto oscuro').toBe('#ffffff');
       expect(expectContrast(box, { surface, min: 4.5, label: 'vista previa' })).toBeGreaterThanOrEqual(4.5);
     });
 

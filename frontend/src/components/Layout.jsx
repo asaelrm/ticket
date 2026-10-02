@@ -109,6 +109,7 @@ const TITLES = {
 export default function Layout() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [theme, setTheme] = useState(() => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'));
   const [q, setQ] = useState('');
   const [now, setNow] = useState(() => new Date());
   const location = useLocation();
@@ -122,6 +123,13 @@ export default function Layout() {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('sifha-theme', next);
+    setTheme(next);
+  }
 
   function onGlobalSearch(e) {
     e.preventDefault();
@@ -189,21 +197,20 @@ export default function Layout() {
   const sidebar = (
     <div className="flex h-full flex-col">
       <button
-        className="mx-3 mb-3 mt-3 flex items-center gap-3 rounded-2xl border border-cyan-300/20 bg-[#0e3a50] px-3 py-2.5 text-left shadow-lg shadow-slate-950/20"
+        className="mx-3 mb-3 mt-3 flex flex-col items-center rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-center"
         onClick={() => navigate('/app')}
-        title="Centro Médico UCE · NexTurn"
+        title="SIFHA · Mesa de Ayuda"
       >
-        <span className="flex h-10 w-20 shrink-0 items-center">
+        <span className="flex h-14 w-full items-center justify-center">
           <img
-            alt="Centro Médico UCE"
+            alt="SIFHA"
             className="h-full w-full object-contain"
-            src="/logo-centro-medico-uce-white.png"
+            src="/logo/TSIFHA-PNG.png"
           />
         </span>
-        <span className="hidden min-w-0 md:block">
-          <span className="block text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">Centro Médico UCE</span>
-          <span className="block text-base font-extrabold leading-tight text-white">Tickets</span>
-          <span className="block truncate text-[11px] text-slate-300/70">Gestión de incidencias</span>
+        <span className="block min-w-0">
+          <span className="block text-base font-extrabold leading-tight text-white">Mesa de Ayuda</span>
+          <span className="mt-0.5 block text-[11px] text-slate-300/70">Gestión de incidencias</span>
         </span>
       </button>
 
@@ -245,11 +252,8 @@ export default function Layout() {
       </nav>
 
       <div className="mt-2 border-t border-white/10 p-3">
-        <p className="px-2 pb-2 text-center text-[11px] font-medium italic text-emerald-200/70">
-          “Tu salud, nuestra prioridad”
-        </p>
         <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-bold text-emerald-200">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
             {initials}
           </span>
           <div className="min-w-0 flex-1 hidden md:block">
@@ -289,6 +293,7 @@ export default function Layout() {
 
       <div className="lg:pl-64">
         <header className="app-topbar sticky top-0 z-20 flex items-center gap-3 px-4 py-3 lg:px-8">
+          <img src="/logo/TSIFHA-PNG.png" alt="SIFHA" className="hidden h-8 w-auto max-w-32 object-contain sm:block lg:hidden" />
           <button
             onClick={() => setOpen(true)}
             className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 lg:hidden"
@@ -314,9 +319,9 @@ export default function Layout() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar paciente, cédula o turno…"
+              placeholder="Buscar ticket, usuario o asunto"
               aria-label="Buscar"
-              className="w-52 rounded-full border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-slate-200 placeholder-slate-400 transition duration-150 focus:border-emerald-300/50 focus:outline-none focus:ring-2 focus:ring-emerald-400/20 lg:w-64"
+              className="w-52 rounded-full border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-slate-200 placeholder-slate-400 transition duration-150 focus:border-blue-300/50 focus:outline-none focus:ring-2 focus:ring-blue-400/20 lg:w-64"
             />
           </form>
 
@@ -330,6 +335,19 @@ export default function Layout() {
               </p>
             </div>
             <Notifications />
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
+              aria-label={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}
+              title={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}
+            >
+              {theme === 'dark' ? (
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path strokeLinecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg>
+              ) : (
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z" /></svg>
+              )}
+            </button>
             <button
               onClick={() => navigate('/app/profile')}
               className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-100"

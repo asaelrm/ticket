@@ -4,8 +4,8 @@ import AttachmentList from './Attachments';
 
 const EVENT_META = {
   CREATED: { icon: '✦', tint: 'bg-brand-50 text-brand-600' },
-  ASSIGNED: { icon: '👤', tint: 'bg-indigo-50 text-indigo-600' },
-  ASSIGNED_TEAM: { icon: '👥', tint: 'bg-indigo-50 text-indigo-600' },
+  ASSIGNED: { icon: '👤', tint: 'bg-blue-50 text-blue-600' },
+  ASSIGNED_TEAM: { icon: '👥', tint: 'bg-blue-50 text-blue-600' },
   STATUS_CHANGED: { icon: '🔄', tint: 'bg-amber-50 text-amber-600' },
   REOPENED: { icon: '↩️', tint: 'bg-orange-50 text-orange-600' },
   PRIORITY_CHANGED: { icon: '⚡', tint: 'bg-orange-50 text-orange-600' },
@@ -20,7 +20,7 @@ const EVENT_META = {
   CANCELLED: { icon: '⛔', tint: 'bg-red-50 text-red-600' },
   CSAT_RATED: { icon: '⭐', tint: 'bg-amber-50 text-amber-600' },
   ESCALATED: { icon: '🚨', tint: 'bg-red-50 text-red-600' },
-  PENDING_REASON_SET: { icon: '⏸', tint: 'bg-purple-50 text-purple-600' },
+  PENDING_REASON_SET: { icon: '⏸', tint: 'bg-amber-50 text-amber-600' },
 };
 
 // Acciones cuyo old_value/new_value es un código de dominio: se puede mostrar el

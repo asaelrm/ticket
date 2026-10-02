@@ -3,8 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Tickets - Gestión de incidencias · Centro Médico UCE" />
-    <title>Tickets · Centro Médico UCE</title>
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem('sifha-theme');
+          const theme = saved === 'light' || saved === 'dark'
+            ? saved
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.dataset.theme = theme;
+        } catch {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
+    <meta name="description" content="SIFHA · Mesa de Ayuda" />
+    <title>SIFHA · Mesa de Ayuda</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

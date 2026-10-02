@@ -32,27 +32,18 @@ export default function Login() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
-      <div
-        className="pointer-events-none absolute inset-0"
-        aria-hidden="true"
-        style={{
-          background:
-            'radial-gradient(700px 420px at 15% 10%, rgba(34,199,122,0.14), transparent 60%), radial-gradient(700px 420px at 85% 85%, rgba(32,199,183,0.12), transparent 60%)',
-        }}
-      />
       <div className="relative w-full max-w-md">
         <div className="card nex-pop p-8">
           <div className="mb-6 flex flex-col items-center gap-2 text-center">
-            <span className="flex h-24 w-48 items-center rounded-3xl bg-[#0a253a] p-3 shadow-xl shadow-slate-950/15">
+            <span className="flex h-24 w-full max-w-xs items-center rounded-xl bg-[var(--surface-inverse)] p-3 shadow-xl shadow-slate-950/15">
               <img
-                alt="Centro Médico UCE"
+                alt="SIFHA"
                 className="h-full w-full object-contain"
-                src="/logo-centro-medico-uce-white.png"
+                src="/logo/TSIFHA-PNG.png"
               />
             </span>
-            <h1 className="text-2xl font-extrabold text-slate-800">Tickets</h1>
-            <p className="max-w-xs text-sm text-slate-400">Gestión de incidencias</p>
-            <p className="mt-1 text-xs font-medium italic text-emerald-200/70">Comprometidos con tu salud</p>
+            <h1 className="text-2xl font-extrabold text-slate-800">SIFHA · Mesa de Ayuda</h1>
+            <p className="max-w-xs text-sm text-slate-500">Gestión de incidencias</p>
           </div>
 
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
@@ -65,7 +56,7 @@ export default function Login() {
                 className="input"
                 value={account}
                 onChange={(e) => setAccount(e.target.value)}
-                placeholder="usuario@centromedico.uce"
+                placeholder="Usuario o correo institucional"
                 autoComplete="username"
                 required
               />
@@ -76,7 +67,7 @@ export default function Login() {
                 <label className="label" htmlFor="password">
                   Contraseña
                 </label>
-                <Link to="/forgot-password" className="text-xs font-medium text-emerald-300 hover:text-emerald-200">
+                <Link to="/forgot-password" className="text-xs font-medium text-brand-600 hover:text-brand-800">
                   ¿Olvidó su contraseña?
                 </Link>
               </div>
@@ -97,7 +88,7 @@ export default function Login() {
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="h-4 w-4 rounded text-emerald-500 focus:ring-emerald-400/40"
+                className="h-4 w-4 rounded text-brand-600 focus:ring-brand-400/40"
               />
               Recordarme
             </label>
@@ -110,7 +101,7 @@ export default function Login() {
             </button>
           </form>
         </div>
-        <p className="mt-5 text-center text-xs text-slate-500">Centro Médico UCE · Tickets</p>
+        <p className="mt-5 text-center text-xs text-slate-500">SIFHA · Mesa de Ayuda</p>
       </div>
     </div>
   );

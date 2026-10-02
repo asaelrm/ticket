@@ -171,7 +171,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
             // (blanco puro) con texto slate-800, que en esta paleta también es
             // blanco: títulos y vista previa invisibles. Ahora usa las mismas
             // superficies oscuras que el resto de la aplicación.
-            className="z-50 overflow-hidden rounded-xl border border-cyan-300/40 bg-[#0e3a50] shadow-xl"
+            className="z-50 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
           >
             <div className="border-b border-cyan-300/20 p-3">
               <label className="sr-only" htmlFor="canned-search">
@@ -212,7 +212,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
                     // bg-slate-50 (#0E3A50) era idéntico al fondo del panel, así
                     // que la cabecera de grupo no se veía; slate-400 sobre
                     // #0E3A50 tampoco llegaba a 4.5:1.
-                    <p className="bg-[#08283d] px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <p className="bg-slate-50 px-3 pt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                       {scopeBadge(t)}
                     </p>
                   ) : null}
@@ -239,11 +239,11 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
             </div>
 
             {current && (
-              <div className="border-t border-cyan-300/20 bg-[#08283d] p-3">
+              <div className="border-t border-slate-200 bg-slate-50 p-3">
                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Vista previa</p>
                 {/* El cuerpo se escapa antes de aplicar markdown: nunca HTML crudo. */}
                 <div
-                  className="max-h-28 overflow-y-auto rounded-lg border border-cyan-300/20 bg-[#0b3046] p-2 text-sm text-slate-600"
+                  className="max-h-28 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 text-sm text-slate-600"
                   dangerouslySetInnerHTML={{ __html: renderMessage(expansion.text) }}
                 />
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -278,7 +278,7 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
               </div>
             )}
 
-            <div className="flex flex-wrap justify-between gap-2 border-t border-cyan-300/20 bg-[#08283d] px-3 py-2 text-xs">
+            <div className="flex flex-wrap justify-between gap-2 border-t border-slate-200 bg-slate-50 px-3 py-2 text-xs">
               {onManagePersonal && (
                 <button type="button" className="text-brand-300 hover:underline" onClick={() => { close(); onManagePersonal(); }}>
                   Administrar mis plantillas

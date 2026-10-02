@@ -205,5 +205,5 @@ export function expectPlaceholderContrast(element, { surface, min = 3, label = '
 }
 
 /** Superficies del editor, mirroring TicketDetail.jsx. */
-export const EDITOR_SURFACE = '#0b3046';
-export const TOOLBAR_SURFACE = '#08283d';
+export const EDITOR_SURFACE = '#ffffff';
+export const TOOLBAR_SURFACE = '#f8fafc';

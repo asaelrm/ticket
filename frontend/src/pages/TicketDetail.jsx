@@ -591,9 +591,9 @@ export default function TicketDetail() {
       {(error || queryError) && <ErrorBox message={error || queryError?.message || 'No se pudo cargar el ticket'} />}
 
       {isReporter && ['RESOLVED', 'CLOSED'].includes(t.status) && !t.csat_answered_at && options?.csat_enabled !== false && (
-        <div className="card border-brand-200 bg-brand-50/50 p-5">
-          <h3 className="text-sm font-semibold text-slate-800">¿Cómo fue la atención recibida?</h3>
-          <p className="mt-0.5 text-sm text-slate-500">Su opinión nos ayuda a mejorar el servicio.</p>
+        <div className="card border-[var(--border-strong)] bg-[var(--surface)] p-5">
+          <h3 className="text-sm font-semibold text-[var(--text)]">¿Cómo fue la atención recibida?</h3>
+          <p className="mt-0.5 text-sm text-[var(--text-muted)]">Su opinión nos ayuda a mejorar el servicio.</p>
           <div className="mt-3 flex items-center gap-1.5">
             {[1, 2, 3, 4, 5].map((n) => (
               <button
@@ -601,12 +601,17 @@ export default function TicketDetail() {
                 type="button"
                 aria-label={`${n} estrellas`}
                 onClick={() => setCsatRating(n)}
-                className={`text-3xl leading-none transition ${n <= csatRating ? 'text-amber-400' : 'text-slate-300 hover:text-amber-300'}`}
+                /* El punte global :focus-visible (outline --focus) cubre el foco de
+                   teclado; `rounded` sólo evita que ese contorno se dibuje como un
+                   rectángulo sobre el glifo. */
+                className={`rounded px-0.5 text-3xl leading-none transition ${
+                  n <= csatRating ? 'text-[var(--warning)]' : 'text-[var(--text-muted)] hover:text-[var(--warning)]'
+                }`}
               >
                 ★
               </button>
             ))}
-            {csatRating > 0 && <span className="ml-2 text-sm font-medium text-slate-600">{csatRating}/5</span>}
+            {csatRating > 0 && <span className="ml-2 text-sm font-medium text-[var(--text)]">{csatRating}/5</span>}
           </div>
           <textarea
             className="input mt-3 min-h-[70px] resize-y"
@@ -628,7 +633,7 @@ export default function TicketDetail() {
         <div className="card p-4">
           <p className="text-sm text-slate-600">
             <span className="font-medium">Satisfacción del usuario:</span>{' '}
-            <span className="text-amber-500">{'★'.repeat(t.csat_rating || 0)}{'☆'.repeat(5 - (t.csat_rating || 0))}</span>{' '}
+            <span className="text-[var(--warning)]">{'★'.repeat(t.csat_rating || 0)}{'☆'.repeat(5 - (t.csat_rating || 0))}</span>{' '}
             <span className="font-semibold text-slate-700">{t.csat_rating}/5</span>
             {t.csat_comment ? ` — ${t.csat_comment}` : ''}
           </p>
@@ -720,8 +725,8 @@ export default function TicketDetail() {
               </div>
 
               <form onSubmit={onSubmitComment} className="space-y-3" noValidate>
-                <div className="overflow-hidden rounded-xl border border-cyan-300/40 bg-[#0b3046] focus-within:border-brand-400">
-                  <div className="flex flex-wrap items-center gap-1 border-b border-cyan-300/20 bg-[#08283d] px-2 py-1.5">
+                <div className="overflow-hidden rounded-xl border border-slate-300 bg-white focus-within:border-brand-400">
+                  <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 py-1.5">
                     <ToolbarButton label="Negrita" onClick={() => applyFormat('**', '**', 'negrita')}>
                       <b>N</b>
                     </ToolbarButton>
@@ -751,7 +756,7 @@ export default function TicketDetail() {
                     // slate-50..300 son superficies oscuras y slate-400..950 son
                     // textos claros. Con text-slate-100 (un azul marino) sobre este
                     // fondo el texto quedaba en 1.04:1, es decir invisible.
-                    className="min-h-[110px] w-full resize-y border-0 bg-[#0b3046] px-3.5 py-3 text-sm text-slate-700 caret-brand-300 placeholder:text-slate-500 focus:outline-none"
+                    className="min-h-[110px] w-full resize-y border-0 bg-white px-3.5 py-3 text-sm text-slate-700 caret-brand-600 placeholder:text-slate-500 focus:outline-none"
                     value={message}
                     onChange={(e) => onMessageChange(e.target.value)}
                     placeholder={
@@ -823,7 +828,7 @@ export default function TicketDetail() {
           {t.status === 'PENDING' && t.pending_reason && (
             <div className="card p-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Motivo de espera</h3>
-              <p className="mt-1 text-sm text-purple-700">{t.pending_reason}</p>
+              <p className="mt-1 text-sm text-amber-700">{t.pending_reason}</p>
             </div>
           )}
 

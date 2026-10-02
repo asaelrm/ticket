@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { render } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -38,6 +38,21 @@ const link = (name) => screen.getAllByRole('link', { name })[0];
 beforeEach(() => {
   vi.clearAllMocks();
   authState.user = VIEWER;
+  document.documentElement.dataset.theme = 'light';
+  localStorage.clear();
+});
+
+describe('Layout · tema visual', () => {
+  it('alterna el tema y conserva la preferencia local', () => {
+    renderLayout();
+
+    const toggle = screen.getByRole('button', { name: 'Activar tema oscuro' });
+    fireEvent.click(toggle);
+
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(localStorage.getItem('sifha-theme')).toBe('dark');
+    expect(screen.getByRole('button', { name: 'Activar tema claro' })).toBeInTheDocument();
+  });
 });
 
 describe('Layout · navegación de la base de conocimiento', () => {
