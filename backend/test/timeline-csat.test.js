@@ -196,16 +196,21 @@ describe('Reabrir un ticket reinicia la encuesta CSAT', () => {
     assert.equal(fila.csat_answered_at, null);
   });
 
-  it('PATCH a OPEN también borra la valoración', async () => {
+  it('un PATCH a OPEN ya no reabrir, así que tampoco toca la valoración', async () => {
     const ticket = await ticketResueltoYMegusto();
 
+    // Reabrir por el PATCH genérico era un bypass del endpoint dedicado
+    // (ticket.reopen + motivo + auditoría) y de paso reiniciaba el CSAT sin
+    // dejar rastro de por qué. Ahora el PATCH rechaza la transición, de modo que
+    // la valoración sigue siendo la de la resolución que está en pie. El
+    // reinicio al reabrir de verdad lo cubre el test de POST /reopen de arriba.
     const reopen = await adminC.patch(`/api/tickets/${ticket.id}`, { status: 'OPEN' });
-    assert.equal(reopen.status, 200);
+    assert.equal(reopen.status, 400);
 
     const fila = leerCsat(ticket.id);
-    assert.equal(fila.csat_rating, null);
-    assert.equal(fila.csat_comment, null);
-    assert.equal(fila.csat_answered_at, null);
+    assert.equal(fila.csat_rating, 1);
+    assert.equal(fila.csat_comment, 'Seguía sin funcionar');
+    assert.ok(fila.csat_answered_at);
   });
 
   it('el ticket reabierto vuelve a aceptar una encuesta nueva', async () => {

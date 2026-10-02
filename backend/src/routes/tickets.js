@@ -8,7 +8,7 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { uploadMiddleware, uploadSizeError } from '../middleware/upload.js';
 import { validateFile, persistUpload } from '../utils/fileType.js';
 import { nextTicketNumber } from '../utils/ticketNumber.js';
-import { computeSlaDue, OPEN_STATUSES } from '../utils/sla.js';
+import { computeSlaDue, OPEN_STATUSES, slaAtRiskUntilIso } from '../utils/sla.js';
 import { getWorkflowOptions, requireResolutionToClose, isCsatEnabled } from '../utils/options.js';
 import { emitTicketEvent, onTicketEvent } from '../utils/ticketBus.js';
 import { notifyAssigned, notifyComment, notifyResolved, notifyCancelled } from '../utils/mailer.js';
@@ -38,13 +38,13 @@ export const PRIORITY_LABEL = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRIT
 
 // Filtro de tiempo de atención (`?sla=…`). `overdue` reproduce la misma
 // condición que ya usaban `view=overdue` y el contador `overdue`; `due_soon`
-// aplica la ventana de 24 h que ya define /api/dashboard/sla (routes/dashboard.js),
-// de modo que "próximo a vencer" se lea igual en el tablero y en la lista.
+// aplica la ventana compartida SLA_AT_RISK_HOURS (utils/sla.js), la misma que
+// define /api/dashboard/sla, de modo que "próximo a vencer" se lea igual en el
+// tablero y en la lista.
 // Vive en GET /api/tickets y en GET /api/tickets/export porque ambos llaman a
 // `buildConditions`: no hay endpoint nuevo para un filtro que ya encaja en el
 // listado general.
 export const SLA_FILTERS = ['overdue', 'due_soon'];
-const SLA_AT_RISK_HOURS = 24;
 
 // ---------------------------------------------------------------------------
 // Helpers de acceso e historial
@@ -332,7 +332,7 @@ function buildConditions(req, viewOnlyOwn) {
       params.push(nowIso());
     } else {
       conds.push('t.sla_due_at >= ? AND t.sla_due_at < ?');
-      params.push(nowIso(), new Date(Date.now() + SLA_AT_RISK_HOURS * 3600000).toISOString());
+      params.push(nowIso(), slaAtRiskUntilIso());
     }
   }
 
@@ -935,7 +935,6 @@ router.patch('/:id', (req, res) => {
 
   const canManage = hasPerm(req.user, 'ticket.update.any');
   const canAssign = hasPerm(req.user, 'ticket.assign');
-  const canReopen = canManage || hasPerm(req.user, 'ticket.reopen');
 
   const body = req.body || {};
   const sets = [];
@@ -950,30 +949,28 @@ router.patch('/:id', (req, res) => {
     if (ticket.status === 'CANCELLED' && body.status !== 'CANCELLED') {
       return res.status(400).json({ error: 'No puede cambiar el estado de un ticket cancelado' });
     }
-    const reopening = ['RESOLVED', 'CLOSED'].includes(ticket.status) && body.status === 'OPEN';
-    if (reopening && !canReopen) return res.status(403).json({ error: 'No tiene permiso para reabrir el ticket' });
+    // Desde un RESOLVED/CLOSED no se vuelve a la cola de trabajo por el PATCH
+    // genérico. Reabrir tiene permiso y motivo propios (POST /:id/reopen:
+    // `ticket.reopen` más un `reason` obligatorio) y además escribe
+    // reopened_at/reopened_by/reopen_reason. Aceptar aquí la transición la
+    // esquivaba entera: bastaba `ticket.update.any` para devolver el ticket al
+    // trabajo sin motivo y sin rastro de quién lo hizo. Se bloquea con cualquier
+    // destino, no sólo con OPEN, porque mandar un RESOLVED a IN_PROGRESS o a
+    // PENDING era la misma reapertura con otro nombre. Las transiciones
+    // legítimas (OPEN/ASSIGNED/IN_PROGRESS/PENDING entre sí) siguen por aquí, y
+    // CANCELLED conserva su propia regla de más arriba.
+    if (['RESOLVED', 'CLOSED'].includes(ticket.status)) {
+      return res.status(400).json({ error: 'Use el endpoint de reapertura para reabrir el ticket' });
+    }
     if (body.status !== ticket.status) {
       sets.push({ col: 'status = ?', val: body.status });
       entries.push({
-        action: reopening ? 'REOPENED' : 'STATUS_CHANGED',
+        action: 'STATUS_CHANGED',
         desc: historyDesc('status', ticket, body.status),
         old: ticket.status,
         new: body.status,
       });
-      if (reopening) {
-        // La fecha de resolución se limpia para no distorsionar métricas, pero
-        // el contenido de la resolución anterior se conserva (no se borra).
-        sets.push({ col: 'resolved_at = ?', val: null });
-        sets.push({ col: 'closed_at = ?', val: null });
-        sets.push({ col: 'pending_reason = ?', val: null });
-        sets.push({ col: 'sla_due_at = ?', val: computeSlaDue(ticket.priority) });
-        // La encuesta CSAT mide la satisfacción con la resolución anterior. Al reabrir
-        // el ticket esa valoración deja de ser válida y se reinicia, para que
-        // el reporte no mezcle una nota con un servicio que aún no ha ocurrido.
-        sets.push({ col: 'csat_rating = ?', val: null });
-        sets.push({ col: 'csat_comment = ?', val: null });
-        sets.push({ col: 'csat_answered_at = ?', val: null });
-      } else if (body.status === 'RESOLVED') {
+      if (body.status === 'RESOLVED') {
         sets.push({ col: 'resolved_at = ?', val: nowIso() });
         sets.push({ col: 'resolved_by = ?', val: req.user.id });
         sets.push({ col: 'closed_at = ?', val: null });

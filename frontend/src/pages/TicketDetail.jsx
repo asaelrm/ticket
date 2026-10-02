@@ -24,6 +24,11 @@ import TemplatePicker from '../components/TemplatePicker';
 import TicketArticles from '../components/TicketArticles';
 import { buildVariableContext, MAX_COMMENT_LENGTH } from '../lib/templateVars';
 
+// Estados desde los que sólo se sale por el flujo dedicado POST /:id/reopen
+// (tickets.js). CANCELLED no entra: su regla es "no se cambia de estado" y se
+// mantiene tal cual.
+const REOPENABLE_STATUSES = ['RESOLVED', 'CLOSED'];
+
 export default function TicketDetail() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -112,7 +117,17 @@ export default function TicketDetail() {
   // `<option>` que había antes, incluidas las entradas vacías de asignación,
   // equipo y categoría. No se marca ninguna opción como deshabilitada: los
   // permisos se aplican antes, decidiendo si el control se pinta siquiera.
-  const statusOptions = useMemo(() => STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] })), []);
+  //
+  // Desde un RESOLVED/CLOSED el backend ya no acepta volver a la cola por el PATCH
+  // genérico, así que aquí tampoco se ofrece: la reapertura va sólo por el modal
+  // que exige motivo. "Abierto" se muestra únicamente con ticket.reopen, que es
+  // quien puede ejecutarla; el estado actual siempre se incluye para que el
+  // control siga mostrando su valor en lugar del placeholder.
+  const statusOptions = useMemo(() => {
+    const all = STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }));
+    if (!REOPENABLE_STATUSES.includes(data?.ticket?.status)) return all;
+    return all.filter((o) => o.value === data.ticket.status || (data?.can?.reopen && o.value === 'OPEN'));
+  }, [data?.ticket?.status, data?.can?.reopen]);
   const priorityOptions = useMemo(() => PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] })), []);
   const assigneeOptions = useMemo(
     () => [
@@ -305,7 +320,7 @@ export default function TicketDetail() {
       setPendingOpen(true);
       return;
     }
-    if (value === 'OPEN' && ['RESOLVED', 'CLOSED'].includes(t.status) && can.reopen) {
+    if (value === 'OPEN' && REOPENABLE_STATUSES.includes(t.status) && can.reopen) {
       setReopenOpen(true);
       return;
     }
@@ -499,7 +514,7 @@ export default function TicketDetail() {
               Resolver ticket
             </button>
           )}
-          {can.reopen && ['RESOLVED', 'CLOSED'].includes(t.status) && (
+          {can.reopen && REOPENABLE_STATUSES.includes(t.status) && (
             <button type="button" className="btn-secondary" onClick={() => setReopenOpen(true)}>
               Reabrir
             </button>

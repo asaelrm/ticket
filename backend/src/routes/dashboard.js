@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { slaAtRiskUntilIso } from '../utils/sla.js';
 
 const router = express.Router();
 router.use(requireAuth, requirePermission('dashboard.view'));
@@ -46,7 +47,7 @@ router.get('/by-status', (req, res) => {
 // Estado SLA de los turnos/tickets abiertos: vencidos, próximos a vencer y dentro de plazo.
 router.get('/sla', (req, res) => {
   const nowIso = new Date().toISOString();
-  const in24Iso = new Date(Date.now() + 24 * 3600000).toISOString();
+  const in24Iso = slaAtRiskUntilIso();
   const ph = OPEN_STATUSES.map(() => '?').join(',');
   const inClause = 'status IN (' + ph + ') AND sla_due_at IS NOT NULL';
   const overdue = db
@@ -243,7 +244,7 @@ const ATTENTION_FILTER =
 
 router.get('/needs-attention', (req, res) => {
   const now = new Date().toISOString();
-  const in24 = new Date(Date.now() + 24 * 3600000).toISOString();
+  const in24 = slaAtRiskUntilIso();
   const openPh = OPEN_STATUSES.map(() => '?').join(',');
 
   // El corte es un tope de presentación, no un filtro de negocio: los totales

@@ -625,8 +625,9 @@ describe('Tickets · acciones de estado con los endpoints dedicados', () => {
 
     // No se llama al backend hasta recoger la solución obligatoria.
     expect(api.post).not.toHaveBeenCalled();
+    expect(await screen.findByRole('dialog', { name: 'Resolver TCK-000001' })).toBeInTheDocument();
     await user.type(await screen.findByLabelText(/Solución \/ trabajo realizado/), 'Se reinició el router');
-    await user.click(screen.getByRole('button', { name: 'Resolver 1 ticket(s)' }));
+    await user.click(screen.getByRole('button', { name: 'Resolver ticket' }));
 
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/tickets/1/resolve', { resolution: 'Se reinició el router' })
@@ -1030,5 +1031,160 @@ describe('Tickets · el chip "Mi equipo" depende de la pertenencia a equipos', (
     });
     expect(searchOf(history).get('view')).toBeNull();
     expect(history.length).toBe(2);
+  });
+});
+
+// La bandeja ya cubría el bloqueo por doble clic; aquí se demuestra que el
+// listado completo comparte ese mismo comportamiento y el mismo feedback.
+describe('Tickets · acciones de fila', () => {
+  const HOUR = 3600000;
+
+  function withRows(rows) {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp(rows));
+      if (url === '/api/categories') return Promise.resolve({ data: [] });
+      if (url === '/api/departments') return Promise.resolve({ data: [] });
+      if (url === '/api/users/assignable') return Promise.resolve({ data: [] });
+      if (url === '/api/teams/assignable') return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+  }
+
+  it('no duplica el PATCH si se pulsa dos veces "Tomar ticket"', async () => {
+    const user = userEvent.setup();
+    let releasePatch;
+    api.patch.mockImplementation(() => new Promise((r) => { releasePatch = () => r({}); }));
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    const tomar = screen.getByRole('button', { name: 'Tomar ticket TCK-000001' });
+    await user.click(tomar);
+    await user.click(tomar);
+
+    expect(api.patch).toHaveBeenCalledTimes(1);
+
+    await act(async () => { releasePatch(); });
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+  });
+
+  it('confirma con un aviso accesible que el ticket se tomó', async () => {
+    const user = userEvent.setup();
+    api.patch.mockResolvedValue({ data: row({ assigned_to_id: 7 }) });
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Tomar ticket TCK-000001' }));
+
+    const aviso = await screen.findByRole('status');
+    expect(aviso).toHaveTextContent('TCK-000001');
+  });
+
+  it('muestra el error del servidor y no un aviso de éxito', async () => {
+    const user = userEvent.setup();
+    api.patch.mockRejectedValue(new Error('No tiene permiso para asignar tickets'));
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Tomar ticket TCK-000001' }));
+
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent('No tiene permiso para asignar tickets');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('muestra el error del servidor cuando la resolución falla y conserva el diálogo', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    api.post.mockRejectedValue(new Error('El ticket ya está en un estado terminal'));
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Marcar resuelto/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Resolver TCK-000001' });
+    await user.type(within(dialog).getByLabelText(/Solución \/ trabajo realizado/), 'Se cambió la fuente');
+    await user.click(within(dialog).getByRole('button', { name: 'Resolver ticket' }));
+
+    // El rechazo llega hasta el diálogo: no se pierde la solución escrita.
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('El ticket ya está en un estado terminal');
+    expect(within(dialog).getByLabelText(/Solución \/ trabajo realizado/)).toHaveValue('Se cambió la fuente');
+  });
+
+  it.each([
+    ['Iniciar atención', 'OPEN', 'IN_PROGRESS'],
+    ['Poner en espera', 'IN_PROGRESS', 'PENDING'],
+    ['Reanudar', 'PENDING', 'IN_PROGRESS'],
+  ])('la acción rápida "%s" hace el PATCH %s → %s', async (label, status, esperado) => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    withRows([row({ status, assigned_to_id: 7 })]);
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: `${label} TCK-000001` }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: esperado }));
+  });
+
+  it.each(['RESOLVED', 'CLOSED', 'CANCELLED'])('no ofrece acciones sobre un ticket %s', async (status) => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    withRows([row({ status, assigned_to_id: 7 })]);
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.queryByRole('button', { name: /Tomar ticket|Iniciar atención|Resolver|Reanudar|Poner en espera/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(1);
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('oculta las acciones de fila a un usuario sin permisos', async () => {
+    authState.user = { id: 7, name: 'Empleado', permissions: [] };
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.queryByRole('button', { name: /Tomar ticket|Iniciar atención|Resolver|Reanudar/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '⋯' })).not.toBeInTheDocument();
+  });
+
+  it('distingue SLA vencido, próximo y ausente sin teñir la fila', async () => {
+    authState.user = FULL;
+    withRows([
+      row({ id: 1, status: 'IN_PROGRESS', assigned_to_id: 7, sla_due_at: new Date(Date.now() - 2 * HOUR).toISOString(), is_overdue: true }),
+      row({ id: 2, ticket_number: 'TCK-000002', status: 'IN_PROGRESS', assigned_to_id: 7, sla_due_at: new Date(Date.now() + 3 * HOUR).toISOString() }),
+      row({ id: 3, ticket_number: 'TCK-000003', status: 'OPEN', sla_due_at: null }),
+    ]);
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    const vencida = screen.getByText('TCK-000001').closest('tr');
+    const proxima = screen.getByText('TCK-000002').closest('tr');
+    const sinPlazo = screen.getByText('TCK-000003').closest('tr');
+
+    expect(within(vencida).getByText(/Vencido hace/)).toBeInTheDocument();
+    expect(within(proxima).getByText(/Vence en/)).toBeInTheDocument();
+    expect(within(sinPlazo).getByText('Sin SLA')).toBeInTheDocument();
+
+    // Sólo la celda marca la urgencia; la fila entera no se pinta de rojo.
+    expect(vencida.className).not.toMatch(/bg-red/);
+    expect(proxima.className).not.toMatch(/bg-amber/);
+  });
+
+  it('muestra la última actividad desde el listado, sin peticiones por fila', async () => {
+    authState.user = FULL;
+    withRows([row({ assigned_to_id: 7, updated_at: new Date(Date.now() - 5 * HOUR).toISOString() })]);
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.getByText('hace 5 h')).toBeInTheDocument();
+    // `updated_at` viene en el mismo listado: ni una consulta por fila (los ids
+    // sueltos bajo /api/tickets/ son précisément las que habría que evitar).
+    const porFila = api.get.mock.calls.filter(([url]) => /^\/api\/tickets\/\d+/.test(url));
+    expect(porFila).toHaveLength(0);
   });
 });

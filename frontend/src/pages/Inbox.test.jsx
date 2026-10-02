@@ -494,8 +494,11 @@ describe('Inbox · acciones de estado con los endpoints dedicados', () => {
     await user.click(screen.getAllByRole('button', { name: '⋯' })[0]);
     await user.click(await screen.findByRole('menuitem', { name: /Marcar resuelto/ }));
 
+    // El diálogo propio de un ticket titula con su número, no con un contador
+    // de lote: es la acción de una fila, no de una selección.
+    expect(await screen.findByRole('dialog', { name: 'Resolver TCK-000001' })).toBeInTheDocument();
     await user.type(await screen.findByLabelText(/Solución \/ trabajo realizado/), 'Se reinició el equipo');
-    await user.click(screen.getByRole('button', { name: 'Resolver 1 ticket(s)' }));
+    await user.click(screen.getByRole('button', { name: 'Resolver ticket' }));
 
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/tickets/1/resolve', { resolution: 'Se reinició el equipo' })
@@ -1185,5 +1188,147 @@ describe('Inbox · resumen, SLA y filtros activos', () => {
     expect(indicator('Críticos')).toHaveAttribute('aria-pressed', 'false');
     const [url] = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).pop();
     expect(url).not.toContain('priority=');
+  });
+});
+
+// El bloqueo por doble clic y el aviso de éxito ya están cubiertos arriba; aquí
+// se cierra la cobertura de los estados, el SLA y la actividad en la fila.
+describe('Inbox · acciones de fila por estado', () => {
+  const HOUR = 3600000;
+
+  function withRows(rows) {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/tickets/counters') return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp(rows));
+      if (url === '/api/categories') return Promise.resolve({ data: [] });
+      if (url === '/api/departments') return Promise.resolve({ data: [] });
+      if (url === '/api/users/assignable') return Promise.resolve({ data: [] });
+      if (url === '/api/teams/assignable') return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+  }
+
+  it.each([
+    ['Iniciar atención', 'OPEN', 'IN_PROGRESS'],
+    ['Poner en espera', 'IN_PROGRESS', 'PENDING'],
+    ['Reanudar', 'PENDING', 'IN_PROGRESS'],
+  ])('la acción rápida "%s" hace el PATCH %s → %s', async (label, status, esperado) => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    withRows([row({ status, assigned_to_id: 7 })]);
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: `${label} TCK-000001` }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: esperado }));
+  });
+
+  it.each(['RESOLVED', 'CLOSED', 'CANCELLED'])('no ofrece acciones sobre un ticket %s', async (status) => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    withRows([row({ status, assigned_to_id: 7 })]);
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.queryByRole('button', { name: /Tomar ticket|Iniciar atención|Resolver|Reanudar|Poner en espera/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getAllByRole('menuitem')).toHaveLength(1);
+    expect(api.patch).not.toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('no ofrece resolver sin ticket.resolve', async () => {
+    authState.user = { id: 7, name: 'Admin', department_id: 3, permissions: ['ticket.assign', 'ticket.update.any'] };
+    withRows([row({ status: 'IN_PROGRESS', assigned_to_id: 7 })]);
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.queryByRole('button', { name: /Resolver TCK/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Poner en espera TCK-000001' })).toBeInTheDocument();
+  });
+
+  it('muestra el error del servidor cuando la resolución falla y conserva el diálogo', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    api.post.mockRejectedValue(new Error('El ticket ya está en un estado terminal'));
+    withRows([row({ status: 'IN_PROGRESS', assigned_to_id: 7 })]);
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Resolver TCK-000001' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Resolver TCK-000001' });
+    await user.type(within(dialog).getByLabelText(/Solución \/ trabajo realizado/), 'Se cambió la fuente');
+    await user.click(within(dialog).getByRole('button', { name: 'Resolver ticket' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('El ticket ya está en un estado terminal');
+    expect(within(dialog).getByLabelText(/Solución \/ trabajo realizado/)).toHaveValue('Se cambió la fuente');
+  });
+
+  it('distingue SLA vencido, próximo y ausente sin teñir la fila', async () => {
+    authState.user = FULL;
+    withRows([
+      row({ id: 1, status: 'IN_PROGRESS', assigned_to_id: 7, sla_due_at: new Date(Date.now() - 2 * HOUR).toISOString(), is_overdue: true }),
+      row({ id: 2, ticket_number: 'TCK-000002', status: 'IN_PROGRESS', assigned_to_id: 7, sla_due_at: new Date(Date.now() + 3 * HOUR).toISOString() }),
+      row({ id: 3, ticket_number: 'TCK-000003', status: 'OPEN', sla_due_at: null }),
+    ]);
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    const vencida = screen.getByText('TCK-000001').closest('tr');
+    const proxima = screen.getByText('TCK-000002').closest('tr');
+    const sinPlazo = screen.getByText('TCK-000003').closest('tr');
+
+    expect(within(vencida).getByText(/Vencido hace/)).toBeInTheDocument();
+    expect(within(proxima).getByText(/Vence en/)).toBeInTheDocument();
+    expect(within(sinPlazo).getByText('Sin SLA')).toBeInTheDocument();
+    expect(vencida.className).not.toMatch(/bg-red/);
+  });
+
+  it('muestra la última actividad desde el listado, sin peticiones por fila', async () => {
+    authState.user = FULL;
+    withRows([row({ assigned_to_id: 7, updated_at: new Date(Date.now() - 5 * HOUR).toISOString() })]);
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.getByText('hace 5 h')).toBeInTheDocument();
+    const porFila = api.get.mock.calls.filter(([url]) => /^\/api\/tickets\/\d+/.test(url));
+    expect(porFila).toHaveLength(0);
+  });
+
+  // Caso reportado en la prueba visual: un IN_PROGRESS de "Mis activos", ya
+  // asignado al técnico que lo mira. El menú tiene que ofrecer "Poner en
+  // espera" y no puede ofrecer "Asignarme a mí" sobre un ticket que ya es suyo.
+  describe('el menú de un ticket en proceso que ya es mío', () => {
+    async function abrirMenu() {
+      const user = userEvent.setup();
+      authState.user = FULL;
+      withRows([row({ status: 'IN_PROGRESS', assigned_to_id: 7 })]);
+      renderWithProviders(<Inbox />, { route: '/app/inbox?tab=mine' });
+      await screen.findByText('TCK-000001');
+      await user.click(screen.getByRole('button', { name: '⋯' }));
+      const menu = await screen.findByRole('menu');
+      return within(menu).getAllByRole('menuitem').map((m) => m.textContent.trim());
+    }
+
+    it('ofrece exactamente Ver detalle, Poner en espera, Marcar resuelto, Cerrar y Cancelar', async () => {
+      expect(await abrirMenu()).toEqual([
+        '🔎Ver detalle',
+        '⏸️Poner en espera',
+        '✅Marcar resuelto',
+        '📁Cerrar ticket',
+        '🚫Cancelar ticket',
+      ]);
+    });
+
+    it('no ofrece "Asignarme a mí" sobre un ticket que ya tengo', async () => {
+      expect(await abrirMenu()).not.toContain('🙋Asignarme a mí');
+    });
+
+    it('no ofrece "Marcar en proceso" sobre un ticket que ya lo está', async () => {
+      expect(await abrirMenu()).not.toContain('⏳Marcar en proceso');
+    });
   });
 });

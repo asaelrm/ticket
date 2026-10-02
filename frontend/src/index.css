@@ -253,6 +253,15 @@
     line-height: 1.375;
     color: #c6d6e2;
   }
+  /* Tabla densa para el listado de tickets: con diez columnas, los 24 px de
+     relleno horizontal de cada celda se comían más de 200 px de ancho que no
+     aportaban nada. Se recorta sólo dentro de `.table-compact` (que aplica la
+     tabla de tickets) para no tocar las tablas del Dashboard ni de artículos. */
+  .table-compact .th,
+  .table-compact .td {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
 }
 
 /* ============================================================

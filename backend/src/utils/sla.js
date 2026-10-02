@@ -34,3 +34,16 @@ export function computeSlaDue(priority, from = new Date()) {
 }
 
 export const OPEN_STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING'];
+
+// Ventana de "próximo a vencer" (SLA_DUE_SOON / `?sla=due_soon`). Es una sola
+// constante compartida porque el mismo concepto se calcula en tres sitios:
+// /api/dashboard/sla, /api/dashboard/needs-attention y el filtro `?sla=due_soon`
+// de /api/tickets. Con el número repetido en cada uno, cambiarlo en un sitio
+// dejaba el tablero diciendo una cosa y el listado otra, sin que ningún test
+// fallara. Importarla desde aquí es lo que hace que no puedan divergir.
+export const SLA_AT_RISK_HOURS = 24;
+
+// Fecha ISO límite de esa ventana, en el instante actual.
+export function slaAtRiskUntilIso(now = Date.now()) {
+  return new Date(now + SLA_AT_RISK_HOURS * 3600000).toISOString();
+}

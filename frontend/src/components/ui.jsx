@@ -137,18 +137,37 @@ export function Modal({ open, onClose, title, children, wide }) {
   useDialogFocus(open, onClose, dialogRef);
 
   if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm nex-fade" onClick={onClose} />
+  // El diálogo se monta en `document.body`, igual que el menú de `Select.jsx`, y
+  // no donde lo llama quien lo abre.
+  //
+  // Motivo: `.card` y `.panel-glass` del tema declaran `backdrop-filter`, que
+  // convierte al ancestro en bloque contenedor de `fixed` (ver el comentario de
+  // `.select-menu` en index.css). Todo `<Modal>` que se abre desde dentro de una
+  // tarjeta —la tabla de la Bandeja, el detalle— resolvía su `inset-0` contra
+  // esa tarjeta en lugar de contra el viewport, y el `overflow` de la tarjeta lo
+  // recortaba: el diálogo se veía a medias y sin pie, con el botón de
+  // confirmar inalcanzable. En `body` no hay ancestro que lo recorte ni que
+  // desvíe su bloque contenedor, así que el arreglo sirve para todos los
+  // diálogos, no sólo para uno.
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto p-4">
       <div
-        className={`panel-glass relative max-h-[90vh] w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} overflow-y-auto rounded-2xl nex-pop`}
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm nex-fade"
+        data-testid="modal-backdrop"
+        onClick={onClose}
+      />
+      {/* Columna flex con la altura acotada al viewport: la cabecera no se
+          comprime y el cuerpo es lo único que se desplaza, de modo que el
+          contenido largo no empuja el pie fuera de la pantalla. */}
+      <div
+        className={`panel-glass relative flex max-h-[90vh] w-full flex-col overflow-hidden ${wide ? 'max-w-2xl' : 'max-w-lg'} rounded-2xl nex-pop`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
         ref={dialogRef}
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4">
           <h3 id={titleId} className="text-base font-semibold text-slate-800">{title}</h3>
           <button
             onClick={onClose}
@@ -160,9 +179,13 @@ export function Modal({ open, onClose, title, children, wide }) {
             </svg>
           </button>
         </div>
-        <div className="px-5 py-4">{children}</div>
+        {/* `min-h-0` es lo que permite que este hijo se encoja dentro de una
+            columna flex acotada; sin él el `overflow-y-auto` no llega a
+            activarse y el diálogo crece por debajo del viewport. */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -249,7 +272,7 @@ export function Pagination({ page, pages, total, onChange, perPage, onPerPage })
   );
 }
 
-export function Menu({ label, items, align = 'right', buttonClass = 'btn-secondary !px-2.5 !py-1.5', disabled = false }) {
+export function Menu({ label, items, align = 'right', buttonClass = 'btn-secondary !px-2.5 !py-1.5', disabled = false, ariaLabel }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const ref = useRef(null);
@@ -303,6 +326,7 @@ export function Menu({ label, items, align = 'right', buttonClass = 'btn-seconda
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
+        aria-label={ariaLabel}
       >
         {label}
       </button>

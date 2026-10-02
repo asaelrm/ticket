@@ -181,6 +181,45 @@ async function pickField(user, labelText, optionName) {
   await user.click(screen.getByRole('option', { name: optionName }));
 }
 
+// Abre el desplegable de Estado y devuelve los rótulos que ofrece, en orden.
+// Sirve para comprobar qué transiciones se ofrecen de verdad, sin tener que
+// Pulsarlas todas.
+async function offeredStatusOptions(user) {
+  await user.click(fieldSelect('Estado'));
+  const labels = screen.getAllByRole('option').map((o) => o.textContent.trim());
+  await user.keyboard('{Escape}');
+  return labels;
+}
+
+// Vista del detalle con un estado y unos permisos concretos. `detailData`
+// reemplaza `can` entero, así que se parte del juego completo del que usa el
+// resto de la suite y se ajusta sólo lo que interesa en cada caso.
+const FULL_CAN = {
+  comment: true,
+  note: true,
+  manage: true,
+  resolve: true,
+  close: true,
+  cancel: true,
+  reopen: true,
+  assign: true,
+};
+
+function detailWith(status, can = {}) {
+  return detailData({ can: { ...FULL_CAN, ...can } }, { status });
+}
+
+function mockDetail(payload) {
+  api.get.mockImplementation((url) => {
+    if (url === '/api/tickets/1') return Promise.resolve(payload);
+    if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
+    if (url === '/api/users/assignable') return Promise.resolve({ data: USERS });
+    if (url === '/api/teams/assignable') return Promise.resolve({ data: TEAMS });
+    if (url === '/api/categories?active=1') return Promise.resolve({ data: CATEGORIES });
+    return Promise.reject(new Error(`404 ${url}`));
+  });
+}
+
 describe('TicketDetail', () => {
   it('muestra los datos del ticket tras la carga', async () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
@@ -442,6 +481,89 @@ describe('TicketDetail', () => {
     await user.click(submit);
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/reopen', { reason: 'El usuario volvió a reportar el fallo' }));
+  });
+
+  // El selector de gestión se queda en lo que el backend admite: desde un
+  // RESOLVED/CLOSED la vuelta a la cola es sólo por el flujo con motivo. La
+  // protección real está en PATCH (routes/tickets.js); esto es coherencia de UX
+  // para no ofrecer una opción que el servidor va a rechazar.
+  describe('Selector de estado en estados terminales', () => {
+    it.each(['RESOLVED', 'CLOSED'])('no ofrece reabrir un %s sin ticket.reopen', async (status) => {
+      const user = userEvent.setup();
+      mockDetail(detailWith(status, { reopen: false }));
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      // Sólo el estado actual: ni siquiera aparece "Abierto", así que no hay
+      // forma de enviar la petición que el backend rechaza.
+      expect(await offeredStatusOptions(user)).toEqual([status === 'RESOLVED' ? 'Resuelto' : 'Cerrado']);
+      // Coherente con el botón de cabecera, que tampoco se pinta sin permiso.
+      expect(screen.queryByRole('button', { name: 'Reabrir' })).not.toBeInTheDocument();
+      // El control conserva su valor en vez de caer en el placeholder.
+      expect(fieldSelect('Estado')).toHaveTextContent(status === 'RESOLVED' ? 'Resuelto' : 'Cerrado');
+      expect(api.patch).not.toHaveBeenCalled();
+    });
+
+    it.each(['RESOLVED', 'CLOSED'])('mantiene la reapertura con motivo en un %s con ticket.reopen', async (status) => {
+      const user = userEvent.setup();
+      mockDetail(detailWith(status));
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      // `Select` conserva el orden de STATUSES, así que "Abierto" va primero.
+      expect(await offeredStatusOptions(user)).toEqual([
+        'Abierto',
+        status === 'RESOLVED' ? 'Resuelto' : 'Cerrado',
+      ]);
+
+      await pickField(user, 'Estado', 'Abierto');
+      const drawer = await screen.findByRole('dialog', { name: 'Reabrir ticket' });
+      const submit = within(drawer).getByRole('button', { name: 'Reabrir' });
+      expect(submit).toBeDisabled();
+
+      await user.type(within(drawer).getByPlaceholderText('Explique por qué el ticket debe reabrirse…'), 'Sigue sin resolverse');
+      await user.click(submit);
+
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/tickets/1/reopen', { reason: 'Sigue sin resolverse' }));
+      // La reapertura nunca pasa por el PATCH genérico.
+      expect(api.patch).not.toHaveBeenCalled();
+    });
+
+    it.each(['RESOLVED', 'CLOSED'])('no ofrece saltos directos a la cola desde un %s', async (status) => {
+      const user = userEvent.setup();
+      mockDetail(detailWith(status));
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      const options = await offeredStatusOptions(user);
+      // Ni con permiso de reapertura el selector permite devolver el ticket a
+      // la cola sin pasar por el modal con motivo.
+      expect(options).not.toContain('Asignado');
+      expect(options).not.toContain('En proceso');
+      expect(options).not.toContain('Pendiente');
+      expect(api.patch).not.toHaveBeenCalled();
+    });
+
+    it('mantiene CANCELLED como estaba: el selector no se toca', async () => {
+      const user = userEvent.setup();
+      mockDetail(detailWith('CANCELLED'));
+      renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+      await screen.findByText('PC no enciende');
+
+      // CANCELLED no es reabrible: su regla es "no se cambia de estado" y la
+      // gestiona el backend con su propio mensaje. Por eso aquí no se filtra
+      // nada y el desplegable sigue mostrando los siete estados.
+      expect(await offeredStatusOptions(user)).toEqual([
+        'Abierto',
+        'Asignado',
+        'En proceso',
+        'Pendiente',
+        'Resuelto',
+        'Cerrado',
+        'Cancelado',
+      ]);
+      expect(api.patch).not.toHaveBeenCalled();
+    });
   });
 
   it('marca el ticket como pendiente desde el selector de estado', async () => {

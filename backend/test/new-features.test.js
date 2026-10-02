@@ -4,6 +4,7 @@ import { createClient } from './helpers.js';
 import { sentEmails } from '../src/utils/mailer.js';
 import db from '../src/db.js';
 import { runMaintenance } from '../src/utils/jobs.js';
+import { SLA_AT_RISK_HOURS } from '../src/utils/sla.js';
 
 let adminC;
 let empC;
@@ -281,6 +282,36 @@ describe('Dashboard SLA', () => {
     const first = res.body.top[0];
     assert.equal(first.is_overdue, 1, 'el primer ticket debe ser el más urgente (vencido)');
     assert.ok(first.ticket_number && first.sla_due_at, 'debe incluir número y fecha SLA');
+  });
+
+  // El tablero y el listado ofrecen el mismo enlace ("Vencen pronto" lleva a
+  // ?sla=due_soon). Si cada uno calculara su propia ventana, el técnico vería
+  // un número en el tablero y, al pincharlo, una lista que no cuadra. Los tres
+  // sitios comparten SLA_AT_RISK_HOURS; esto lo fija para que no vuelvan a
+  // separarse al tocar cualquiera de ellos.
+  it('la ventana de "próximos a vencer" es la misma en el tablero y en el listado', async () => {
+    const iso = (ms) => new Date(Date.now() + ms).toISOString();
+
+    const atRiskBefore = (await adminC.get('/api/dashboard/sla')).body.atRisk;
+    const dueSoonBefore = (await adminC.get('/api/dashboard/needs-attention')).body.totals.dueSoon;
+
+    // Justo dentro y justo fuera de la ventana compartida.
+    const dentro = await newTicket(adminC, { priority: 'HIGH' });
+    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(iso((SLA_AT_RISK_HOURS - 1) * 3600000), dentro.id);
+    const fuera = await newTicket(adminC, { priority: 'LOW' });
+    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(iso((SLA_AT_RISK_HOURS + 1) * 3600000), fuera.id);
+
+    const listado = await adminC.get('/api/tickets?perPage=100&view=open&active=1&sla=due_soon');
+    const ids = new Set(listado.body.data.map((t) => t.id));
+    assert.ok(ids.has(dentro.id), 'el ticket dentro de la ventana debe salir en ?sla=due_soon');
+    assert.ok(!ids.has(fuera.id), 'el ticket fuera de la ventana no debe salir en ?sla=due_soon');
+
+    const atRiskAfter = (await adminC.get('/api/dashboard/sla')).body.atRisk;
+    const dueSoonAfter = (await adminC.get('/api/dashboard/needs-attention')).body.totals.dueSoon;
+
+    // Cada endpoint cuenta exactamente el mismo conjunto que el listado.
+    assert.equal(atRiskAfter - atRiskBefore, 1, '/dashboard/sla debe sumar el mismo ticket que el listado');
+    assert.equal(dueSoonAfter - dueSoonBefore, 1, '/dashboard/needs-attention debe sumar el mismo ticket que el listado');
   });
 });
 

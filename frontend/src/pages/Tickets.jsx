@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, download, ticketStatusRequest, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, download, VIEWS, CLOSED_PERIODS, SORT_OPTIONS } from '../lib/api';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { useAuth } from '../context/AuthContext';
 import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
 import BulkTicketBar from '../components/BulkTicketBar';
 import { useTicketBulk } from '../lib/useTicketBulk';
+import { useTicketRowActions } from '../lib/useTicketRowActions';
 import { useMyTeams } from '../lib/useMyTeams';
 import { LoadingScreen, ErrorBox, Spinner, Menu } from '../components/ui';
 import Select from '../components/Select';
@@ -51,17 +52,9 @@ export default function Tickets() {
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
 
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const canExport = user?.permissions?.includes('ticket.export');
-  const canAssign = user?.permissions?.includes('ticket.assign');
-  const canManage = user?.permissions?.includes('ticket.update.any');
-  // El backend exige el permiso específico de cada flujo, no solo update.any:
-  // /resolve exige ticket.resolve y /close exige ticket.close.
-  const canResolve = user?.permissions?.includes('ticket.resolve');
-  const canClose = user?.permissions?.includes('ticket.close');
 
   const update = useCallback(
     (partial, { replace = false } = {}) => {
@@ -110,17 +103,33 @@ export default function Tickets() {
     labelFor: (id) => list?.data?.find((t) => t.id === id)?.ticket_number || `Ticket ${id}`,
   });
 
+  // Mismo hook y mismo contrato que la Bandeja: aquí antes no existía ningún
+  // bloqueo anti-doble-clic, así que dos clics seguidos colgaban dos PATCH del
+  // mismo ticket. Ahora las dos pantallas comparten una única implementación.
+  const rowActions = useTicketRowActions({
+    user,
+    queryKeys: ['tickets', 'tickets-counters'],
+    onBeforeAction: () => bulk.clearFeedback(),
+  });
+
+  const { canAssign, canManage, canResolve, canClose } = rowActions.permissions;
+  // `rowActions` es un objeto nuevo en cada render, así que en las dependencias
+  // va `clearError`, que sí es estable. Con el objeto entero, este efecto se
+  // repetía en cada repintado y borraba el error de una acción nada más aparecer.
+  const { clearError } = rowActions;
+
   // Equivale al efecto [reload]: al cambiar filtros se limpia el error previo y se refrescan los contadores.
   // La selección ya la descarta `useTicketBulk` con `resetKey`.
   useEffect(() => {
-    setError('');
+    clearError();
     queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
-  }, [query, queryClient]);
+  }, [query, queryClient, clearError]);
 
   const reload = useCallback(() => {
+    clearError();
     queryClient.invalidateQueries({ queryKey: ['tickets'] });
     queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
-  }, [queryClient]);
+  }, [queryClient, clearError]);
 
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
 
@@ -170,58 +179,20 @@ export default function Tickets() {
     return counters[counterKey] ?? null;
   }
 
-  const assignMeMutation = useMutation({
-    mutationFn: (t) => api.patch(`/api/tickets/${t.id}`, { assigned_to_id: user.id }),
-    onMutate: () => {
-      setBusy(true);
-      setError('');
-      bulk.clearFeedback();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
-      queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
-    },
-    onError: (err) => {
-      setError(err.message || 'No se pudo asignar el ticket');
-    },
-    onSettled: () => {
-      setBusy(false);
-    },
-  });
-
-  const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) => {
-      const r = ticketStatusRequest(t.id, status, body);
-      return api[r.method](r.path, r.body);
-    },
-    onMutate: () => {
-      setBusy(true);
-      setError('');
-      bulk.clearFeedback();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
-      queryClient.invalidateQueries({ queryKey: ['tickets-counters'] });
-    },
-    onError: (err) => {
-      setError(err.message || 'No se pudo actualizar el estado');
-    },
-    onSettled: () => {
-      setBusy(false);
-    },
-  });
-
-  function assignMe(t) {
-    assignMeMutation.mutate(t);
+  // La fila y la barra en lote usan la misma entrada. Resolver pasa siempre por
+  // el diálogo propio de la fila, que ya exige la solución: si aquí faltara, el
+  // backend lo rechazaría y el error se vería en ese mismo diálogo.
+  //
+  // El rechazo se propaga a propósito: es lo que permite que `ResolveTicketModal`
+  // muestre el fallo y conserve lo escrito en lugar de cerrarse en silencio.
+  function changeStatus(t, status, body = {}) {
+    return rowActions.runStatus(t, status, body);
   }
 
-  function changeStatus(t, status, body = {}) {
-    // /resolve exige la solución: se pide antes de llamar al backend.
-    if (status === 'RESOLVED') {
-      bulk.requestResolve([t.id]);
-      return;
-    }
-    statusMutation.mutate({ t, status, body });
+  // Nadie espera esta promesa (botones y menú), así que se absorben los rechazos:
+  // el error ya se pinta en el `ErrorBox` de la pantalla.
+  function assignMe(t) {
+    return rowActions.assignMe(t)?.catch(() => {});
   }
 
   function exportTickets(format = 'csv') {
@@ -317,7 +288,7 @@ export default function Tickets() {
         <p className="flex items-center gap-2 text-sm text-slate-500">
           {list ? (
             <>
-              {busy && <Spinner className="h-4 w-4 text-brand-600" />}
+              {rowActions.busy && <Spinner className="h-4 w-4 text-brand-600" />}
               <span>
                 <b>{list.total}</b> ticket(s) {filters.view === 'closed' ? 'cerrados' : 'encontrados'}
                 {hasAnyFilter ? ' con los filtros aplicados' : ''}
@@ -327,6 +298,12 @@ export default function Tickets() {
             'Cargando…'
           )}
         </p>
+        {rowActions.notice && (
+          <p role="status" className="flex items-center gap-1.5 text-sm text-emerald-700">
+            <span aria-hidden="true">✓</span>
+            {rowActions.notice}
+          </p>
+        )}
         <div className="flex gap-2">
           <button type="button" className="btn-secondary !px-2.5" onClick={reload} title="Actualizar">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -356,9 +333,9 @@ export default function Tickets() {
         </div>
       </div>
 
-      {(error || queryError || bulk.error) && (
+      {(rowActions.error || queryError || bulk.error) && (
         <ErrorBox
-          message={error || queryError?.message || bulk.error}
+          message={rowActions.error || queryError?.message || bulk.error}
           details={bulk.errorDetails}
         />
       )}
@@ -377,12 +354,16 @@ export default function Tickets() {
           onPerPage={(perPage) => update({ perPage })}
           canAssign={canAssign}
           canManage={canManage}
+          canResolve={canResolve}
+          canClose={canClose}
+          currentUserId={user?.id}
           onAssignMe={assignMe}
           onStatusChange={changeStatus}
           selectable
           selected={bulk.selected}
           onToggle={bulk.toggleOne}
           onToggleAll={bulk.toggleAll}
+          pendingIds={rowActions.pendingIds}
         />
       )}
 

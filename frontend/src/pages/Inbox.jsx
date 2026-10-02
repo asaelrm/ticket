@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import {
   api,
-  ticketStatusRequest,
   STATUSES,
   PRIORITIES,
   STATUS_LABEL,
@@ -18,6 +17,7 @@ import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
 import BulkTicketBar from '../components/BulkTicketBar';
 import { useTicketBulk } from '../lib/useTicketBulk';
+import { useTicketRowActions } from '../lib/useTicketRowActions';
 import { useMyTeams } from '../lib/useMyTeams';
 import { LoadingScreen, ErrorBox, Spinner, Modal, EmptyState } from '../components/ui';
 import Select from '../components/Select';
@@ -132,18 +132,11 @@ export default function Inbox() {
   const filters = useMemo(() => parseFilters(searchParams), [searchParams]);
   const tab = searchParams.get('tab') || 'mine';
 
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [searchDraft, setSearchDraft] = useState(filters.search);
   const [savedFilters, setSavedFilters] = useState(loadSavedFilters);
   const [savedOpen, setSavedOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
-  // Ids con una acción de fila en curso. El ref es el que decide de verdad: el
-  // estado de React llega tarde al segundo clic y dejaría pasar dos PATCH.
-  const inFlight = useRef(new Set());
-  const [pendingIds, setPendingIds] = useState(() => new Set());
 
   // Cada cambio de filtro deja una entrada en el historial del navegador, igual
   // que en la pantalla general de Tickets: así el botón atrás devuelve al
@@ -292,11 +285,23 @@ export default function Inbox() {
     labelFor: (id) => list?.data?.find((t) => t.id === id)?.ticket_number || `Ticket ${id}`,
   });
 
+  // Un solo mecanismo para las acciones de fila (tomar, iniciar atención,
+  // poner en espera, reanudar, resolver): bloqueo anti-doble-clic, aviso de
+  // éxito, error del servidor y refresco del listado y los contadores. Lo
+  // comparte con "Todos los tickets" a través de `useTicketRowActions`.
+  const rowActions = useTicketRowActions({
+    user,
+    queryKeys: ['inbox-tickets', 'inbox-ticket-counters'],
+    onBeforeAction: () => bulk.clearFeedback(),
+  });
+
+  const { clearError } = rowActions;
+
   const reload = useCallback(() => {
-    setError('');
+    clearError();
     queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
     queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
-  }, [queryClient]);
+  }, [queryClient, clearError]);
 
   // Equivale al efecto [reload, tab]: al cambiar pestaña/filtros se recarga
   // contadores. La selección ya la descarta `useTicketBulk` con `resetKey`.
@@ -314,12 +319,11 @@ export default function Inbox() {
     return () => clearTimeout(t);
   }, [searchDraft, filters.search, update]);
 
-  const canManage = user?.permissions?.includes('ticket.update.any');
-  const canAssign = user?.permissions?.includes('ticket.assign');
   // El backend exige el permiso específico de cada flujo, no solo update.any:
-  // /resolve exige ticket.resolve y /close exige ticket.close.
-  const canResolve = user?.permissions?.includes('ticket.resolve');
-  const canClose = user?.permissions?.includes('ticket.close');
+  // /resolve exige ticket.resolve y /close exige ticket.close. Los calcula
+  // `useTicketRowActions` una sola vez y también los usa como segunda barrera
+  // antes de construir la petición.
+  const { canAssign, canManage, canResolve, canClose } = rowActions.permissions;
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
   const hasAnyFilter = Boolean(filters.search) || Boolean(filters.sla) || advancedCount > 0;
 
@@ -354,75 +358,21 @@ export default function Inbox() {
     return chips;
   }, [filters, categories, departments, directoryUsers, teams]);
 
-  const statusMutation = useMutation({
-    mutationFn: ({ t, status, body }) => {
-      const r = ticketStatusRequest(t.id, status, body);
-      return api[r.method](r.path, r.body);
-    },
-    onMutate: () => {
-      setBusy(true);
-      setError('');
-      setNotice('');
-      bulk.clearFeedback();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
-      queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
-    },
-    onError: (err) => {
-      setError(err.message || 'No se pudo actualizar el ticket');
-    },
-    onSettled: () => {
-      setBusy(false);
-    },
-  });
-
-  const assignMeMutation = useMutation({
-    mutationFn: (t) => api.patch(`/api/tickets/${t.id}`, { assigned_to_id: user.id }),
-    onMutate: () => {
-      setBusy(true);
-      setError('');
-      setNotice('');
-      bulk.clearFeedback();
-    },
-    onSuccess: (_, t) => {
-      setNotice(`Tomaste ${t.ticket_number}. Ya aparece en “Asignados a mí”.`);
-      // Sólo se refresca la Bandeja y sus contadores: el resto de la aplicación
-      // se invalida por SSE cuando el evento del ticket llega al Bus global.
-      queryClient.invalidateQueries({ queryKey: ['inbox-tickets'] });
-      queryClient.invalidateQueries({ queryKey: ['inbox-ticket-counters'] });
-    },
-    onError: (err) => {
-      setError(err.message || 'No se pudo asignar el ticket');
-    },
-    onSettled: () => {
-      setBusy(false);
-    },
-  });
-
+  // La fila y la barra en lote hablan el mismo idioma: `onStatusChange` es lo
+  // que TicketTable llama para cualquier transición y que aquí se traduce a la
+  // llamada correcta. Resolver pasa por el diálogo propio de la fila, que ya
+  // exige la solución, así que no hace falta el diálogo de lote para un PATCH.
+  //
+  // El rechazo se propaga a propósito: es lo que permite que `ResolveTicketModal`
+  // muestre el fallo y conserve lo escrito en lugar de cerrarse en silencio.
   function changeStatus(t, status, body = {}) {
-    if (status === 'RESOLVED') {
-      // /resolve exige la solución: se pide antes de llamar al backend.
-      bulk.requestResolve([t.id]);
-      return;
-    }
-    statusMutation.mutate({ t, status, body });
+    return rowActions.runStatus(t, status, body);
   }
 
-  // "Tomar ticket" y "Asignarme a mí" comparten la misma llamada PATCH que ya
-  // usan la fila y la barra en lote: no hay endpoint nuevo para esta acción.
-  // El permiso no se decide aquí —el backend lo exige en el PATCH— pero la UI
-  // tampoco lo ofrece a quien no tiene `ticket.assign`.
+  // Nadie espera esta promesa (botones y menú), así que se absorben los rechazos:
+  // el error ya se pinta en el `ErrorBox` de la pantalla.
   function assignMe(t) {
-    if (!canAssign || inFlight.current.has(t.id)) return;
-    inFlight.current.add(t.id);
-    setPendingIds(new Set(inFlight.current));
-    assignMeMutation.mutate(t, {
-      onSettled: () => {
-        inFlight.current.delete(t.id);
-        setPendingIds(new Set(inFlight.current));
-      },
-    });
+    return rowActions.assignMe(t)?.catch(() => {});
   }
 
   function persistSavedFilters(list) {
@@ -690,7 +640,7 @@ export default function Inbox() {
           <p className="flex items-center gap-2 text-sm text-slate-500">
             {list ? (
               <>
-                {busy && <Spinner className="h-4 w-4 text-brand-600" />}
+                {rowActions.busy && <Spinner className="h-4 w-4 text-brand-600" />}
                 <span>
                   <b>{list.total}</b> ticket(s)
                   {hasAnyFilter ? ' con los filtros aplicados' : ''}
@@ -700,10 +650,10 @@ export default function Inbox() {
               'Cargando…'
             )}
           </p>
-          {notice && (
+          {rowActions.notice && (
             <p role="status" className="flex items-center gap-1.5 text-sm text-emerald-700">
               <span aria-hidden="true">✓</span>
-              {notice}
+              {rowActions.notice}
             </p>
           )}
         </div>
@@ -714,9 +664,9 @@ export default function Inbox() {
         </button>
       </div>
 
-      {(error || queryError || bulk.error) && (
+      {(rowActions.error || queryError || bulk.error) && (
         <ErrorBox
-          message={error || queryError?.message || bulk.error}
+          message={rowActions.error || queryError?.message || bulk.error}
           details={bulk.errorDetails}
         />
       )}
@@ -734,13 +684,16 @@ export default function Inbox() {
           onPerPage={(perPage) => update({ perPage })}
           canAssign={canAssign}
           canManage={canManage}
+          canResolve={canResolve}
+          canClose={canClose}
+          currentUserId={user?.id}
           onAssignMe={assignMe}
           onStatusChange={changeStatus}
           selectable
           selected={bulk.selected}
           onToggle={bulk.toggleOne}
           onToggleAll={bulk.toggleAll}
-          pendingIds={pendingIds}
+          pendingIds={rowActions.pendingIds}
           emptyState={emptyState}
         />
       )}
