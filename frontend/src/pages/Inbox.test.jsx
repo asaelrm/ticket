@@ -4,7 +4,7 @@ import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Inbox from './Inbox';
 import { api } from '../lib/api';
-import { renderWithProviders, pickOption } from '../test/utils';
+import { renderWithProviders, renderWithHistory, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({
   authState: { user: null },
@@ -39,6 +39,9 @@ const COUNTERS = {
   assigned_to_my_teams: 4,
   unassigned: 1,
   closed: { month: 5 },
+  mine_active: 2,
+  critical: 0,
+  on_hold: 1,
 };
 
 function row(overrides = {}) {
@@ -74,6 +77,15 @@ const FULL = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Cada test declara sus propias respuestas, así que la implementación del
+  // mock se reinicia junto con las llamadas. Sin esto, una respuesta pendiente
+  // de un test (por ejemplo un PATCH en vuelo) se filtra al test siguiente y la
+  // suite falla según el orden de ejecución.
+  api.get.mockReset();
+  api.post.mockReset();
+  api.put.mockReset();
+  api.patch.mockReset();
+  api.del.mockReset();
   authState.user = ADMIN;
   api.get.mockImplementation((url) => {
     if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
@@ -85,15 +97,26 @@ beforeEach(() => {
 });
 
 describe('Inbox', () => {
-  it('renderiza las pestañas y el listado recibido', async () => {
+it('renderiza las pestañas y el listado recibido', async () => {
     renderWithProviders(<Inbox />, { route: '/app/inbox' });
 
     expect(await screen.findByText('TCK-000001')).toBeInTheDocument();
     expect(screen.getByText('PC no enciende')).toBeInTheDocument();
-    expect(screen.getByText('Asignados a mí')).toBeInTheDocument();
-    expect(screen.getByText('Mi equipo')).toBeInTheDocument();
-    expect(screen.getByText('Abiertos')).toBeInTheDocument();
-    expect(screen.getByText('Sin asignar')).toBeInTheDocument();
+
+    // Las pestañas y el resumen comparten textos ("Sin asignar"), así que las
+    // pruebas los localizan por su grupo y no por el texto suelto.
+    const tabs = within(screen.getByRole('group', { name: 'Vistas de la bandeja' }));
+    expect(tabs.getByText('Asignados a mí')).toBeInTheDocument();
+    expect(tabs.getByText('Mi equipo')).toBeInTheDocument();
+    expect(tabs.getByText('Abiertos')).toBeInTheDocument();
+    expect(tabs.getByText('Sin asignar')).toBeInTheDocument();
+
+    const resumen = within(screen.getByRole('group', { name: 'Resumen de la bandeja' }));
+    expect(resumen.getByText('Mis activos')).toBeInTheDocument();
+    expect(resumen.getByText('Fuera de plazo')).toBeInTheDocument();
+    expect(resumen.getByText('Críticos')).toBeInTheDocument();
+    expect(resumen.getByText('En espera')).toBeInTheDocument();
+
     expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=mine'));
   });
 
@@ -201,8 +224,67 @@ describe('Inbox', () => {
     await waitFor(() => expect(ticketCalls()).toBeGreaterThan(before));
   });
 
-  it('asigna el ticket al usuario actual', async () => {
+it('toma un ticket sin asignar con la acción rápida de la fila', async () => {
     const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Tomar ticket TCK-000001' }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_to_id: 7 }));
+  });
+
+  it('confirma con un aviso accesible que el ticket se tomó', async () => {
+    const user = userEvent.setup();
+    api.patch.mockResolvedValue({ data: row({ assigned_to_id: 7 }) });
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Tomar ticket TCK-000001' }));
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('TCK-000001');
+  });
+
+  it('no duplica el PATCH si se pulsa dos veces "Tomar ticket"', async () => {
+    const user = userEvent.setup();
+    let releasePatch;
+    api.patch.mockImplementation(() => new Promise((r) => { releasePatch = () => r({ data: row() }); }));
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    const take = screen.getByRole('button', { name: 'Tomar ticket TCK-000001' });
+    await user.click(take);
+    // La segunda pulsación llega con el estado ya deshabilitado, que es
+    // justamente lo que el primer clic dejó puesto.
+    await user.click(take);
+
+    expect(api.patch).toHaveBeenCalledTimes(1);
+
+    await act(async () => { releasePatch(); });
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(1));
+  });
+
+  it('oculta "Tomar ticket" si el usuario no puede asignar', async () => {
+    authState.user = { id: 7, name: 'Empleado', permissions: [] };
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.queryByRole('button', { name: 'Tomar ticket TCK-000001' })).not.toBeInTheDocument();
+  });
+
+  it('ofrece "Asignarme a mí" en el menú cuando el ticket ya tiene técnico', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) {
+        return Promise.resolve(listResp([row({ assigned_to_id: 9, assigned_to_name: 'Beto Gómez' })]));
+      }
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      if (url.startsWith('/api/users/assignable')) return Promise.resolve({ data: [{ id: 9, name: 'Beto', last_name: 'Gómez', department_name: 'TI' }] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
     renderWithProviders(<Inbox />, { route: '/app/inbox' });
     await screen.findByText('TCK-000001');
 
@@ -634,6 +716,474 @@ describe('Inbox · prioridad en lote y detalle de fallos', () => {
     await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
     await user.click(await screen.findByRole('button', { name: /^Cerrar$/ }));
 
-    await waitFor(() => expect(listCalls()).toBeGreaterThan(before));
+await waitFor(() => expect(listCalls()).toBeGreaterThan(before));
+  });
+});
+
+describe('Inbox · la pestaña "Mi equipo" depende de la pertenencia a equipos', () => {
+  function tabs() {
+    return within(screen.getByRole('group', { name: 'Vistas de la bandeja' }));
+  }
+
+  // `CON_TEAMS` simula la respuesta de GET /api/teams/mine. La pestaña depende de
+  // la pertenencia del usuario, no de que existan equipos en el sistema.
+  function mockMembership(teams) {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return Promise.resolve({ data: teams });
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      if (url.startsWith('/api/users/assignable')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+  }
+
+  it('oculta "Mi equipo" cuando el usuario no pertenece a ningún equipo', async () => {
+    mockMembership([]);
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(await screen.findByRole('button', { name: /^Abiertos/ })).toBeInTheDocument();
+    await waitFor(() => expect(tabs().queryByText('Mi equipo')).not.toBeInTheDocument());
+    // Las demás pestañas siguen intactas.
+    expect(tabs().getByText('Asignados a mí')).toBeInTheDocument();
+    expect(tabs().getByText('Abiertos')).toBeInTheDocument();
+    expect(tabs().getByText('Sin asignar')).toBeInTheDocument();
+  });
+
+  it('muestra "Mi equipo" cuando el usuario pertenece a al menos un equipo', async () => {
+    mockMembership([{ id: 4, name: 'Soporte Nivel 1' }]);
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(await tabs().findByText('Mi equipo')).toBeInTheDocument();
+    // Con equipo, la pestaña conserva su contador.
+    expect(await within(tabs().getByRole('button', { name: /Mi equipo/ })).findByText('4')).toBeInTheDocument();
+  });
+
+  it('con equipo, "Mi equipo" navega y filtra exactamente igual que antes', async () => {
+    const user = userEvent.setup();
+    mockMembership([{ id: 4, name: 'Soporte Nivel 1' }]);
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    const myTeamsTab = await tabs().findByRole('button', { name: /^Mi equipo/ });
+
+    await user.click(myTeamsTab);
+
+    // La consulta no cambia: sigue siendo view=my-teams con su active=1.
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=my-teams')));
+    const [url] = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).pop();
+    expect(url).toContain('active=1');
+    expect(myTeamsTab).toHaveAttribute('aria-pressed', 'true');
+
+    // Y al combinar con un filtro, ambos conviven en la URL.
+    await user.click(screen.getByLabelText('Prioridad'));
+    await user.click(screen.getByRole('option', { name: 'Crítica' }));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('priority=CRITICAL')));
+    expect(tabs().getByRole('button', { name: /^Mi equipo/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('muestra "Mi equipo" mientras se consulta y si la consulta falla', async () => {
+    // Ante la duda se enseña: un fallo de red no significa que no tenga equipos,
+    // y esconder la pestaña por un fallo sería el error caro.
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return new Promise(() => {});
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+    const { unmount } = renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    expect(tabs().getByText('Mi equipo')).toBeInTheDocument();
+    unmount();
+
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return Promise.reject(new Error('500'));
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    expect(tabs().getByText('Mi equipo')).toBeInTheDocument();
+  });
+
+  it('no consulta la pertenencia a equipos más de una vez', async () => {
+    mockMembership([{ id: 4, name: 'Soporte Nivel 1' }]);
+    const { rerender } = renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+    await tabs().findByText('Mi equipo');
+
+    const mineCalls = () => api.get.mock.calls.filter(([u]) => u === '/api/teams/mine').length;
+    const before = mineCalls();
+    rerender(<Inbox />);
+    rerender(<Inbox />);
+
+    expect(mineCalls()).toBe(before);
+  });
+});
+
+describe('Inbox · un ?tab=my-teams sin equipos se corrige solo', () => {
+  function tabs() {
+    return within(screen.getByRole('group', { name: 'Vistas de la bandeja' }));
+  }
+
+  // El history de pruebas es el único sitio donde se distingue un replace de un
+  // push: `length` no crece con replace y sí con push.
+  const searchOf = (history) => new URLSearchParams(history.location.search);
+
+  function mockMembership(teams) {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return Promise.resolve({ data: teams });
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [] });
+      if (url.startsWith('/api/users/assignable')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+  }
+
+  function render(route) {
+    return renderWithHistory(<Inbox />, { route });
+  }
+
+  it('redirige a la vista predeterminada y lo hace con replace', async () => {
+    mockMembership([]);
+    const { history } = render('/app/inbox?tab=my-teams');
+    await screen.findByText('TCK-000001');
+
+    // Espera a la corrección: la pestaña de destino queda activa.
+    await waitFor(() => expect(tabs().getByRole('button', { name: /^Asignados a mí/ })).toHaveAttribute('aria-pressed', 'true'));
+    expect(searchOf(history).get('tab')).toBe('mine');
+    // Un replace no añade entrada al historial: el `?tab=my-teams` queda
+    // sobrescrito en el sitio que ya ocupaba, no encima.
+    expect(history.length).toBe(1);
+    expect(history.index).toBe(0);
+    // Y ya no queda ninguna pestaña de equipo a la vista.
+    expect(tabs().queryByText('Mi equipo')).not.toBeInTheDocument();
+  });
+
+  it('el botón atrás no devuelve al tab inválido', async () => {
+    mockMembership([]);
+    const { history } = render('/app/inbox?tab=my-teams');
+    await screen.findByText('TCK-000001');
+    await waitFor(() => expect(searchOf(history).get('tab')).toBe('mine'));
+
+    await act(async () => {
+      history.go(-1);
+    });
+
+    // Con una sola entrada, el atrás no tiene a dónde ir: la URL válida se
+    // mantiene y la pantalla no vuelve a quedarse sin pestaña.
+    expect(history.index).toBe(0);
+    expect(searchOf(history).get('tab')).toBe('mine');
+    expect(tabs().getByRole('button', { name: /^Asignados a mí/ })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('no corrige la URL mientras la consulta sigue en vuelo', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return new Promise(() => {});
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+    const { history } = render('/app/inbox?tab=my-teams');
+    await screen.findByText('TCK-000001');
+
+    // Sin respuesta no hay nada que confirmar: la URL se respeta tal cual.
+    expect(searchOf(history).get('tab')).toBe('my-teams');
+  });
+
+  it('no corrige la URL si /api/teams/mine falla', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return Promise.reject(new Error('500'));
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+    const { history } = render('/app/inbox?tab=my-teams');
+    await screen.findByText('TCK-000001');
+
+    // Un fallo de red no significa "no tengo equipos": si se corrigiera, el
+    // usuario perdería una vista a la que sí tiene derecho.
+    expect(searchOf(history).get('tab')).toBe('my-teams');
+  });
+
+  it('con equipo conserva el ?tab=my-teams y no toca el historial', async () => {
+    mockMembership([{ id: 4, name: 'Soporte Nivel 1' }]);
+    const { history } = render('/app/inbox?tab=my-teams');
+    await screen.findByText('TCK-000001');
+
+    await waitFor(() => expect(tabs().getByRole('button', { name: /^Mi equipo/ })).toHaveAttribute('aria-pressed', 'true'));
+    expect(searchOf(history).get('tab')).toBe('my-teams');
+    expect(history.length).toBe(1);
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=my-teams')));
+  });
+
+  it('no altera el PUSH normal al elegir otra pestaña a mano', async () => {
+    const user = userEvent.setup();
+    mockMembership([]);
+    const { history } = render('/app/inbox');
+    await screen.findByText('TCK-000001');
+    await waitFor(() => expect(tabs().queryByText('Mi equipo')).not.toBeInTheDocument());
+
+    await user.click(await tabs().findByRole('button', { name: /^Abiertos/ }));
+    await waitFor(() => expect(searchOf(history).get('tab')).toBe('open'));
+
+    // Elegir una pestaña sigue siendo una entrada más del historial.
+    expect(history.length).toBe(2);
+    await act(async () => {
+      history.go(-1);
+    });
+    // Al atrás se vuelve a la entrada original, que no lleva `tab`: la vista
+    // predeterminada. La corrección automática no se ha colado en medio.
+    expect(searchOf(history).get('tab')).toBeNull();
+    expect(tabs().getByRole('button', { name: /^Asignados a mí/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(history.length).toBe(2);
+  });
+});
+
+describe('Inbox · resumen, SLA y filtros activos', () => {
+  function indicator(name) {
+    return within(screen.getByRole('group', { name: 'Resumen de la bandeja' })).getByRole('button', { name: new RegExp(`^${name}`) });
+  }
+
+  it('el contador de cada indicador coincide con su etiqueta', async () => {
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(await within(indicator('Mis activos')).findByText('2')).toBeInTheDocument();
+    expect(await within(indicator('Sin asignar')).findByText('1')).toBeInTheDocument();
+    expect(await within(indicator('Fuera de plazo')).findByText('1')).toBeInTheDocument();
+    expect(await within(indicator('Críticos')).findByText('0')).toBeInTheDocument();
+    expect(await within(indicator('En espera')).findByText('1')).toBeInTheDocument();
+    // El indicador ya no se llama "Pendientes": ese nombre es el de la vista
+    // histórica OPEN+PENDING, que es otra cifra.
+    expect(within(screen.getByRole('group', { name: 'Resumen de la bandeja' })).queryByText('Pendientes')).not.toBeInTheDocument();
+  });
+
+  it('"En espera" consulta el estado pendiente exacto sobre los abiertos', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(indicator('En espera'));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=PENDING')));
+    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=open'));
+    const [url] = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).pop();
+    // El filtro sigue siendo el estado exacto: no se cuela `view=pending`, que
+    // incluiría también los OPEN.
+    expect(url).not.toContain('view=pending');
+    expect(indicator('En espera')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('"En espera" vuelve atrás con el botón del navegador', async () => {
+    const user = userEvent.setup();
+    const { history } = renderWithHistory(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(indicator('En espera'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('status=PENDING')));
+    expect(screen.getByText('Estado: Pendiente')).toBeInTheDocument();
+
+    await act(async () => { history.go(-1); });
+
+    await waitFor(() => expect(screen.queryByText('Estado: Pendiente')).not.toBeInTheDocument());
+    expect(indicator('En espera')).toHaveAttribute('aria-pressed', 'false');
+    const [url] = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).pop();
+    expect(url).not.toContain('status=');
+  });
+
+  it('"Fuera de plazo" lleva a la consulta de SLA, no a un filtro aparte', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(indicator('Fuera de plazo'));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('sla=overdue')));
+    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=open'));
+  });
+
+  it('"Críticos" consulta la prioridad crítica sobre los abiertos', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(indicator('Críticos'));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('priority=CRITICAL')));
+    expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=open'));
+  });
+
+  it('"Sin asignar" quita los filtros que chocarían con su contador', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox?tab=open&priority=LOW&sla=due_soon&category=1' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(indicator('Sin asignar'));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('assigned=none')));
+    const [url] = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).pop();
+    expect(url).toContain('view=open');
+    expect(url).not.toContain('priority=');
+    expect(url).not.toContain('sla=');
+    // La categoría era un filtro válido y no se pierde al cambiar de vista.
+    expect(url).toContain('category=1');
+  });
+
+  it('marca como activo sólo el indicador que describe el listado', async () => {
+    renderWithProviders(<Inbox />, { route: '/app/inbox?tab=open&sla=overdue' });
+    await screen.findByText('TCK-000001');
+
+    expect(indicator('Fuera de plazo')).toHaveAttribute('aria-pressed', 'true');
+    expect(indicator('Críticos')).toHaveAttribute('aria-pressed', 'false');
+    expect(indicator('Mis activos')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('deja de marcar el indicador cuando se añade un filtro que lo contradice', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox?tab=open&sla=overdue' });
+    await screen.findByText('TCK-000001');
+    expect(indicator('Fuera de plazo')).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByLabelText('Prioridad'));
+    await user.click(screen.getByRole('option', { name: 'Baja' }));
+
+    await waitFor(() => expect(indicator('Fuera de plazo')).toHaveAttribute('aria-pressed', 'false'));
+  });
+
+  it('filtra por plazo de atención con el control propio', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.getByLabelText('Tiempo de atención')).toHaveAttribute('id', 'inbox-sla');
+    await user.click(screen.getByLabelText('Tiempo de atención'));
+    await user.click(screen.getByRole('option', { name: 'Vencen en 24 h' }));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('sla=due_soon')));
+  });
+
+  it('muestra un chip por filtro activo y quita sólo el que se pulse', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox?status=OPEN&category=1&sla=overdue' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.getByText('Estado: Abierto')).toBeInTheDocument();
+    expect(screen.getByText('Categoría: Hardware')).toBeInTheDocument();
+    expect(screen.getByText('Tiempo: Fuera de plazo')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Quitar filtro Categoría: Hardware' }));
+
+    expect(screen.queryByText('Categoría: Hardware')).not.toBeInTheDocument();
+    // Los otros filtros siguen intactos.
+    expect(screen.getByText('Estado: Abierto')).toBeInTheDocument();
+    expect(screen.getByText('Tiempo: Fuera de plazo')).toBeInTheDocument();
+  });
+
+  it('el chip de solicitante usa el directorio, no el id crudo', async () => {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      if (url.startsWith('/api/users/assignable')) return Promise.resolve({ data: [{ id: 9, name: 'Beto', last_name: 'Gómez', department_name: 'TI' }] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox?assigned=9' });
+    await screen.findByText('TCK-000001');
+
+    expect(await screen.findByText('Asignado: Beto Gómez')).toBeInTheDocument();
+  });
+
+  it('el chip "Sin asignar" no intenta resolver un id vacío', async () => {
+    renderWithProviders(<Inbox />, { route: '/app/inbox?tab=unassigned&assigned=none' });
+    await screen.findByText('TCK-000001');
+
+    expect(await screen.findByText('Asignado: Sin asignar')).toBeInTheDocument();
+  });
+
+  it('"Limpiar filtros" vacía la búsqueda y los filtros avanzados a la vez', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Inbox />, { route: '/app/inbox?status=OPEN&sla=overdue&category=1&user=9&from=2026-01-01' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
+
+    await waitFor(() => expect(screen.queryByText('Estado: Abierto')).not.toBeInTheDocument());
+    expect(screen.queryByText('Tiempo: Fuera de plazo')).not.toBeInTheDocument();
+    expect(screen.queryByText('Creado desde: 2026-01-01')).not.toBeInTheDocument();
+    const [url] = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).pop();
+    expect(url).not.toContain('status=');
+    expect(url).not.toContain('sla=');
+    expect(url).not.toContain('category=');
+  });
+
+  it('no muestra la fila de filtros cuando no hay nada activo', async () => {
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.queryByText('Filtros')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Limpiar filtros' })).not.toBeInTheDocument();
+  });
+
+  it('explica el filtro vacío y ofrece la salida, en vez de una tabla en blanco', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp([]));
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox?status=OPEN' });
+
+    expect(await screen.findByText('No encontramos tickets con estos filtros')).toBeInTheDocument();
+    // Hay dos salidas al mismo sitio: el chip de la cabecera y la del propio
+    // estado vacío. Las dos sirven, por eso el test usa la que está en pantalla
+    // cuando la tabla no ha devuelto nada.
+    await user.click(screen.getAllByRole('button', { name: 'Limpiar filtros' }).pop());
+
+    await waitFor(() => expect(screen.queryByText('No encontramos tickets con estos filtros')).not.toBeInTheDocument());
+  });
+
+  it('cada pestaña vacía dice qué hacer en lugar de "sin datos"', async () => {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp([]));
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    renderWithProviders(<Inbox />, { route: '/app/inbox?tab=mine' });
+    expect(await screen.findByText('No tienes tickets asignados')).toBeInTheDocument();
+    // El mensaje dice a dónde ir, no sólo que no hay datos.
+    expect(screen.getByText(/Revise la pestañ/)).toBeInTheDocument();
+  });
+
+  it('el botón atrás del navegador restituye la vista anterior', async () => {
+    const user = userEvent.setup();
+    const { history } = renderWithHistory(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(indicator('Críticos'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('priority=CRITICAL')));
+    expect(indicator('Críticos')).toHaveAttribute('aria-pressed', 'true');
+
+    await act(async () => { history.go(-1); });
+
+    // Al volver no queda ningún filtro colgado: ni el listado ni los chips.
+    await waitFor(() => expect(screen.queryByText('Prioridad: Crítica')).not.toBeInTheDocument());
+    expect(indicator('Críticos')).toHaveAttribute('aria-pressed', 'false');
+    const [url] = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).pop();
+    expect(url).not.toContain('priority=');
   });
 });

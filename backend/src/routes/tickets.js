@@ -36,6 +36,16 @@ export const STATUS_LABEL = {
 };
 export const PRIORITY_LABEL = { LOW: 'Baja', MEDIUM: 'Media', HIGH: 'Alta', CRITICAL: 'Crítica' };
 
+// Filtro de tiempo de atención (`?sla=…`). `overdue` reproduce la misma
+// condición que ya usaban `view=overdue` y el contador `overdue`; `due_soon`
+// aplica la ventana de 24 h que ya define /api/dashboard/sla (routes/dashboard.js),
+// de modo que "próximo a vencer" se lea igual en el tablero y en la lista.
+// Vive en GET /api/tickets y en GET /api/tickets/export porque ambos llaman a
+// `buildConditions`: no hay endpoint nuevo para un filtro que ya encaja en el
+// listado general.
+export const SLA_FILTERS = ['overdue', 'due_soon'];
+const SLA_AT_RISK_HOURS = 24;
+
 // ---------------------------------------------------------------------------
 // Helpers de acceso e historial
 // ---------------------------------------------------------------------------
@@ -310,6 +320,22 @@ function buildConditions(req, viewOnlyOwn) {
     params.push(...OPEN_STATUSES);
   }
 
+  // Tiempo de atención. Solo tiene sentido sobre tickets abiertos con fecha
+  // límite: un ticket ya cerrado o resuelto no "vence".
+  const sla = String(q.sla || '');
+  if (SLA_FILTERS.includes(sla)) {
+    conds.push(`t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`);
+    params.push(...OPEN_STATUSES);
+    conds.push('t.sla_due_at IS NOT NULL');
+    if (sla === 'overdue') {
+      conds.push('t.sla_due_at < ?');
+      params.push(nowIso());
+    } else {
+      conds.push('t.sla_due_at >= ? AND t.sla_due_at < ?');
+      params.push(nowIso(), new Date(Date.now() + SLA_AT_RISK_HOURS * 3600000).toISOString());
+    }
+  }
+
   if (q.search) {
     const like = `%${escapeLike(q.search)}%`;
     const parts = [
@@ -503,10 +529,19 @@ router.get('/counters', (req, res) => {
     pending: cnt(`t.status IN ('OPEN', 'PENDING')`),
     attended: cnt(`t.status IN ('ASSIGNED', 'IN_PROGRESS')`),
     in_progress: cnt(`t.status = 'IN_PROGRESS'`),
-    unassigned: cnt(`${openSql} AND t.assigned_to_id IS NULL AND t.assigned_team_id IS NULL`, openParams),
+    // Sin dueño = sin técnico, que es exactamente lo que devuelve `?assigned=none`.
+    // Antes además exigía `assigned_team_id IS NULL`, así que el contador y la
+    // lista de la Bandeja no cuadraban en los tickets con equipo pero sin técnico.
+    unassigned: cnt(`${openSql} AND t.assigned_to_id IS NULL`, openParams),
     overdue: cnt(`${openSql} AND t.sla_due_at IS NOT NULL AND t.sla_due_at < ?`, [...openParams, nowIso()]),
     assigned_to_me: cnt(`t.assigned_to_id = ?`, [user.id]),
     assigned_to_my_teams: myTeams,
+    // Indicadores compactos de la Bandeja. Los tres acotan a estados abiertos
+    // para que el número de la cabecera y el listado que produce el filtro
+    // correspondiente midan lo mismo.
+    mine_active: cnt(`${openSql} AND t.assigned_to_id = ?`, [...openParams, user.id]),
+    critical: cnt(`${openSql} AND t.priority = 'CRITICAL'`, openParams),
+    on_hold: cnt(`t.status = 'PENDING'`),
     closed: { ...closed },
     by_status: byStatus,
   });

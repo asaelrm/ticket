@@ -70,7 +70,7 @@ export function ErrorBox({ message, details }) {
   );
 }
 
-export function EmptyState({ icon = '📋', title, subtitle }) {
+export function EmptyState({ icon = '📋', title, subtitle, action }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
       <div className="text-3xl" aria-hidden="true">
@@ -78,6 +78,7 @@ export function EmptyState({ icon = '📋', title, subtitle }) {
       </div>
       <p className="font-medium text-slate-700">{title}</p>
       {subtitle && <p className="max-w-sm text-sm text-slate-500">{subtitle}</p>}
+      {action && <div className="mt-2">{action}</div>}
     </div>
   );
 }
@@ -248,7 +249,7 @@ export function Pagination({ page, pages, total, onChange, perPage, onPerPage })
   );
 }
 
-export function Menu({ label, items, align = 'right', buttonClass = 'btn-secondary !px-2.5 !py-1.5' }) {
+export function Menu({ label, items, align = 'right', buttonClass = 'btn-secondary !px-2.5 !py-1.5', disabled = false }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const ref = useRef(null);
@@ -264,7 +265,9 @@ export function Menu({ label, items, align = 'right', buttonClass = 'btn-seconda
   };
 
   useEffect(() => {
-    if (!open) return;
+    // `disabled` en pleno vuelo cierra el menú: si no, la fila quedaría con el
+    // panel abierto pero sin forma de actuar sobre ella.
+    if (!open || disabled) return;
     place();
     const onClick = (e) => {
       const insideItem = ref.current && ref.current.contains(e.target);
@@ -286,14 +289,21 @@ export function Menu({ label, items, align = 'right', buttonClass = 'btn-seconda
       window.removeEventListener('scroll', onMove, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, align]);
+  }, [open, align, disabled]);
 
   const visible = (items || []).filter(Boolean);
   if (!visible.length) return null;
 
   return (
     <div className="relative" ref={buttonRef}>
-      <button type="button" className={buttonClass} onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+      <button
+        type="button"
+        className={buttonClass}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+      >
         {label}
       </button>
       {open &&

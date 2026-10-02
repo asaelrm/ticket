@@ -45,6 +45,31 @@ router.get(
   }
 );
 
+// Equipos a los que pertenece el usuario autenticado.
+//
+// La Bandeja lo consulta para no ofrecer la pestaña "Mi equipo" a quien no
+// pertenece a ninguno: `view=my-teams` y el contador `assigned_to_my_teams` se
+// calculan sobre `team_members`, así que sin membresía siempre valdrían 0 y la
+// pestaña no aportaría nada (en DEV llegó a estar permanentemente en 0).
+//
+// Se declara antes que `/:id` a propósito: si no, Express lo interpretaría como
+// un id y respondería "Equipo no encontrado".
+//
+// Usa el mismo criterio que `myTeamIds` en routes/tickets.js —pertenencia, sin
+// filtrar por `active`— para que "la pestaña existe" y "la vista devuelve
+// tickets" nunca se contradigan. Solo lectura, y con el mismo alcance que la
+// propia vista: cualquier usuario autenticado conoce los suyos.
+router.get('/mine', (req, res) => {
+  const rows = db.prepare(
+    `SELECT te.id, te.name
+       FROM team_members tm
+       JOIN teams te ON te.id = tm.team_id
+      WHERE tm.user_id = ?
+      ORDER BY te.name ASC`
+  ).all(req.user.id);
+  res.json({ data: rows });
+});
+
 router.get('/:id', (req, res) => {
   if (!canViewTeams(req.user)) return res.status(403).json({ error: 'No tiene permiso para ver equipos' });
   const id = parseIntSafe(req.params.id);

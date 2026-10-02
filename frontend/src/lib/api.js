@@ -181,7 +181,9 @@ export const VIEWS = [
   { key: 'in_progress', label: 'En proceso', counter: 'in_progress', view: false },
   { key: 'overdue', label: 'Retrasados', counter: 'overdue' },
   { key: 'mine', label: 'Asignados a mí', counter: 'assigned_to_me' },
-  { key: 'my-teams', label: 'Mi equipo', counter: 'assigned_to_my_teams' },
+  // needsTeam: la vista sólo tiene sentido si el usuario pertenece a algún
+  // equipo. La decisión la toma useMyTeams en cada pantalla, no esta tabla.
+  { key: 'my-teams', label: 'Mi equipo', counter: 'assigned_to_my_teams', needsTeam: true },
   { key: 'closed', label: 'Cerrados', counter: null },
 ];
 
@@ -231,6 +233,19 @@ export function slaInfo(ticket) {
   return { overdue: diffMs < 0, hours: Math.abs(diffMs) / 3_600_000, due };
 }
 
+// Ventana de "próximo a vencer". La misma de /api/dashboard/sla, para que un
+// ticket se lea igual de urgente en el tablero, en la tabla y en la Bandeja.
+export const SLA_AT_RISK_HOURS = 24;
+
+// Nivel de urgencia con el que pintar la fila y la celda de SLA:
+// 'overdue' (fuera de plazo), 'at_risk' (vence dentro del plazo) u 'ok'.
+export function slaLevel(ticket) {
+  const info = slaInfo(ticket);
+  if (!info) return null;
+  if (info.overdue) return 'overdue';
+  return info.hours <= SLA_AT_RISK_HOURS ? 'at_risk' : 'ok';
+}
+
 export function formatSla(ticket) {
   const info = slaInfo(ticket);
   if (!info) return '—';
@@ -238,3 +253,14 @@ export function formatSla(ticket) {
   const amount = h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : h < 48 ? `${Math.round(h)} h` : `${Math.round(h / 24)} d`;
   return info.overdue ? `Vencido hace ${amount}` : `Vence en ${amount}`;
 }
+
+// Opciones del filtro de tiempo de atención (`?sla=…`). El backend acepta
+// exactamente estos dos valores (`SLA_FILTERS` en routes/tickets.js); la opción
+// vacía es real y no un placeholder para poder volver a ella.
+export const SLA_FILTERS = [
+  ['', 'Cualquier plazo'],
+  ['overdue', 'Fuera de plazo'],
+  ['due_soon', 'Vencen en 24 h'],
+];
+
+export const SLA_LABEL = { overdue: 'Fuera de plazo', due_soon: 'Vencen en 24 h' };

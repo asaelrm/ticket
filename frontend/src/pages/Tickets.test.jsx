@@ -75,18 +75,24 @@ const FULL = {
   permissions: ['ticket.assign', 'ticket.update.any', 'ticket.resolve', 'ticket.close', 'ticket.view.all'],
 };
 
+// Respuestas por defecto de la pantalla. Vive fuera del `beforeEach` para que
+// un test que necesite otra lista pueda reutilizarla en vez de reescribirla.
+function defaultGet(url) {
+  if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+  if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
+  if (url === '/api/categories') return Promise.resolve({ data: [] });
+  if (url === '/api/departments') return Promise.resolve({ data: [] });
+  if (url === '/api/users/assignable') return Promise.resolve({ data: [] });
+  if (url === '/api/teams/assignable') return Promise.resolve({ data: [] });
+  return Promise.reject(new Error(`404 ${url}`));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   authState.user = ADMIN;
-  api.get.mockImplementation((url) => {
-    if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
-    if (url.startsWith('/api/tickets?')) return Promise.resolve(listResp());
-    if (url === '/api/categories') return Promise.resolve({ data: [] });
-    if (url === '/api/departments') return Promise.resolve({ data: [] });
-    if (url === '/api/users/assignable') return Promise.resolve({ data: [] });
-    if (url === '/api/teams/assignable') return Promise.resolve({ data: [] });
-    return Promise.reject(new Error(`404 ${url}`));
-  });
+  api.get.mockReset();
+  api.patch.mockReset();
+  api.get.mockImplementation(defaultGet);
 });
 
 describe('Tickets', () => {
@@ -222,8 +228,34 @@ describe('Tickets', () => {
     await waitFor(() => expect(ticketCalls()).toBeGreaterThan(before));
   });
 
-  it('asigna el ticket al usuario actual', async () => {
+it('asigna el ticket al usuario actual', async () => {
     const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    // El ticket del fixture no tiene técnico, así que la acción directa es
+    // "Tomar ticket"; "Asignarme a mí" queda para los que ya tienen dueño.
+    await user.click(screen.getByRole('button', { name: 'Tomar ticket TCK-000001' }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { assigned_to_id: 7 }));
+  });
+
+  it('asigna desde el menú un ticket que ya tiene técnico', async () => {
+    const user = userEvent.setup();
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) {
+        return Promise.resolve(
+          listResp([row({ assigned_to_id: 9, assigned_to_name: 'Beto Gómez' })])
+        );
+      }
+      if (url === '/api/categories') return Promise.resolve({ data: [] });
+      if (url === '/api/departments') return Promise.resolve({ data: [] });
+      if (url === '/api/users/assignable') return Promise.resolve({ data: [] });
+      if (url === '/api/teams/assignable') return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
     renderWithProviders(<Tickets />, { route: '/app/tickets' });
     await screen.findByText('TCK-000001');
 
@@ -839,7 +871,164 @@ describe('Tickets · acciones masivas', () => {
     expect(within(alert).getByText('2 de 3 ticket(s) no se pudieron actualizar.')).toBeInTheDocument();
     expect(within(alert).getByText(/TCK-000001 — El ticket ya está cerrado/)).toBeInTheDocument();
     expect(within(alert).getByText(/TCK-000002 — No tiene permiso para cambiar el estado/)).toBeInTheDocument();
-    // El que sí se pudo cerrar no aparece entre los fallos.
+// El que sí se pudo cerrar no aparece entre los fallos.
     expect(within(alert).queryByText(/TCK-000003/)).not.toBeInTheDocument();
+  });
+});
+
+describe('Tickets · el chip "Mi equipo" depende de la pertenencia a equipos', () => {
+  // El history de pruebas es el único sitio donde se distingue un replace de un
+  // push: `length` no crece con replace y sí con push.
+  const searchOf = (history) => new URLSearchParams(history.location.search);
+
+  function mockMembership(teams) {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return Promise.resolve({ data: teams });
+      return defaultGet(url);
+    });
+  }
+
+  function render(route) {
+    return renderWithHistory(<Tickets />, { route, path: '/app/tickets' });
+  }
+
+  it('oculta "Mi equipo" cuando el usuario no pertenece a ningún equipo', async () => {
+    mockMembership([]);
+    render('/app/tickets');
+    await screen.findByText('TCK-000001');
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Mi equipo/ })).not.toBeInTheDocument());
+    // Los demás chips siguen intactos.
+    expect(screen.getByRole('button', { name: /^Asignados a mí/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Abiertos/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Retrasados/ })).toBeInTheDocument();
+  });
+
+  it('muestra "Mi equipo" cuando el usuario pertenece a al menos un equipo', async () => {
+    mockMembership([{ id: 4, name: 'Soporte Nivel 1' }]);
+    render('/app/tickets');
+    await screen.findByText('TCK-000001');
+
+    // Con equipo, el chip conserva su contador.
+    const chip = await screen.findByRole('button', { name: /^Mi equipo/ });
+    expect(await within(chip).findByText('4')).toBeInTheDocument();
+  });
+
+  it('muestra "Mi equipo" mientras se consulta y si la consulta falla', async () => {
+    // Ante la duda se enseña: un fallo de red no significa que no tenga equipos.
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return new Promise(() => {});
+      return defaultGet(url);
+    });
+    const { unmount } = render('/app/tickets');
+    await screen.findByText('TCK-000001');
+    expect(screen.getByRole('button', { name: /^Mi equipo/ })).toBeInTheDocument();
+    unmount();
+
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return Promise.reject(new Error('500'));
+      return defaultGet(url);
+    });
+    render('/app/tickets');
+    await screen.findByText('TCK-000001');
+    expect(screen.getByRole('button', { name: /^Mi equipo/ })).toBeInTheDocument();
+  });
+
+  it('con equipo, "Mi equipo" navega y filtra exactamente igual que antes', async () => {
+    const user = userEvent.setup();
+    mockMembership([{ id: 4, name: 'Soporte Nivel 1' }]);
+    const { history } = render('/app/tickets');
+    await screen.findByText('TCK-000001');
+
+    await user.click(await screen.findByRole('button', { name: /^Mi equipo/ }));
+
+    await waitFor(() => expect(searchOf(history).get('view')).toBe('my-teams'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=my-teams')));
+  });
+
+  it('un ?view=my-teams sin equipos se corrige a "Todos" con replace', async () => {
+    // Aquí la vista viaja en `view`, no en `tab` como en la Bandeja: por eso el
+    // deep link inválido de esta pantalla es `?view=my-teams`.
+    mockMembership([]);
+    const { history } = render('/app/tickets?view=my-teams');
+    await screen.findByText('TCK-000001');
+
+    // Sin `view` en la URL queda "Todos", que es la vista predeterminada: la
+    // pantalla nunca se queda sin chip marcado.
+    await waitFor(() => expect(searchOf(history).get('view')).toBeNull());
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Todos/ }).className).toContain('bg-brand-600'));
+    // Un replace no añade entrada al historial.
+    expect(history.length).toBe(1);
+    expect(screen.queryByRole('button', { name: /^Mi equipo/ })).not.toBeInTheDocument();
+  });
+
+  it('el botón atrás no devuelve a la vista inválida', async () => {
+    mockMembership([]);
+    const { history } = render('/app/tickets?view=my-teams');
+    await screen.findByText('TCK-000001');
+    await waitFor(() => expect(searchOf(history).get('view')).toBeNull());
+
+    await act(async () => {
+      history.go(-1);
+    });
+
+    // Con una sola entrada, el atrás no tiene a dónde ir: la URL válida se
+    // mantiene en lugar de devolver el `view=my-teams` sin sentido.
+    expect(history.index).toBe(0);
+    expect(searchOf(history).get('view')).toBeNull();
+    expect(screen.getByRole('button', { name: /^Todos/ }).className).toContain('bg-brand-600');
+  });
+
+  it('no corrige la URL mientras la consulta sigue en vuelo', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return new Promise(() => {});
+      return defaultGet(url);
+    });
+    const { history } = render('/app/tickets?view=my-teams');
+    await screen.findByText('TCK-000001');
+
+    expect(searchOf(history).get('view')).toBe('my-teams');
+  });
+
+  it('no corrige la URL si /api/teams/mine falla', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/teams/mine') return Promise.reject(new Error('500'));
+      return defaultGet(url);
+    });
+    const { history } = render('/app/tickets?view=my-teams');
+    await screen.findByText('TCK-000001');
+
+    // Un fallo de red no significa "no tengo equipos": si se corrigiera, el
+    // usuario perdería una vista a la que sí tiene derecho.
+    expect(searchOf(history).get('view')).toBe('my-teams');
+  });
+
+  it('con equipo conserva el ?view=my-teams y no toca el historial', async () => {
+    mockMembership([{ id: 4, name: 'Soporte Nivel 1' }]);
+    const { history } = render('/app/tickets?view=my-teams');
+    await screen.findByText('TCK-000001');
+
+    expect(searchOf(history).get('view')).toBe('my-teams');
+    expect(history.length).toBe(1);
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith(expect.stringContaining('view=my-teams')));
+  });
+
+  it('no altera el PUSH normal al elegir otro chip a mano', async () => {
+    const user = userEvent.setup();
+    mockMembership([]);
+    const { history } = render('/app/tickets');
+    await screen.findByText('TCK-000001');
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^Mi equipo/ })).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /^Retrasados/ }));
+    await waitFor(() => expect(searchOf(history).get('view')).toBe('overdue'));
+
+    // Elegir un chip sigue siendo una entrada más del historial.
+    expect(history.length).toBe(2);
+    await act(async () => {
+      history.go(-1);
+    });
+    expect(searchOf(history).get('view')).toBeNull();
+    expect(history.length).toBe(2);
   });
 });

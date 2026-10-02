@@ -8,6 +8,7 @@ import { TicketTable } from '../components/TicketTable';
 import AdvancedSearchModal, { ADVANCED_KEYS } from '../components/AdvancedSearchModal';
 import BulkTicketBar from '../components/BulkTicketBar';
 import { useTicketBulk } from '../lib/useTicketBulk';
+import { useMyTeams } from '../lib/useMyTeams';
 import { LoadingScreen, ErrorBox, Spinner, Menu } from '../components/ui';
 import Select from '../components/Select';
 
@@ -123,6 +124,25 @@ export default function Tickets() {
 
   const advancedCount = ADVANCED_KEYS.filter((k) => filters[k]).length;
 
+  // Misma regla y mismo hook que la Bandeja: el chip "Mi equipo" se esconde sólo
+  // cuando /api/teams/mine confirma que el usuario no pertenece a ninguno.
+  const { hasNoTeams } = useMyTeams();
+  const visibleViews = useMemo(
+    () => VIEWS.filter((v) => !v.needsTeam || !hasNoTeams),
+    [hasNoTeams]
+  );
+
+  // Aquí la vista viaja en `view` (no en `tab` como en la Bandeja), así que el
+  // equivalente de un ?tab=my-teams inválido es un ?view=my-teams. Se corrige a
+  // la vista predeterminada de esta pantalla, que es "Todos" —sin `view`— en
+  // cuanto se confirme que no hay equipos, ni antes ni ante un fallo. Con replace
+  // porque es una URL inválida, no una elección del usuario: un push haría que el
+  // botón atrás volviera a un estado sin sentido y no saliera de él.
+  useEffect(() => {
+    if (!hasNoTeams || filters.view !== 'my-teams') return;
+    update({ view: '', status: '' }, { replace: true });
+  }, [hasNoTeams, filters.view, update]);
+
   // Los chips de `VIEWS` cubren status/priority/category en la URL; el único
   // select de esta pantalla es el orden, que se mantiene idéntico salvo por el
   // componente: mismo valor, mismo `update` y mismos rótulos "Ordenar: X".
@@ -221,7 +241,7 @@ export default function Tickets() {
     <div className={bulk.selected.size > 0 ? 'pb-28' : ''}>
       {/* Chips de filtros rápidos con contadores */}
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-        {VIEWS.map((v) => {
+        {visibleViews.map((v) => {
           const active = chipActive(v.key);
           const count = counterValue(v.counter);
           return (
