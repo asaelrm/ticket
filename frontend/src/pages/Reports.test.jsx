@@ -6,6 +6,7 @@ import Reports from './Reports';
 import { api } from '../lib/api';
 import { printDocument } from '../lib/print';
 import { renderWithProviders, pickOption } from '../test/utils';
+import { cssVariables, contrastRatio, themeColors } from '../test/contrast';
 
 const { download } = vi.hoisted(() => ({
   download: vi.fn(),
@@ -97,12 +98,58 @@ function report(overrides = {}) {
 }
 
 function setup(reportOverrides = {}) {
-  const payload = report(reportOverrides);
+  setupPayload(report(reportOverrides));
+}
+
+function setupPayload(payload) {
   api.get.mockImplementation((url) => {
     if (url === '/api/departments?active=1') return Promise.resolve(DEPARTMENTS);
     if (url === '/api/categories?active=1') return Promise.resolve(CATEGORIES);
     if (url.startsWith('/api/reports/full')) return Promise.resolve(payload);
     return Promise.reject(new Error(`404 ${url}`));
+  });
+}
+
+// Lo que devuelve el backend cuando ningún ticket cumple la consulta: todas las
+// listas vacías, el resumen en cero y el CSAT sin una sola respuesta.
+function emptyReport(overrides = {}) {
+  return report({
+    summary: { total: 0, open: 0, resolved: 0, unresolved_week: 0, avg_resolution_hours: 0 },
+    byStatus: [],
+    byPriority: [],
+    byCategory: [],
+    byDepartment: [],
+    byDay: [],
+    byUser: [],
+    byTechnician: [],
+    byTeam: { basis: 'current_assignment', note: 'Sin histórico de equipo.', data: [] },
+    csat: {
+      responses: 0,
+      eligible: 0,
+      response_rate: null,
+      average: null,
+      has_data: false,
+      distribution: [1, 2, 3, 4, 5].map((rating) => ({ rating, n: 0 })),
+      by_technician: [],
+      by_department: [],
+      by_category: [],
+      by_month: [],
+    },
+    details: [],
+    ...overrides,
+  });
+}
+
+// Todas las barras en cero: el backend cuenta desde la tabla de tickets, pero
+// categorías y departamentos se listan aunque no tengan ninguno, así que un
+// gráfico con diez ceros también es un gráfico vacío.
+function reportConCategoriasVacias(overrides = {}) {
+  return report({
+    byCategory: [
+      { name: 'Hardware', n: 0, open: 0, color: '#64748b' },
+      { name: 'Software', n: 0, open: 0, color: '#0ea5e9' },
+    ],
+    ...overrides,
   });
 }
 
@@ -285,7 +332,7 @@ describe('Reports', () => {
     expect(download).not.toHaveBeenCalled();
   });
 
-  it('muestra estados vacíos en las secciones sin datos', async () => {
+  it('explica cada sección sin datos en vez de dejar un "Sin datos" suelto', async () => {
     setup({
       byStatus: [],
       byPriority: [],
@@ -297,13 +344,196 @@ describe('Reports', () => {
 
     renderWithProviders(<Reports />, { route: '/app/reports' });
     expect(await screen.findByText('Total tickets')).toBeInTheDocument();
-    expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(5);
+
+    // Cada tarjeta dice qué le falta, no sólo que no hay nada.
+    expect(screen.getByText('Sin tickets por estado')).toBeInTheDocument();
+    expect(screen.getByText('Sin tickets abiertos')).toBeInTheDocument();
+    expect(screen.getByText('Sin tickets por categoría')).toBeInTheDocument();
+    expect(screen.getByText('Sin tickets por departamento')).toBeInTheDocument();
+    expect(screen.getByText('Sin datos de reportadores')).toBeInTheDocument();
+    expect(screen.getByText('Sin tickets que detallar')).toBeInTheDocument();
+    // El mensaje genérico desaparece: no explicaba nada.
+    expect(screen.queryByText('Sin datos')).not.toBeInTheDocument();
   });
 
   it('muestra el resumen de registros y el límite de exportación', async () => {
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
     expect(await screen.findByText(/registro\(s\), máximo 500 en exportación/)).toBeInTheDocument();
+  });
+});
+
+// Un reporte sin resultados se explica una vez y con una salida, en lugar de
+// repetir "Sin datos" en once tarjetas. Los tres casos se distinguen con lo que
+// el frontend ya sabe: qué filtros hay aplicados y si el período es el culpable.
+describe('Reports: la consulta no devuelve tickets', () => {
+  it('dice que todavía no hay tickets cuando no hay filtros', async () => {
+    setupPayload(emptyReport());
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Todavía no hay tickets registrados')).toBeInTheDocument();
+    expect(screen.getByText(/Los reportes se rellenarán solos/)).toBeInTheDocument();
+    // Sin filtros que quitar, no se ofrece ninguna acción: no hay salida que ofrecer.
+    expect(screen.queryByRole('button', { name: /Limpiar filtros|Ver todo el historial/ })).not.toBeInTheDocument();
+  });
+
+  it('no dibuja gráficos, tablas ni KPIs en cero cuando no hay nada que medir', async () => {
+    setupPayload(emptyReport());
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    expect(await screen.findByText('Todavía no hay tickets registrados')).toBeInTheDocument();
+    expect(screen.queryByText('Total tickets')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Tickets por estado' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Rendimiento por técnico' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Detalle de tickets' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Valoración media')).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('table')).toHaveLength(0);
+  });
+
+  it('distingue que el período seleccionado no tiene tickets y ofrece volver a todo', async () => {
+    const user = userEvent.setup();
+    setupPayload(emptyReport());
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+    expect(await screen.findByText('Todavía no hay tickets registrados')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Este mes' }));
+
+    expect(await screen.findByText('No hay tickets en el período seleccionado')).toBeInTheDocument();
+    expect(screen.queryByText('Todavía no hay tickets registrados')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Ver todo el historial' }));
+
+    // La salida es real: se vuelve a pedir el reporte sin fechas.
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/reports/full'));
+    expect(await screen.findByText('Todavía no hay tickets registrados')).toBeInTheDocument();
+  });
+
+  it('distingue que los filtros no encontraron resultados y ofrece limpiarlos', async () => {
+    const user = userEvent.setup();
+    setupPayload(emptyReport());
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+    expect(await screen.findByText('Todavía no hay tickets registrados')).toBeInTheDocument();
+
+    await pickOption(user, screen.getByLabelText('Estado'), 'Abierto');
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+
+    expect(await screen.findByText('Ningún ticket coincide con estos filtros')).toBeInTheDocument();
+    expect(screen.queryByText('Todavía no hay tickets registrados')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Limpiar filtros' }));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/api/reports/full'));
+    // El estado vacío es el de "no hay tickets", ya sin filtros que lo oculten.
+    expect(await screen.findByText('Todavía no hay tickets registrados')).toBeInTheDocument();
+    // Y los controles vuelven a su estado inicial, no sólo la consulta.
+    expect(screen.getByLabelText('Desde')).toHaveValue('');
+    expect(screen.getByLabelText('Hasta')).toHaveValue('');
+  });
+
+  it('con filtros y período a la vez, el mensaje menciona las dos causas', async () => {
+    const user = userEvent.setup();
+    setupPayload(emptyReport());
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+    await screen.findByText('Todavía no hay tickets registrados');
+
+    await user.click(screen.getByRole('button', { name: 'Este mes' }));
+    await pickOption(user, screen.getByLabelText('Departamento'), 'RRHH');
+    await user.click(screen.getByRole('button', { name: 'Aplicar' }));
+
+    expect(await screen.findByText('Ningún ticket coincide con estos filtros')).toBeInTheDocument();
+    expect(screen.getByText(/menos filtros o con un período más amplio/)).toBeInTheDocument();
+  });
+
+  it('mantiene filtros, secciones y exportación disponibles aunque no haya resultados', async () => {
+    const user = userEvent.setup();
+    setupPayload(emptyReport());
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+    expect(await screen.findByText('Todavía no hay tickets registrados')).toBeInTheDocument();
+
+    // El panel de filtros sigue ahí: es la herramienta para salir del vacío.
+    expect(screen.getByLabelText('Desde')).toBeInTheDocument();
+    expect(screen.getByLabelText('Estado')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Aplicar' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Detalle de tickets')).toBeChecked();
+
+    // Exportar no se Rompe: puede seguir siendo útil como reporte en blanco.
+    await user.click(screen.getByRole('button', { name: 'Exportar CSV' }));
+    expect(download).toHaveBeenCalledTimes(1);
+  });
+
+  it('el mensaje del estado vacío no depende del icono ni del color', async () => {
+    setupPayload(emptyReport());
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    const mensaje = await screen.findByText('Todavía no hay tickets registrados');
+    expect(mensaje.tagName).toBe('P');
+    // El emoji es decorativo: el texto es el que comunica el estado.
+    const icono = mensaje.closest('div').querySelector('[aria-hidden="true"]');
+    expect(icono).toBeInTheDocument();
+    expect(icono.textContent).toBe('🎫');
+    expect(mensaje).toHaveTextContent('Todavía no hay tickets registrados');
+  });
+
+  it('el texto del estado vacío mantiene el mínimo de contraste en claro y en oscuro', () => {
+    const paleta = themeColors();
+    const claro = cssVariables(':root');
+    const oscuro = cssVariables(":root[data-theme='dark']");
+
+    // EmptyState usa `text-slate-700` (título) y `text-slate-500` (explicación).
+    // En tema oscuro index.css los reescribe a --text y --text-muted, así que
+    // sobre la tarjeta hay que comprobar las dos paletas.
+    expect(contrastRatio(paleta['slate-700'], claro['--surface'])).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(paleta['slate-500'], claro['--surface'])).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(oscuro['--text'], oscuro['--surface'])).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(oscuro['--text-muted'], oscuro['--surface'])).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('Reports: gráficos sin datos útiles', () => {
+  it('sustituye un gráfico de barras en cero por su estado vacío', async () => {
+    setupPayload(reportConCategoriasVacias());
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    // Hay tickets (el resumen no está vacío), pero ninguna categoría los tiene.
+    expect(await screen.findByText('Total tickets')).toBeInTheDocument();
+    const tarjeta = screen.getByText('Tickets por categoría').parentElement;
+    expect(tarjeta).toHaveTextContent('Sin tickets por categoría');
+    expect(tarjeta).not.toHaveTextContent('Hardware');
+    expect(tarjeta).not.toHaveTextContent('0 abiertos');
+  });
+
+  it('no dibuja la distribución de estrellas cuando no hay respuestas', async () => {
+    setupPayload(report({
+      csat: {
+        responses: 0, eligible: 4, response_rate: 0, average: null, has_data: false,
+        distribution: [1, 2, 3, 4, 5].map((rating) => ({ rating, n: 0 })),
+        by_technician: [], by_department: [], by_category: [], by_month: [],
+      },
+    }));
+
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    const tarjeta = (await screen.findByText('Distribución de respuestas')).parentElement;
+    expect(tarjeta).toHaveTextContent('Sin respuestas de satisfacción');
+    // Cinco barras de estrella a cero se leerían como un gráfico de datos.
+    expect(tarjeta).not.toHaveTextContent('★');
+  });
+
+  it('mantiene el gráfico con datos reales', async () => {
+    renderWithProviders(<Reports />, { route: '/app/reports' });
+
+    const tarjeta = (await screen.findByText('Tickets por categoría')).parentElement;
+    expect(tarjeta).toHaveTextContent('Hardware');
+    expect(tarjeta).toHaveTextContent('1 abiertos');
+    expect(tarjeta).not.toHaveTextContent('Sin tickets por categoría');
   });
 });
 
@@ -345,15 +575,16 @@ describe('Reports: rendimiento por técnico y por equipo', () => {
     expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(2);
   });
 
-  it('no muestra filas de técnicos cuando no hay datos', async () => {
+  it('no muestra filas de técnicos ni de equipos cuando no hay datos', async () => {
     setup({ byTechnician: [], byTeam: { basis: 'current_assignment', note: 'Sin histórico de equipo.', data: [] } });
 
     renderWithProviders(<Reports />, { route: '/app/reports' });
 
     expect(await screen.findByRole('heading', { name: 'Rendimiento por técnico' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Rendimiento por equipo' })).toBeInTheDocument();
-    // Ambas tarjetas muestran su estado vacío en vez de una tabla de ceros.
-    expect(screen.getAllByText('Sin datos').length).toBeGreaterThanOrEqual(2);
+    // El encabezado sobrevive y la tabla se sustituye por su estado vacío.
+    expect(screen.getByText('Sin trabajo asignado a técnicos')).toBeInTheDocument();
+    expect(screen.getByText('Sin trabajo en equipos')).toBeInTheDocument();
     expect(screen.queryByText('5 h 0 min')).toBeNull();
   });
 });
@@ -382,7 +613,10 @@ describe('Reports: satisfacción del cliente', () => {
     expect(await screen.findByText('Valoración media')).toBeInTheDocument();
     expect(screen.getByText('Sin respuestas')).toBeInTheDocument();
     expect(screen.getByText('Tasa de respuesta').parentElement).toHaveTextContent('0%');
-    expect(screen.getByText('Evolución mensual').parentElement).toHaveTextContent('Sin datos');
+    // El desglose mensual vacío se explica; la distribución de estrellas no se
+    // dibuja porque cinco barras en cero no dicen nada.
+    expect(screen.getByText('Evolución mensual').parentElement).toHaveTextContent('Sin historial de satisfacción');
+    expect(screen.getAllByText('Sin respuestas de satisfacción').length).toBeGreaterThanOrEqual(2);
   });
 
   it('distingue una tasa sin base comparable de un 0% real', async () => {

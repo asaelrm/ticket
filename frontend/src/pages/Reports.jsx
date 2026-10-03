@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api, download, STATUS_LABEL, PRIORITY_LABEL, STATUSES, PRIORITIES } from '../lib/api';
-import { LoadingScreen, ErrorBox } from '../components/ui';
+import { LoadingScreen, ErrorBox, EmptyState } from '../components/ui';
 import Select from '../components/Select';
 import { printDocument } from '../lib/print';
 
@@ -75,9 +75,78 @@ function rangeLabel(range) {
   return `Del ${range.from || 'inicio'} al ${range.to || 'hoy'}`;
 }
 
+// Filtros en blanco. Es el estado inicial del formulario y también lo que deja
+// el botón "Limpiar filtros" del estado vacío, así que se escribe una vez.
+const SIN_FILTROS = { from: '', to: '', status: '', priority: '', department: '', category: '' };
+
+// El período se separa del resto porque la salida que ofrece el usuario es
+// distinta: si sólo hay fechas, ampliar el período ya es la solución; si hay
+// estado, prioridad, departamento o categoría, hay que quitar esos filtros.
+const CAMPOS_FILTRO = ['status', 'priority', 'department', 'category'];
+
+function tienePeriodo(query) {
+  return Boolean(query.from || query.to);
+}
+
+function tieneFiltrosDeCampo(query) {
+  return CAMPOS_FILTRO.some((key) => Boolean(query[key]));
+}
+
+function sinResultados(rows, valor) {
+  // Todas las barras en cero tan vacías como una lista sin filas: pintar diez
+  // categorías con "0" se lee como un gráfico real cuando no lo es.
+  return rows.length === 0 || rows.every((row) => !row[valor]);
+}
+
+// Estado vacío del reporte completo. Se distinguen los tres casos que el frontend
+// puede diferenciar por sí solo, con la información que ya trae: no hay tickets
+// en el sistema, los filtros aplicados no devuelven nada, o el período elegido
+// no contiene tickets.
+function ReporteVacio({ query, onLimpiar, onTodoElHistorial }) {
+  if (tieneFiltrosDeCampo(query)) {
+    return (
+      <EmptyState
+        icon="🔍"
+        title="Ningún ticket coincide con estos filtros"
+        subtitle={
+          tienePeriodo(query)
+            ? 'Pruebe con menos filtros o con un período más amplio.'
+            : 'Pruebe con menos filtros para ampliar la búsqueda.'
+        }
+        action={
+          <button type="button" className="btn-secondary" onClick={onLimpiar}>
+            Limpiar filtros
+          </button>
+        }
+      />
+    );
+  }
+  if (tienePeriodo(query)) {
+    return (
+      <EmptyState
+        icon="📅"
+        title="No hay tickets en el período seleccionado"
+        subtitle="No se registró ningún ticket en las fechas indicadas."
+        action={
+          <button type="button" className="btn-secondary" onClick={onTodoElHistorial}>
+            Ver todo el historial
+          </button>
+        }
+      />
+    );
+  }
+  return (
+    <EmptyState
+      icon="🎫"
+      title="Todavía no hay tickets registrados"
+      subtitle="Los reportes se rellenarán solos a medida que se registren tickets."
+    />
+  );
+}
+
 export default function Reports() {
-  const [form, setForm] = useState({ from: '', to: '', status: '', priority: '', department: '', category: '' });
-  const [query, setQuery] = useState({ from: '', to: '', status: '', priority: '', department: '', category: '' });
+  const [form, setForm] = useState(SIN_FILTROS);
+  const [query, setQuery] = useState(SIN_FILTROS);
   const [sections, setSections] = useState(SECTIONS.map(([key]) => key));
 
   const { data: departmentsData } = useQuery({
@@ -155,6 +224,14 @@ export default function Reports() {
     setQuery((current) => ({ ...current, ...r }));
   }
 
+  // Vacía formulario y consulta a la vez: si sólo se limpiese el formulario, el
+  // reporte seguiría mostrando el resultado anterior y el botón no parecería
+  // hacer nada.
+  function limpiarFiltros() {
+    setForm(SIN_FILTROS);
+    setQuery(SIN_FILTROS);
+  }
+
   function exportCsv() {
     if (!sections.length) return;
     download(`/api/reports/export${exportQs}`);
@@ -230,6 +307,12 @@ export default function Reports() {
   const maxPrio = Math.max(...data.byPriority.map((d) => d.n), 1);
   const avgH = data.summary.avg_resolution_hours;
   const avgLabel = avgH >= 24 ? `${(avgH / 24).toFixed(1)} días` : `${avgH} h`;
+
+  // `summary.total` es el número de tickets que cumplen la consulta, el mismo
+  // criterio que usa el resto de secciones: si es cero, todos los gráficos y
+  // tablas saldrían vacíos a la vez. En ese caso se explica por qué una sola vez
+  // en lugar de repetir "Sin datos" en cada tarjeta.
+  const sinTickets = data.summary.total === 0;
 
   return (
     <div className="space-y-6">
@@ -344,236 +427,272 @@ export default function Reports() {
         </fieldset>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Kpi label="Total tickets" value={data.summary.total} />
-        <Kpi label="Tickets abiertos" value={data.summary.open} color="text-blue-600" />
-        <Kpi label="Resueltos + cerrados" value={data.summary.resolved} color="text-emerald-600" />
-        <Kpi label="Sin resolver > 7 días" value={data.summary.unresolved_week} color="text-red-600" />
-        <Kpi label="Tiempo medio resolución" value={avgLabel} />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ChartCard title="Tickets por estado" bodyClass="!h-auto">
-          {data.byStatus.length === 0 && <p className="text-sm text-slate-400">Sin datos</p>}
-          {data.byStatus.map((d) => (
-            <Bar key={d.status} label={STATUS_LABEL[d.status]} n={d.n} pct={maxStatus ? (d.n / maxStatus) * 100 : 0} color={STATUS_COLORS[d.status]} />
-          ))}
-        </ChartCard>
-
-        <ChartCard title="Tickets abiertos por prioridad">
-          {data.byPriority.length === 0 && <p className="text-sm text-slate-400">Sin datos</p>}
-          {data.byPriority.map((d) => (
-            <Bar key={d.priority} label={PRIORITY_LABEL[d.priority]} n={d.n} pct={maxPrio ? (d.n / maxPrio) * 100 : 0} color={PRIORITY_COLORS[d.priority]} />
-          ))}
-        </ChartCard>
-
-        <ChartCard title="Tickets por categoría">
-          {data.byCategory.length === 0 && <p className="text-sm text-slate-400">Sin datos</p>}
-          {data.byCategory.map((d) => (
-            <li key={d.name} className="flex items-center gap-2 text-sm">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
-              <span className="min-w-0 flex-1 truncate text-slate-600">{d.name}</span>
-              <span className="font-semibold text-slate-800">{d.n}</span>
-              <span className="w-10 text-right text-xs text-slate-400">{d.open} abiertos</span>
-            </li>
-          ))}
-        </ChartCard>
-
-        <ChartCard title="Tickets por departamento">
-          {data.byDepartment.length === 0 && <p className="text-sm text-slate-400">Sin datos</p>}
-          {data.byDepartment.map((d) => (
-            <Bar key={d.name} label={d.name} n={d.n} pct={maxDept ? (d.n / maxDept) * 100 : 0} color="#20c7b7" />
-          ))}
-        </ChartCard>
-      </div>
-
-      <div className="card p-5">
-        <h3 className="mb-4 text-sm font-semibold text-slate-700">Top reporteros</h3>
-        {data.performance.by_user.length === 0 ? (
-          <p className="text-sm text-slate-400">Sin datos</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="th">Empleado</th>
-                  <th className="th">Total</th>
-                  <th className="th">Abiertos</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.performance.by_user.map((u) => (
-                  <tr key={u.reporter} className="hover:bg-slate-50">
-                    <td className="td font-medium text-slate-800">{u.reporter}</td>
-                    <td className="td">{u.total}</td>
-                    <td className="td">{u.open}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="card p-5">
-        <h3 className="mb-1 text-sm font-semibold text-slate-700">Rendimiento por técnico</h3>
-        <p className="mb-4 text-xs text-slate-400">
-          Asignados y abiertos son la carga actual del técnico; resueltos, cerrados y el tiempo
-          dedicado se le atribuyen a quien completó el ticket.
-        </p>
-        {data.byTechnician.length === 0 ? (
-          <p className="text-sm text-slate-400">Sin datos</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="th">Técnico</th>
-                  <th className="th">Asignados</th>
-                  <th className="th">Abiertos</th>
-                  <th className="th">Resueltos</th>
-                  <th className="th">Cerrados</th>
-                  <th className="th">Tiempo total</th>
-                  <th className="th">Tiempo medio</th>
-                  <th className="th">Resolución media</th>
-                  <th className="th">Incumpl. SLA</th>
-                  <th className="th">Cumplimiento SLA</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.byTechnician.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50">
-                    <td className="td font-medium text-slate-800">{t.technician}</td>
-                    <td className="td">{t.assigned}</td>
-                    <td className="td">{t.open}</td>
-                    <td className="td">{t.resolved}</td>
-                    <td className="td">{t.closed}</td>
-                    <td className="td whitespace-nowrap">{minutosONo(t.total_time_minutes)}</td>
-                    <td className="td whitespace-nowrap">{minutosONo(t.avg_time_minutes)}</td>
-                    <td className="td whitespace-nowrap">{horasONo(t.avg_resolution_hours)}</td>
-                    <td className="td">{t.sla_breached}</td>
-                    <td className="td">{slaCelda(t.sla_pct)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <div className="card p-5">
-        <h3 className="mb-1 text-sm font-semibold text-slate-700">Rendimiento por equipo</h3>
-        <p className="mb-4 text-xs text-slate-400">{data.byTeam.note}</p>
-        {data.byTeam.data.length === 0 ? (
-          <p className="text-sm text-slate-400">Sin datos</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="th">Equipo</th>
-                  <th className="th">Asignados</th>
-                  <th className="th">Abiertos</th>
-                  <th className="th">Completados</th>
-                  <th className="th">Resolución media</th>
-                  <th className="th">Incumpl. SLA</th>
-                  <th className="th">Cumplimiento SLA</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.byTeam.data.map((t) => (
-                  <tr key={t.id} className="hover:bg-slate-50">
-                    <td className="td font-medium text-slate-800">{t.team}</td>
-                    <td className="td">{t.assigned}</td>
-                    <td className="td">{t.open}</td>
-                    <td className="td">{t.completed}</td>
-                    <td className="td whitespace-nowrap">{horasONo(t.avg_resolution_hours)}</td>
-                    <td className="td">{t.sla_breached}</td>
-                    <td className="td">{slaCelda(t.sla_pct)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {data.csat && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <Kpi
-              label="Valoración media"
-              value={data.csat.average == null ? 'Sin respuestas' : `${data.csat.average} / 5`}
-              color={data.csat.average == null ? 'text-slate-400' : 'text-brand-600'}
-            />
-            <Kpi label="Respuestas recibidas" value={data.csat.responses} />
-            <Kpi
-              label="Tickets resueltos o cerrados"
-              value={data.csat.eligible}
-              color="text-slate-800"
-            />
-            <Kpi
-              label="Tasa de respuesta"
-              value={data.csat.response_rate == null ? 'Sin base comparable' : `${data.csat.response_rate}%`}
-              color={data.csat.response_rate == null ? 'text-slate-400' : 'text-emerald-600'}
-            />
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            <ChartCard title="Distribución de respuestas">
-              {data.csat.distribution.map((d) => (
-                <Bar
-                  key={d.rating}
-                  label={`${'★'.repeat(d.rating)} ${d.rating}`}
-                  n={d.n}
-                  pct={data.csat.responses ? (d.n / data.csat.responses) * 100 : 0}
-                  color={d.rating >= 4 ? '#22c77a' : d.rating === 3 ? '#f59e0b' : '#ef4444'}
-                />
-              ))}
-            </ChartCard>
-
-            <ChartCard title="Evolución mensual">
-              {data.csat.by_month.length === 0 && <p className="text-sm text-slate-400">Sin datos</p>}
-              {data.csat.by_month.map((m) => (
-                <li key={m.month} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">{m.month}</span>
-                  <span className="text-xs text-slate-400">{m.responses} respuesta(s)</span>
-                  <span className="font-semibold text-slate-800">
-                    {m.average == null ? 'Sin datos' : `${m.average} / 5`}
-                  </span>
-                </li>
-              ))}
-            </ChartCard>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-3">
-            <CsatTable title="CSAT por técnico" rows={data.csat.by_technician} />
-            <CsatTable title="CSAT por departamento" rows={data.csat.by_department} />
-            <CsatTable title="CSAT por categoría" rows={data.csat.by_category} />
-          </div>
+      {sinTickets ? (
+        <div className="card p-5">
+          <h3 className="mb-1 text-sm font-semibold text-slate-700">Resultado de la consulta</h3>
+          <p className="mb-2 text-xs text-slate-400">{rangeLabel(query)}</p>
+          <ReporteVacio
+            query={query}
+            onLimpiar={limpiarFiltros}
+            onTodoElHistorial={() => applyPreset(PRESETS[0])}
+          />
         </div>
+      ) : (
+        <>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          <Kpi label="Total tickets" value={data.summary.total} />
+          <Kpi label="Tickets abiertos" value={data.summary.open} color="text-blue-600" />
+          <Kpi label="Resueltos + cerrados" value={data.summary.resolved} color="text-emerald-600" />
+          <Kpi label="Sin resolver > 7 días" value={data.summary.unresolved_week} color="text-red-600" />
+          <Kpi label="Tiempo medio resolución" value={avgLabel} />
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <ChartCard
+            title="Tickets por estado"
+            bodyClass="!h-auto"
+            vacio={sinResultados(data.byStatus, 'n')}
+            empty={{ icon: '📊', title: 'Sin tickets por estado' }}
+          >
+            {data.byStatus.map((d) => (
+              <Bar key={d.status} label={STATUS_LABEL[d.status]} n={d.n} pct={maxStatus ? (d.n / maxStatus) * 100 : 0} color={STATUS_COLORS[d.status]} />
+            ))}
+          </ChartCard>
+
+          <ChartCard
+            title="Tickets abiertos por prioridad"
+            vacio={sinResultados(data.byPriority, 'n')}
+            empty={{ icon: '📊', title: 'Sin tickets abiertos' }}
+          >
+            {data.byPriority.map((d) => (
+              <Bar key={d.priority} label={PRIORITY_LABEL[d.priority]} n={d.n} pct={maxPrio ? (d.n / maxPrio) * 100 : 0} color={PRIORITY_COLORS[d.priority]} />
+            ))}
+          </ChartCard>
+
+  <ChartCard
+            title="Tickets por categoría"
+            vacio={sinResultados(data.byCategory, 'n')}
+            empty={{ icon: '📊', title: 'Sin tickets por categoría' }}
+          >
+            {data.byCategory.map((d) => (
+              <li key={d.name} className="flex items-center gap-2 text-sm">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+                <span className="min-w-0 flex-1 truncate text-slate-600">{d.name}</span>
+                <span className="font-semibold text-slate-800">{d.n}</span>
+                <span className="w-10 text-right text-xs text-slate-400">{d.open} abiertos</span>
+              </li>
+            ))}
+          </ChartCard>
+
+          <ChartCard
+            title="Tickets por departamento"
+            vacio={sinResultados(data.byDepartment, 'n')}
+            empty={{ icon: '📊', title: 'Sin tickets por departamento' }}
+          >
+            {data.byDepartment.map((d) => (
+              <Bar key={d.name} label={d.name} n={d.n} pct={maxDept ? (d.n / maxDept) * 100 : 0} color="#20c7b7" />
+            ))}
+          </ChartCard>
+        </div>
+
+        <div className="card p-5">
+          <h3 className="mb-4 text-sm font-semibold text-slate-700">Top reporteros</h3>
+          {data.performance.by_user.length === 0 ? (
+            <EmptyState icon="👥" title="Sin datos de reportadores" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="th">Empleado</th>
+                    <th className="th">Total</th>
+                    <th className="th">Abiertos</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.performance.by_user.map((u) => (
+                    <tr key={u.reporter} className="hover:bg-slate-50">
+                      <td className="td font-medium text-slate-800">{u.reporter}</td>
+                      <td className="td">{u.total}</td>
+                      <td className="td">{u.open}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <h3 className="mb-1 text-sm font-semibold text-slate-700">Rendimiento por técnico</h3>
+          <p className="mb-4 text-xs text-slate-400">
+            Asignados y abiertos son la carga actual del técnico; resueltos, cerrados y el tiempo
+            dedicado se le atribuyen a quien completó el ticket.
+          </p>
+          {data.byTechnician.length === 0 ? (
+            <EmptyState icon="👥" title="Sin trabajo asignado a técnicos" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="th">Técnico</th>
+                    <th className="th">Asignados</th>
+                    <th className="th">Abiertos</th>
+                    <th className="th">Resueltos</th>
+                    <th className="th">Cerrados</th>
+                    <th className="th">Tiempo total</th>
+                    <th className="th">Tiempo medio</th>
+                    <th className="th">Resolución media</th>
+                    <th className="th">Incumpl. SLA</th>
+                    <th className="th">Cumplimiento SLA</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.byTechnician.map((t) => (
+                    <tr key={t.id} className="hover:bg-slate-50">
+                      <td className="td font-medium text-slate-800">{t.technician}</td>
+                      <td className="td">{t.assigned}</td>
+                      <td className="td">{t.open}</td>
+                      <td className="td">{t.resolved}</td>
+                      <td className="td">{t.closed}</td>
+                      <td className="td whitespace-nowrap">{minutosONo(t.total_time_minutes)}</td>
+                      <td className="td whitespace-nowrap">{minutosONo(t.avg_time_minutes)}</td>
+                      <td className="td whitespace-nowrap">{horasONo(t.avg_resolution_hours)}</td>
+                      <td className="td">{t.sla_breached}</td>
+                      <td className="td">{slaCelda(t.sla_pct)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <h3 className="mb-1 text-sm font-semibold text-slate-700">Rendimiento por equipo</h3>
+          <p className="mb-4 text-xs text-slate-400">{data.byTeam.note}</p>
+          {data.byTeam.data.length === 0 ? (
+            <EmptyState icon="👥" title="Sin trabajo en equipos" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="th">Equipo</th>
+                    <th className="th">Asignados</th>
+                    <th className="th">Abiertos</th>
+                    <th className="th">Completados</th>
+                    <th className="th">Resolución media</th>
+                    <th className="th">Incumpl. SLA</th>
+                    <th className="th">Cumplimiento SLA</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.byTeam.data.map((t) => (
+                    <tr key={t.id} className="hover:bg-slate-50">
+                      <td className="td font-medium text-slate-800">{t.team}</td>
+                      <td className="td">{t.assigned}</td>
+                      <td className="td">{t.open}</td>
+                      <td className="td">{t.completed}</td>
+                      <td className="td whitespace-nowrap">{horasONo(t.avg_resolution_hours)}</td>
+                      <td className="td">{t.sla_breached}</td>
+                      <td className="td">{slaCelda(t.sla_pct)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {data.csat && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Kpi
+                label="Valoración media"
+                value={data.csat.average == null ? 'Sin respuestas' : `${data.csat.average} / 5`}
+                color={data.csat.average == null ? 'text-slate-400' : 'text-brand-600'}
+              />
+              <Kpi label="Respuestas recibidas" value={data.csat.responses} />
+              <Kpi
+                label="Tickets resueltos o cerrados"
+                value={data.csat.eligible}
+                color="text-slate-800"
+              />
+              <Kpi
+                label="Tasa de respuesta"
+                value={data.csat.response_rate == null ? 'Sin base comparable' : `${data.csat.response_rate}%`}
+                color={data.csat.response_rate == null ? 'text-slate-400' : 'text-emerald-600'}
+              />
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <ChartCard
+                title="Distribución de respuestas"
+                // Sin respuestas, las cinco barras salen a cero: mejor decirlo que
+                // dibujar un gráfico de estrella vacía.
+                vacio={sinResultados(data.csat.distribution, 'n')}
+                empty={{ icon: '⭐', title: 'Sin respuestas de satisfacción' }}
+              >
+                {data.csat.distribution.map((d) => (
+                  <Bar
+                    key={d.rating}
+                    label={`${'★'.repeat(d.rating)} ${d.rating}`}
+                    n={d.n}
+                    pct={data.csat.responses ? (d.n / data.csat.responses) * 100 : 0}
+                    color={d.rating >= 4 ? '#22c77a' : d.rating === 3 ? '#f59e0b' : '#ef4444'}
+                  />
+                ))}
+              </ChartCard>
+
+              <ChartCard
+                title="Evolución mensual"
+                vacio={sinResultados(data.csat.by_month, 'responses')}
+                empty={{ icon: '⭐', title: 'Sin historial de satisfacción' }}
+              >
+                {data.csat.by_month.map((m) => (
+                  <li key={m.month} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{m.month}</span>
+                    <span className="text-xs text-slate-400">{m.responses} respuesta(s)</span>
+                    <span className="font-semibold text-slate-800">
+                      {m.average == null ? 'Sin datos' : `${m.average} / 5`}
+                    </span>
+                  </li>
+                ))}
+              </ChartCard>
+            </div>
+
+            <div className="grid gap-6 lg:grid-cols-3">
+              <CsatTable title="CSAT por técnico" rows={data.csat.by_technician} />
+              <CsatTable title="CSAT por departamento" rows={data.csat.by_department} />
+              <CsatTable title="CSAT por categoría" rows={data.csat.by_category} />
+            </div>
+          </div>
+        )}
+
+        <div className="card p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-slate-700">Detalle de tickets</h3>
+            <span className="text-xs text-slate-400">{data.details.length} registro(s), máximo 500 en exportación</span>
+          </div>
+  {data.details.length === 0 ? (
+            <EmptyState icon="📋" title="Sin tickets que detallar" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-slate-50"><tr><th className="th">Ticket</th><th className="th">Título</th><th className="th">Estado</th><th className="th">Prioridad</th><th className="th">Departamento</th><th className="th">Reportero</th><th className="th">Creado</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.details.slice(0, 20).map((ticket) => (
+                    <tr key={ticket.ticket_number} className="hover:bg-slate-50"><td className="td font-mono text-xs">{ticket.ticket_number}</td><td className="td">{ticket.title}</td><td className="td">{STATUS_LABEL[ticket.status] || ticket.status}</td><td className="td">{PRIORITY_LABEL[ticket.priority] || ticket.priority}</td><td className="td">{ticket.department}</td><td className="td">{ticket.reporter}</td><td className="td whitespace-nowrap">{ticket.created_at}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        </>
       )}
-
-      <div className="card p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-slate-700">Detalle de tickets</h3>
-          <span className="text-xs text-slate-400">{data.details.length} registro(s), máximo 500 en exportación</span>
-        </div>
-        {data.details.length === 0 ? (
-          <p className="text-sm text-slate-400">Sin datos</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50"><tr><th className="th">Ticket</th><th className="th">Título</th><th className="th">Estado</th><th className="th">Prioridad</th><th className="th">Departamento</th><th className="th">Reportero</th><th className="th">Creado</th></tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.details.slice(0, 20).map((ticket) => (
-                  <tr key={ticket.ticket_number} className="hover:bg-slate-50"><td className="td font-mono text-xs">{ticket.ticket_number}</td><td className="td">{ticket.title}</td><td className="td">{STATUS_LABEL[ticket.status] || ticket.status}</td><td className="td">{PRIORITY_LABEL[ticket.priority] || ticket.priority}</td><td className="td">{ticket.department}</td><td className="td">{ticket.reporter}</td><td className="td whitespace-nowrap">{ticket.created_at}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -606,11 +725,18 @@ function slaCelda(pct) {
   return <span className={`font-semibold ${tono}`}>{Number(pct).toFixed(1)}%</span>;
 }
 
-function ChartCard({ title, children, bodyClass = '' }) {
+// Las barras van como lista, así que el estado vacío también: un <div> suelto
+// dentro del <ul> sería HTML inválido.
+// `vacio` lo decide quien llama, porque sólo él sabe si las barras llegaron con
+// ceros; `children` vacío cae aquí igual, por si una sección se queda sin filas.
+function ChartCard({ title, children, bodyClass = '', vacio = false, empty }) {
+  const sinBarras = vacio || !children || (Array.isArray(children) && children.length === 0);
   return (
     <div className="card p-5">
       <h3 className="mb-4 text-sm font-semibold text-slate-700">{title}</h3>
-      <ul className={`space-y-3 ${bodyClass}`}>{children}</ul>
+      <ul className={`space-y-3 ${bodyClass}`}>
+        {sinBarras ? <li><EmptyState {...empty} /></li> : children}
+      </ul>
     </div>
   );
 }
@@ -620,7 +746,7 @@ function CsatTable({ title, rows }) {
     <div className="card p-5">
       <h3 className="mb-4 text-sm font-semibold text-slate-700">{title}</h3>
       {rows.length === 0 ? (
-        <p className="text-sm text-slate-400">Sin datos</p>
+        <EmptyState icon="⭐" title="Sin respuestas de satisfacción" />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
