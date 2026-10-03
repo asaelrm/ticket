@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, can } from '../context/AuthContext';
 import Notifications from './Notifications';
+import Tooltip from './Tooltip';
 
 const ICONS = {
   home: (
@@ -498,28 +499,34 @@ export default function Layout() {
               </p>
             </div>
             <Notifications />
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
-              aria-label={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}
-              title={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}
-            >
-              {theme === 'dark' ? (
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path strokeLinecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg>
-              ) : (
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z" /></svg>
-              )}
-            </button>
-            <button
-              onClick={() => navigate('/app/profile')}
-              className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-100"
-              title="Mi cuenta"
-            >
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" />
-              </svg>
-            </button>
+            <Tooltip text={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
+                aria-label={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}
+              >
+                {theme === 'dark' ? (
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path strokeLinecap="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg>
+                ) : (
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z" /></svg>
+                )}
+              </button>
+            </Tooltip>
+            {/* El icono no se anuncia, así que este botón dependía del `title`
+                como último recurso del nombre accesible. El tooltip no sustituye
+                a ese nombre: por eso el `aria-label` se queda. */}
+            <Tooltip text="Mi cuenta">
+              <button
+                onClick={() => navigate('/app/profile')}
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-100"
+                aria-label="Mi cuenta"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" />
+                </svg>
+              </button>
+            </Tooltip>
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-6 lg:px-8">

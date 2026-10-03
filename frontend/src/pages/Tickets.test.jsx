@@ -1188,3 +1188,32 @@ describe('Tickets · acciones de fila', () => {
     expect(porFila).toHaveLength(0);
   });
 });
+
+
+describe('Tickets · el botón de refrescar se explica y sigue recargando', () => {
+  it('sustituye el title nativo por un tooltip accesible', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    const refrescar = screen.getByRole('button', { name: 'Actualizar' });
+    expect(refrescar).not.toHaveAttribute('title');
+
+    await user.hover(refrescar);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Actualizar');
+  });
+
+  it('pide el listado otra vez al pulsarlo', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+    const antes = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).length;
+
+    await user.click(screen.getByRole('button', { name: 'Actualizar' }));
+
+    await waitFor(() => {
+      const despues = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).length;
+      expect(despues).toBeGreaterThan(antes);
+    });
+  });
+});

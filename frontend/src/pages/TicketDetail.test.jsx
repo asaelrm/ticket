@@ -642,6 +642,34 @@ describe('TicketDetail', () => {
       }
     });
 
+    it('el botón de formato explica su función con tooltip y sigue aplicando el formato', async () => {
+      const user = userEvent.setup();
+      const textarea = await renderEditor();
+      const negrita = screen.getByRole('button', { name: 'Negrita' });
+
+      // Sin `title` nativo: no aparece al navegar con teclado ni se adapta al
+      // tema oscuro. El nombre accesible no cambia.
+      expect(negrita).not.toHaveAttribute('title');
+      await user.hover(negrita);
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Negrita');
+
+      // El tooltip no se come el clic: el botón sigue aplicando markdown.
+      await user.click(negrita);
+      expect(textarea.value).toContain('**');
+    });
+
+    it('el tooltip del botón de formato también sale con el teclado', async () => {
+      const user = userEvent.setup();
+      await renderEditor();
+      const negrita = screen.getByRole('button', { name: 'Negrita' });
+
+      negrita.focus();
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('Negrita');
+      // Se cierra al tabular, sin comerse el foco.
+      await user.tab();
+      await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
+    });
+
     it('el botón de respuestas rápidas es legible y se distingue de la barra', async () => {
       await renderEditor();
       const trigger = screen.getByRole('button', { name: /Respuestas rápidas/ });

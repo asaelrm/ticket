@@ -4,6 +4,7 @@ import { formatRelative, formatDateTime, formatSla, slaInfo, slaLevel } from '..
 import { quickActionsFor, menuItemsFor, SLA_ACTIVE_STATUSES } from '../lib/ticketActions';
 import { EmptyState, Pagination, Menu, Avatar, Modal, StatusBadge, PriorityBadge, Spinner } from './ui';
 import ResolveTicketModal from './ResolveTicketModal';
+import Tooltip from './Tooltip';
 
 function SortHeader({ col, label, sort, dir, onSort, className = '' }) {
   if (!onSort) return <th className={`th ${className}`}>{label}</th>;
@@ -52,27 +53,29 @@ function SlaCell({ ticket }) {
   const info = slaInfo(ticket);
   if (!info) {
     if (!SLA_ACTIVE_STATUSES.includes(ticket.status)) {
-      return <span className="text-slate-400" title="El plazo dejó de contar al cerrarse el ticket">—</span>;
+      return (
+        <Tooltip text="El plazo dejó de contar al cerrarse el ticket">
+          <span className="text-slate-400">—</span>
+        </Tooltip>
+      );
     }
     return (
-      <span
-        className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-slate-400"
-        title="Este ticket no tiene fecha límite de atención"
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-slate-300" aria-hidden="true" />
-        Sin SLA
-      </span>
+      <Tooltip text="Este ticket no tiene fecha límite de atención">
+        <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-slate-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-slate-300" aria-hidden="true" />
+          Sin SLA
+        </span>
+      </Tooltip>
     );
   }
   const tone = SLA_TONE[slaLevel(ticket)] || SLA_TONE.ok;
   return (
-    <span
-      className={`inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium ${tone.text}`}
-      title={`${info.overdue ? 'Venció' : 'Vence'}: ${info.due.toLocaleString('es-ES')}`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden="true" />
-      {formatSla(ticket)}
-    </span>
+    <Tooltip text={`${info.overdue ? 'Venció' : 'Vence'}: ${info.due.toLocaleString('es-ES')}`}>
+      <span className={`inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium ${tone.text}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden="true" />
+        {formatSla(ticket)}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -84,13 +87,15 @@ function LastActivityCell({ ticket }) {
   // `text-xs` como SLA y como la segunda línea del título: las tres son
   // metadatos de la misma fila y comparten tamaño para que se lean igual.
   return (
-    <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-slate-500" title={`Última actividad: ${formatDateTime(ticket.updated_at)}`}>
-      <svg className="h-3 w-3 shrink-0 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" />
-        <path strokeLinecap="round" d="M12 7v5l3 2" />
-      </svg>
-      <span>{formatRelative(ticket.updated_at)}</span>
-    </span>
+    <Tooltip text={`Última actividad: ${formatDateTime(ticket.updated_at)}`}>
+      <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-slate-500">
+        <svg className="h-3 w-3 shrink-0 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path strokeLinecap="round" d="M12 7v5l3 2" />
+        </svg>
+        <span>{formatRelative(ticket.updated_at)}</span>
+      </span>
+    </Tooltip>
   );
 }
 
@@ -312,7 +317,9 @@ return (
                 <td className="td font-semibold text-brand-600">
                   <span className="inline-flex items-center gap-2">
                     {flag && (
-                      <span className={`h-4 w-1 shrink-0 rounded-full ${flag.bar}`} role="img" aria-label={flag.label} />
+                      <Tooltip text={flag.label} describe={false}>
+                        <span className={`h-4 w-1 shrink-0 rounded-full ${flag.bar}`} role="img" aria-label={flag.label} />
+                      </Tooltip>
                     )}
                     <Link to={`${basePath}/${t.id}`} className="truncate hover:underline">
                       {t.ticket_number}

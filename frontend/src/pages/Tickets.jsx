@@ -12,6 +12,7 @@ import { useTicketRowActions } from '../lib/useTicketRowActions';
 import { useMyTeams } from '../lib/useMyTeams';
 import { LoadingScreen, ErrorBox, Spinner, Menu } from '../components/ui';
 import Select from '../components/Select';
+import Tooltip from '../components/Tooltip';
 
 const DEFAULTS = { sort: 'created_at', dir: 'desc', perPage: 15, page: 1 };
 
@@ -305,11 +306,13 @@ export default function Tickets() {
           </p>
         )}
         <div className="flex gap-2">
-          <button type="button" className="btn-secondary !px-2.5" onClick={reload} title="Actualizar">
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M20 9a8 8 0 0 0-14.9-2M4 15a8 8 0 0 0 14.9 2" />
-            </svg>
-          </button>
+          <Tooltip text="Actualizar">
+            <button type="button" className="btn-secondary !px-2.5" onClick={reload} aria-label="Actualizar">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M20 9a8 8 0 0 0-14.9-2M4 15a8 8 0 0 0 14.9 2" />
+              </svg>
+            </button>
+          </Tooltip>
           {canExport && (
             <Menu
               label={

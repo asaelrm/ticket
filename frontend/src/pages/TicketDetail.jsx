@@ -17,6 +17,7 @@ import {
 import { useAuth, can } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen, Modal, Drawer, Avatar } from '../components/ui';
 import Breadcrumb from '../components/Breadcrumb';
+import Tooltip from '../components/Tooltip';
 import TicketTimeline from '../components/TicketTimeline';
 import AttachmentList from '../components/Attachments';
 import Select from '../components/Select';
@@ -1145,17 +1146,18 @@ function LockIcon({ className = 'h-4 w-4' }) {
 
 function ToolbarButton({ label, onClick, children }) {
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      // slate-600, no slate-200: con la paleta invertida, slate-200 es un teal
-      // oscuro que sobre la barra (#08283d) quedaba en 1.64:1.
-      className="grid h-8 w-8 place-items-center rounded-md text-sm font-medium text-slate-600 transition hover:bg-white hover:text-brand-700"
-    >
-      {children}
-    </button>
+    <Tooltip text={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={onClick}
+        // slate-600, no slate-200: con la paleta invertida, slate-200 es un teal
+        // oscuro que sobre la barra (#08283d) quedaba en 1.64:1.
+        className="grid h-8 w-8 place-items-center rounded-md text-sm font-medium text-slate-600 transition hover:bg-white hover:text-brand-700"
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 

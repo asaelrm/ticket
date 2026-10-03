@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -80,6 +80,53 @@ describe('Layout · tema visual', () => {
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(localStorage.getItem('sifha-theme')).toBe('dark');
     expect(screen.getByRole('button', { name: 'Activar tema claro' })).toBeInTheDocument();
+  });
+});
+
+describe('Layout · tooltips de la cabecera', () => {
+  it('el botón de tema explica su acción en vez de dejar un title nativo', async () => {
+    const user = userEvent.setup();
+    renderLayout();
+
+    const toggle = screen.getByRole('button', { name: 'Activar tema oscuro' });
+    expect(toggle).not.toHaveAttribute('title');
+
+    await user.hover(toggle);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Activar tema oscuro');
+  });
+
+  it('el texto del tooltip sigue al estado del tema', async () => {
+    const user = userEvent.setup();
+    renderLayout();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Activar tema oscuro' }));
+    await user.hover(screen.getByRole('button', { name: 'Activar tema claro' }));
+
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Activar tema claro');
+  });
+
+  it('el botón de cuenta tiene nombre accesible aunque su icono no se anuncie', async () => {
+    const user = userEvent.setup();
+    renderLayout();
+
+    // Antes el nombre dependía del `title`, que es el último recurso del
+    // algoritmo de nombre accesible y no se ve al navegar con teclado.
+    const cuenta = screen.getByRole('button', { name: 'Mi cuenta' });
+    expect(cuenta).not.toHaveAttribute('title');
+
+    await user.hover(cuenta);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Mi cuenta');
+  });
+
+  it('el tooltip se cierra con Escape y no se queda flotando', async () => {
+    const user = userEvent.setup();
+    renderLayout();
+
+    await user.hover(screen.getByRole('button', { name: 'Mi cuenta' }));
+    expect(await screen.findByRole('tooltip')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('tooltip')).not.toBeInTheDocument());
   });
 });
 

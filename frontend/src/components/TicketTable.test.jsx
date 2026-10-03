@@ -301,6 +301,72 @@ describe('TicketTable · SLA y última actividad', () => {
   });
 });
 
+describe('TicketTable · el tooltip explica los metadatos de la fila', () => {
+  // El `title` nativo no aparece con el teclado y tarda en mostrarse; el SLA y
+  // la última actividad se leen igual de tarde en una tabla larga, así que la
+  // explicación se comprueba con el puntero.
+  const hover = async (element) => {
+    const user = userEvent.setup();
+    await user.hover(element);
+    await waitFor(() => expect(screen.getByRole('tooltip')).toBeInTheDocument());
+    return screen.getByRole('tooltip');
+  };
+
+  it('el tooltip del SLA da la fecha exacta, que en la celda sólo sale relativa', async () => {
+    const vence = new Date(Date.now() + 3 * HOUR);
+    renderRows([row({ sla_due_at: vence.toISOString() })]);
+    const fila = (await screen.findByText('TCK-000001')).closest('tr');
+
+    const el = await hover(within(fila).getByText(/Vence en/));
+
+    expect(el).toHaveTextContent(/Vence: /);
+    // Sigue siendo un tooltip y no un `title`: la celda no se announces dos veces.
+    expect(el).toHaveAttribute('role', 'tooltip');
+  });
+
+  it('el tooltip de la última actividad da la fecha y hora exactas', async () => {
+    renderRows([row({ updated_at: new Date(Date.now() - 5 * HOUR).toISOString() })]);
+    const fila = (await screen.findByText('TCK-000001')).closest('tr');
+
+    const el = await hover(within(fila).getByText('hace 5 h'));
+
+    expect(el).toHaveTextContent('Última actividad: ');
+  });
+
+  it('"Sin SLA" explica por qué, en vez de dejar el título nativo', async () => {
+    renderRows([row({ sla_due_at: null })]);
+    const fila = (await screen.findByText('TCK-000001')).closest('tr');
+
+    const celda = within(fila).getByText('Sin SLA');
+    expect(celda).not.toHaveAttribute('title');
+
+    const el = await hover(celda);
+    expect(el).toHaveTextContent('Este ticket no tiene fecha límite de atención');
+  });
+
+  it('la franja de urgencia no se anuncia dos veces: su texto ya es el nombre', async () => {
+    renderRows([row({ sla_due_at: new Date(Date.now() - 2 * HOUR).toISOString(), is_overdue: true })]);
+    const fila = (await screen.findByText('TCK-000001')).closest('tr');
+    const franja = within(fila).getByRole('img', { name: 'Fuera de plazo' });
+
+    // El `aria-label` de la franja ya dice "Fuera de plazo": describirla otra
+    // vez sólo haría que el lector de pantalla repita la misma frase.
+    expect(franja).not.toHaveAttribute('aria-describedby');
+
+    const user = userEvent.setup();
+    await user.hover(franja);
+
+    // La burbuja sí se ve (portal a `body`), pero va marcada como decorativa.
+    const burbuja = await waitFor(() => {
+      const el = document.querySelector('body > span[aria-hidden="true"]');
+      expect(el).toBeInTheDocument();
+      return el;
+    });
+    expect(burbuja).toHaveTextContent('Fuera de plazo');
+    expect(burbuja).not.toHaveAttribute('role');
+  });
+});
+
 describe('TicketTable · permisos y estados terminales', () => {
   it('no ofrece acciones a un usuario sin permisos, sólo el menú con "Ver detalle"', async () => {
     renderRows([row({ assigned_to_id: ME })], { perms: {} });

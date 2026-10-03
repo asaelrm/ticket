@@ -4,6 +4,7 @@ import { api, formatDate, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal, Pagination, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
 import Select from '../components/Select';
+import Tooltip from '../components/Tooltip';
 import UserTicketHistory from '../components/UserTicketHistory';
 
 const EMPTY = {
@@ -292,12 +293,14 @@ export default function Users() {
                               <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => openEdit(u)}>
                                 Editar
                               </button>
-                              <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => resetPassword(u)} title="Restablecer contraseña">
-                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                                  <rect x="4" y="10" width="16" height="10" rx="2" />
-                                  <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-                                </svg>
-                              </button>
+                              <Tooltip text="Restablecer contraseña">
+                                <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => resetPassword(u)} aria-label="Restablecer contraseña">
+                                  <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                                    <rect x="4" y="10" width="16" height="10" rx="2" />
+                                    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                                  </svg>
+                                </button>
+                              </Tooltip>
                             </>
                           )}
                         </div>

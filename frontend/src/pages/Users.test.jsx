@@ -294,13 +294,27 @@ describe('Users', () => {
     renderWithProviders(<Users />, { route: '/app/users' });
     await screen.findByText('Ada Lovelace');
 
-    await user.click(screen.getByTitle('Restablecer contraseña'));
+    await user.click(screen.getByRole('button', { name: 'Restablecer contraseña' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/users/2/reset-password', {}));
     expect(await screen.findByRole('dialog', { name: 'Restablecer contraseña' })).toBeInTheDocument();
     expect(
       await screen.findByRole('link', { name: /reset-password\?token=tok-abc-123/ })
     ).toBeInTheDocument();
+  });
+
+  // El candado no dice nada por sí solo, así que el botón necesita nombre
+  // accesible; el `title` era el único que había y no se ve al tabular.
+  it('el botón del candado conserva su nombre accesible y explica su acción', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    const boton = screen.getByRole('button', { name: 'Restablecer contraseña' });
+    expect(boton).not.toHaveAttribute('title');
+
+    await user.hover(boton);
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Restablecer contraseña');
   });
 
   // El enlace se entregaba como texto suelto ("/reset-password?token=…") y había
@@ -314,7 +328,7 @@ describe('Users', () => {
     renderWithProviders(<Users />, { route: '/app/users' });
     await screen.findByText('Ada Lovelace');
 
-    await user.click(screen.getByTitle('Restablecer contraseña'));
+    await user.click(screen.getByRole('button', { name: 'Restablecer contraseña' }));
 
     const enlace = await screen.findByRole('link', { name: /reset-password\?token=tok-abc-123/ });
     const esperado = `${window.location.origin}/reset-password?token=tok-abc-123`;
@@ -332,7 +346,7 @@ describe('Users', () => {
     renderWithProviders(<Users />, { route: '/app/users' });
     await screen.findByText('Ada Lovelace');
 
-    await user.click(screen.getByTitle('Restablecer contraseña'));
+    await user.click(screen.getByRole('button', { name: 'Restablecer contraseña' }));
 
     const enlace = await screen.findByRole('link', { name: /reset-password/ });
     expect(enlace.getAttribute('href')).toBe(
@@ -361,7 +375,7 @@ describe('Users', () => {
 
     expect(screen.queryByRole('button', { name: '+ Nuevo usuario' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Editar' })).not.toBeInTheDocument();
-    expect(screen.queryByTitle('Restablecer contraseña')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Restablecer contraseña' })).not.toBeInTheDocument();
   });
 
   it('muestra el estado vacío cuando no hay usuarios', async () => {
