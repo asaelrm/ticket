@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
 import { api, STATUS_LABEL, PRIORITY_LABEL, formatDate } from '../lib/api';
-import { LoadingScreen, ErrorBox } from '../components/ui';
+import { ErrorBox } from '../components/ui';
+import DashboardSkeleton from '../components/DashboardSkeleton';
 
 const STATUS_COLORS = {
   OPEN: '#f59e0b',
@@ -213,7 +214,10 @@ export default function Dashboard() {
 
   useTicketEventInvalidator(['dashboard']);
 
-  if (isLoading) return <LoadingScreen text="Cargando dashboard…" />;
+  // Durante la carga se pinta el esqueleto de la pantalla, no un spinner: el hueco
+  // tiene la misma forma que el dashboard lleno, así que al llegar los datos la
+  // página no salta. Los datos, las consultas y los permisos no cambian.
+  if (isLoading) return <DashboardSkeleton />;
   if (error && !data) {
     return (
       <div className="mx-auto max-w-2xl">

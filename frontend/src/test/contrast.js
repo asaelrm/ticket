@@ -32,10 +32,38 @@ const DEFAULT_PALETTE = {
   'red-600': '#dc2626',
 };
 
+let cachedFile = null;
+
+/** El texto de index.css, que es donde vive la identidad visual del proyecto. */
+function cssFile() {
+  if (!cachedFile) cachedFile = fs.readFileSync(path.join(__dirname, '..', 'index.css'), 'utf8');
+  return cachedFile;
+}
+
+/**
+ * Las variables CSS de un bloque de `index.css`, para comprobar el contraste
+ * real de cada tema.
+ *
+ * `readColors` resuelve clases contra la paleta de `@theme`, que es el tema
+ * claro; en oscuro casi todas las superficies cambian de valor y hay que leer
+ * el bloque `:root[data-theme='dark']`. Sirve para los componentes que usan
+ * tokens (`var(--text)`, `var(--brand)`…), que en ambos temas son los mismos
+ * nombres con distinto valor.
+ */
+export function cssVariables(selector = ':root') {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const block = cssFile().match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`));
+  if (!block) throw new Error(`No se encontró el bloque "${selector}" en index.css`);
+  const out = {};
+  for (const m of block[1].matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)) out[m[1]] = m[2].trim();
+  if (!Object.keys(out).length) throw new Error(`El bloque "${selector}" no declara variables`);
+  return out;
+}
+
 /** Los tokens de color declarados en @theme. */
 export function themeColors() {
   if (cachedCss) return { ...cachedCss };
-  const css = fs.readFileSync(path.join(__dirname, '..', 'index.css'), 'utf8');
+  const css = cssFile();
   const block = css.match(/@theme\s*\{([\s\S]*?)\n\}/);
   if (!block) throw new Error('No se encontró el bloque @theme en index.css');
   const out = {};

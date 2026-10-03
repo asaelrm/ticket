@@ -53,6 +53,11 @@
   --overlay: rgb(2 6 23 / 0.52);
   --shadow: 0 1px 2px rgb(15 23 42 / 0.05), 0 5px 16px rgb(15 23 42 / 0.06);
   --shadow-overlay: 0 18px 48px rgb(15 23 42 / 0.18);
+  /* Esqueletos de carga: un tono por encima de la superficie y otro para el
+     brillo que lo recorre. En oscuro el par se invierte en valor, no en matiz,
+     para que el bloque siga leyéndose sobre `--surface` sin volverse un pozo. */
+  --skeleton-base: #e4eaf3;
+  --skeleton-sheen: #f6f9fd;
 }
 
 :root[data-theme='dark'] {
@@ -80,6 +85,8 @@
   --overlay: rgb(0 0 0 / 0.66);
   --shadow: 0 1px 2px rgb(0 0 0 / 0.18), 0 8px 22px rgb(0 0 0 / 0.2);
   --shadow-overlay: 0 20px 56px rgb(0 0 0 / 0.42);
+  --skeleton-base: #1e2c46;
+  --skeleton-sheen: #2c3d5c;
 }
 
 @layer base {
@@ -122,6 +129,16 @@
   .th { padding: .625rem .75rem; text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-muted); }
   .td { padding: .625rem .75rem; font-size: .875rem; line-height: 1.375; color: var(--text); }
   .table-compact .th, .table-compact .td { padding-left: .5rem; padding-right: .5rem; }
+  /* Bloque de carga. Va en la capa de componentes a propósito: las utilidades
+     (`rounded-xl`, `h-10`…) siguen mandando sobre el radio y el alto, que es lo
+     que permite ajustar la medida de cada esqueleto a la del bloque real que
+     sustituye, sin abrir un `!important` por cada caso. */
+  .skeleton {
+    display: block; border-radius: .375rem; background-color: var(--skeleton-base);
+    background-image: linear-gradient(90deg, transparent 0%, var(--skeleton-sheen) 50%, transparent 100%);
+    background-size: 200% 100%; background-repeat: no-repeat;
+    animation: sifha-skeleton 1.6s ease-in-out infinite;
+  }
 }
 
 /* Select propio: conserva portal, teclado y posicionamiento; sólo cambia presentación. */
@@ -177,4 +194,12 @@ tbody tr:hover { background: var(--surface-secondary); }
 @keyframes sifha-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes sifha-pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes sifha-slide { from { opacity: .5; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes sifha-skeleton { from { background-position: 150% 0; } to { background-position: -50% 0; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+/* El brillo del esqueleto es puro adorno: con movimiento reducido se quita la
+   animación y se deja el bloque estático, en su tono del tema. La regla global
+   de arriba solo acorta la duración, así que aquí hay que quitar además el
+   `background-image`: si no, la barra se queda congelada a mitad del barrido. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background-image: none; }
+}

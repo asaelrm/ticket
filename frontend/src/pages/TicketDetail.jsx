@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   api,
@@ -14,8 +14,9 @@ import {
   slaInfo,
   ticketStreamUrl,
 } from '../lib/api';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, can } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen, Modal, Drawer, Avatar } from '../components/ui';
+import Breadcrumb from '../components/Breadcrumb';
 import TicketTimeline from '../components/TicketTimeline';
 import AttachmentList from '../components/Attachments';
 import Select from '../components/Select';
@@ -29,10 +30,35 @@ import { buildVariableContext, MAX_COMMENT_LENGTH } from '../lib/templateVars';
 // mantiene tal cual.
 const REOPENABLE_STATUSES = ['RESOLVED', 'CLOSED'];
 
+// A qué listado vuelve la miga de pan de la ficha.
+//
+// La ruta ya dice de dónde se viene: `Tickets` e `Inbox` llevan a
+// `/app/tickets/:id` y `MyTickets` (y el alta de ticket) a `/app/my-tickets/:id`,
+// así que el destino se deduce sin recordar nada ni pasar estado al navegar.
+//
+// Sólo hay un caso en el que la ruta miente: una ficha abierta en
+// `/app/tickets/:id` por quien no tiene `ticket.view.all` —un empleado que llega
+// desde su historial en Perfil o desde un enlace de la base de conocimiento—.
+// Para esa persona `/app/tickets` no existe como pantalla: la ruta la devuelve a
+// `/app`, que no es volver a ningún sitio. En ese caso la miga apunta a "Mis
+// tickets", el único listado que siempre puede abrir. La comprobación usa el mismo
+// `can` que protege las rutas en App.jsx, con el mismo permiso.
+//
+// La Bandeja no se distingue aquí a propósito: comparte ruta con `Tickets` y su
+// estado vive en la URL de la propia bandeja. El breadcrumb es la vuelta
+// predecible; el botón "Volver" de abajo sigue siendo la vuelta exacta.
+function breadcrumbRoot(pathname, user) {
+  const mine = { label: 'Mis tickets', to: '/app/my-tickets' };
+  if (pathname.startsWith('/app/my-tickets/')) return mine;
+  if (!can(user, 'ticket.view.all')) return mine;
+  return { label: 'Tickets', to: '/app/tickets' };
+}
+
 export default function TicketDetail() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -493,51 +519,58 @@ export default function TicketDetail() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
-      {/* Barra de navegación y acciones */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <button type="button" className="btn-ghost !px-2 text-sm" onClick={() => navigate(-1)}>
-          ← Volver
-        </button>
-        <div className="flex flex-wrap items-center gap-2">
-          {can.comment && (
-            <button type="button" className="btn-secondary" onClick={() => focusEditor(false)}>
-              Responder
-            </button>
-          )}
-          {can.note && (
-            <button type="button" className="btn-secondary" onClick={() => focusEditor(true)}>
-              <LockIcon /> Nota interna
-            </button>
-          )}
-          {can.resolve && !locked && (
-            <button type="button" className="btn-primary" onClick={() => setResolveOpen(true)}>
-              Resolver ticket
-            </button>
-          )}
-          {can.reopen && REOPENABLE_STATUSES.includes(t.status) && (
-            <button type="button" className="btn-secondary" onClick={() => setReopenOpen(true)}>
-              Reabrir
-            </button>
-          )}
-          {can.close && t.status !== 'CLOSED' && (
-            <button type="button" className="btn-secondary" onClick={() => setCloseOpen(true)}>
-              Cerrar
-            </button>
-          )}
-          {/* Cancelar es la única acción que cierra el ticket sin resolverlo y
-              avisa al reportante: se separa del resto para que no se pulse por
-              inercia al lado de "Cerrar". */}
-          {can.cancel && !['CLOSED', 'CANCELLED', 'RESOLVED'].includes(t.status) && (
-            <>
-              <span aria-hidden="true" className="hidden h-6 w-px bg-white/10 sm:block" />
-              {/* red-400, no red-600: el tema solo reescribe el token `text-red-600`
-                  sin `!`, así que `!text-red-600` dejaba el texto en un rojo
-                  oscuro que no cumplía AA sobre el botón. */}
-              <button type="button" className="btn-secondary !text-red-400" onClick={() => setCancelOpen(true)}>
-                Cancelar ticket
+      {/* Miga de pan y barra de acciones. La miga va por encima de la barra, no
+          dentro de ella: su sitio natural es la esquina superior izquierda de la
+          pantalla, y así los botones de gestión conservan el alineado de siempre.
+          `space-y-3` las junta para que la miga lea como parte de la cabecera y
+          no como una fila suelta. */}
+      <div className="space-y-3">
+        <Breadcrumb items={[breadcrumbRoot(location.pathname, user), { label: t.ticket_number }]} />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button type="button" className="btn-ghost !px-2 text-sm" onClick={() => navigate(-1)}>
+            ← Volver
+          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {can.comment && (
+              <button type="button" className="btn-secondary" onClick={() => focusEditor(false)}>
+                Responder
               </button>
-            </>
-          )}
+            )}
+            {can.note && (
+              <button type="button" className="btn-secondary" onClick={() => focusEditor(true)}>
+                <LockIcon /> Nota interna
+              </button>
+            )}
+            {can.resolve && !locked && (
+              <button type="button" className="btn-primary" onClick={() => setResolveOpen(true)}>
+                Resolver ticket
+              </button>
+            )}
+            {can.reopen && REOPENABLE_STATUSES.includes(t.status) && (
+              <button type="button" className="btn-secondary" onClick={() => setReopenOpen(true)}>
+                Reabrir
+              </button>
+            )}
+            {can.close && t.status !== 'CLOSED' && (
+              <button type="button" className="btn-secondary" onClick={() => setCloseOpen(true)}>
+                Cerrar
+              </button>
+            )}
+            {/* Cancelar es la única acción que cierra el ticket sin resolverlo y
+                avisa al reportante: se separa del resto para que no se pulse por
+                inercia al lado de "Cerrar". */}
+            {can.cancel && !['CLOSED', 'CANCELLED', 'RESOLVED'].includes(t.status) && (
+              <>
+                <span aria-hidden="true" className="hidden h-6 w-px bg-white/10 sm:block" />
+                {/* red-400, no red-600: el tema solo reescribe el token `text-red-600`
+                    sin `!`, así que `!text-red-600` dejaba el texto en un rojo
+                    oscuro que no cumplía AA sobre el botón. */}
+                <button type="button" className="btn-secondary !text-red-400" onClick={() => setCancelOpen(true)}>
+                  Cancelar ticket
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

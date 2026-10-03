@@ -116,6 +116,57 @@ describe('Permisos de las rutas de gestión', () => {
   });
 });
 
+describe('Rutas desconocidas', () => {
+  // Antes, `<Route path="*" element={<Navigate to="/app" replace />} />` mandaba
+  // cualquier dirección inventada al inicio: el usuario veía su panel sin saber
+  // que la ruta estaba mal, y una errata se confundía con un fallo de la
+  // aplicación.
+
+  it('una dirección inexistente muestra el 404 en vez de saltar a /app', async () => {
+    renderApp('/no-existe');
+
+    expect(await screen.findByRole('heading', { name: 'Página no encontrada' })).toBeInTheDocument();
+    expect(screen.queryByText('PAGE my-tickets')).not.toBeInTheDocument();
+    expect(screen.queryByText('PAGE dashboard')).not.toBeInTheDocument();
+  });
+
+  it('una dirección inexistente dentro de la aplicación también muestra el 404', async () => {
+    renderApp('/app/pagina-que-no-existe');
+
+    expect(await screen.findByRole('heading', { name: 'Página no encontrada' })).toBeInTheDocument();
+    expect(screen.queryByText('PAGE my-tickets')).not.toBeInTheDocument();
+  });
+
+  it('el 404 ofrece volver al inicio, tanto con sesión como sin ella', async () => {
+    const conSesion = renderApp('/no-existe');
+    expect(await screen.findByRole('link', { name: 'Volver al inicio' })).toHaveAttribute('href', '/app');
+    conSesion.unmount();
+
+    authState.user = null;
+    renderApp('/no-existe');
+    expect(await screen.findByRole('link', { name: 'Volver al inicio' })).toHaveAttribute('href', '/app');
+  });
+
+  it('sin sesión, una ruta inexistente dentro de la aplicación va al login como el resto de /app', async () => {
+    authState.user = null;
+
+    renderApp('/app/pagina-que-no-existe');
+    expect(await screen.findByText('PAGE login')).toBeInTheDocument();
+  });
+
+  it('el 404 no filtra si hay sesión: es la misma pantalla en ambos casos', async () => {
+    const conSesion = renderApp('/no-existe');
+    await screen.findByRole('heading', { name: 'Página no encontrada' });
+    const textoSesion = screen.getByRole('main').textContent;
+    conSesion.unmount();
+
+    authState.user = null;
+    renderApp('/no-existe');
+    await screen.findByRole('heading', { name: 'Página no encontrada' });
+    expect(screen.getByRole('main').textContent).toBe(textoSesion);
+  });
+});
+
 describe('Permisos de las rutas de la base de conocimiento', () => {
   // kb.view consulta, kb.create redacta, kb.manage modera. Son los mismos
   // permisos que exigen GET /, POST y PATCH /:id en el backend.

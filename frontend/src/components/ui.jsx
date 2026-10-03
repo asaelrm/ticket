@@ -26,6 +26,56 @@ export function LoadingScreen({ text = 'Cargando…' }) {
   );
 }
 
+/**
+ * Bloque de carga con la forma del contenido que va a sustituir.
+ *
+ * No decide el tamaño: quien lo usa lo mide con las mismas utilidades del
+ * contenido real (`h-*`, `w-*`, `rounded-*`), y por eso hay que dárselas
+ * siempre. Así el esqueleto ocupa el sitio exacto del bloque que espera y la
+ * página no da un salto al llegar los datos.
+ *
+ * Es puramente decorativo: se marca `aria-hidden` y el texto vive en el
+ * contenedor (`SkeletonGroup`). Un lector de pantalla no debe leer líneas de
+ * "cargando" repetidas.
+ */
+export function Skeleton({ className = '', ...rest }) {
+  return <span aria-hidden="true" className={`skeleton ${className}`.trim()} {...rest} />;
+}
+
+/**
+ * Uno o varios bloques de "línea de texto".
+ *
+ * La última línea se deja más corta, como hace el texto real cuando no llena
+ * el ancho: es la diferencia entre un párrafo y una lista de puntos.
+ */
+export function SkeletonText({ lines = 1, lineClassName = 'h-3', lastWidth = '60%', className = '' }) {
+  const count = Math.max(1, lines);
+  return (
+    <span aria-hidden="true" className={`flex flex-col gap-2 ${className}`.trim()}>
+      {Array.from({ length: count }, (_, i) => (
+        <Skeleton key={i} className={`${lineClassName} ${i === count - 1 && count > 1 ? lastWidth : 'w-full'}`} />
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Agrupa esqueletos y los anuncia.
+ *
+ * El contenedor es la única parte que la tecnología de asistencia técnica lee: un
+ * `role="status"` con `aria-busy` mientras la región se está llenando y una
+ * etiqueta sólo para lector de pantalla. `label` describe la carga en una
+ * frase —"Cargando dashboard…"—, no qué hay debajo: los bloques son adorno.
+ */
+export function SkeletonGroup({ label, children, className = '' }) {
+  return (
+    <div role="status" aria-live="polite" aria-busy="true" className={className}>
+      <span className="sr-only">{label}</span>
+      {children}
+    </div>
+  );
+}
+
 export function StatusBadge({ status }) {
   return (
     <span className={`badge ring-1 ${STATUS_COLOR[status] || STATUS_COLOR.OPEN}`}>

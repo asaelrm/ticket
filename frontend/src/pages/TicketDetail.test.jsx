@@ -4,7 +4,7 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TicketDetail from './TicketDetail';
 import { api } from '../lib/api';
-import { renderWithProviders } from '../test/utils';
+import { renderWithHistory, renderWithProviders } from '../test/utils';
 import {
   EDITOR_SURFACE,
   TOOLBAR_SURFACE,
@@ -225,7 +225,10 @@ describe('TicketDetail', () => {
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
 
     expect(await screen.findByText('PC no enciende')).toBeInTheDocument();
-    expect(screen.getByText('TCK-000001')).toBeInTheDocument();
+    // El número sale en la cabecera y también en la miga de pan, así que la
+    // aserción se acota a la cabecera: es lo que comprueba esta prueba.
+    const header = screen.getByRole('heading', { level: 1 }).closest('.card');
+    expect(within(header).getByText('TCK-000001')).toBeInTheDocument();
     expect(screen.getByText('El equipo no enciende desde ayer por la tarde.')).toBeInTheDocument();
     expect(screen.getAllByText('Ana Díaz').length).toBeGreaterThan(0);
     expect(screen.getByText(/reportó/)).toBeInTheDocument();
@@ -990,5 +993,98 @@ describe('TicketDetail', () => {
       expect(await screen.findByRole('button', { name: 'Vincular artículo' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Crear borrador desde el ticket/ })).not.toBeInTheDocument();
     });
+  });
+});
+
+// Miga de pan de la ficha. Su destino se deduce de la ruta en la que ya está la
+// pantalla (`/app/tickets/:id` o `/app/my-tickets/:id`) y del permiso
+// `ticket.view.all` que protege el listado general en App.jsx; no depende del
+// historial del navegador, así que el enlace es un `href` real.
+describe('TicketDetail · miga de pan', () => {
+  const TECNICO = { ...USER_TECH, permissions: ['ticket.view.all'] };
+  // Rol Empleado del seed: ve sus tickets, no el listado general.
+  const EMPLEADO = { id: 9, name: 'Empleado', permissions: ['ticket.create', 'ticket.view.own'] };
+
+  async function renderDetail({ route, path, user }) {
+    authState.user = user;
+    renderWithHistory(<TicketDetail />, { route, path });
+    return screen.findByText('PC no enciende');
+  }
+
+  function crumbNav() {
+    return screen.getByRole('navigation', { name: 'Ruta de navegación' });
+  }
+
+  it('muestra el listado del que se viene y el ticket como paso actual', async () => {
+    await renderDetail({ route: '/app/tickets/1', path: '/app/tickets/:id', user: TECNICO });
+
+    const nav = crumbNav();
+    // `Tickets` e `Inbox` llevan a `/app/tickets/:id`: la vuelta predecible es
+    // el listado general.
+    const root = within(nav).getByRole('link', { name: 'Tickets' });
+    expect(root).toHaveAttribute('href', '/app/tickets');
+
+    // El paso actual no es un enlace: un enlace a la propia página no lleva a
+    // ninguna parte y añadiría un tabulador sin acción.
+    const current = within(nav).getByText('TCK-000001');
+    expect(current).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).queryByRole('link', { name: 'TCK-000001' })).not.toBeInTheDocument();
+    expect(within(nav).getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('desde Mis tickets vuelve a ese listado y no al general', async () => {
+    await renderDetail({ route: '/app/my-tickets/1', path: '/app/my-tickets/:id', user: TECNICO });
+
+    const nav = crumbNav();
+    expect(within(nav).getByRole('link', { name: 'Mis tickets' })).toHaveAttribute('href', '/app/my-tickets');
+    // Ni "Tickets" ni la bandeja: quien llegó desde "Mis tickets" no debe
+    // aparecer de pronto en otro listado.
+    expect(within(nav).queryByRole('link', { name: 'Tickets' })).not.toBeInTheDocument();
+  });
+
+  it('sin permiso para el listado general vuelve a Mis tickets, no a una ruta imposible', async () => {
+    // `/app/tickets` está protegida por `ticket.view.all`: para un empleado,
+    // enlazarla sería mandar a `/app`, que no es volver a ningún sitio.
+    await renderDetail({ route: '/app/tickets/1', path: '/app/tickets/:id', user: EMPLEADO });
+
+    const nav = crumbNav();
+    expect(within(nav).getByRole('link', { name: 'Mis tickets' })).toHaveAttribute('href', '/app/my-tickets');
+    expect(within(nav).queryByRole('link', { name: 'Tickets' })).not.toBeInTheDocument();
+  });
+
+  it('el salto es un enlace de verdad y navega al listado', async () => {
+    // No es `history.back()`: el destino se puede abrir en pestaña nueva y es el
+    // mismo aunque el usuario haya entrado desde otro sitio.
+    authState.user = TECNICO;
+    const { history } = renderWithHistory(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+
+    await screen.findByText('PC no enciende');
+    await userEvent.setup().click(screen.getByRole('link', { name: 'Tickets' }));
+
+    expect(history.location.pathname).toBe('/app/tickets');
+  });
+
+  it('mantiene el botón "Volver" del historial junto a la miga', async () => {
+    await renderDetail({ route: '/app/tickets/1', path: '/app/tickets/:id', user: TECNICO });
+
+    // El botón de siempre no se sustituye: es la vuelta exacta, con los filtros
+    // con los que se llegó (por eso la bandeja no se distingue en la miga).
+    expect(screen.getByRole('button', { name: /Volver/ })).toBeInTheDocument();
+  });
+
+  it('no pinta la miga mientras el ticket no ha cargado', () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/tickets/1') return new Promise(() => {});
+      if (url === '/api/tickets/options') return Promise.resolve(OPTIONS);
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+    authState.user = TECNICO;
+
+    renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+
+    // Sin el número del ticket el último paso no tendría qué poner, así que la
+    // miga espera a los datos en vez de enseñarse a medias.
+    expect(screen.queryByRole('navigation', { name: 'Ruta de navegación' })).not.toBeInTheDocument();
+    expect(screen.getByText('Cargando ticket…')).toBeInTheDocument();
   });
 });

@@ -252,6 +252,54 @@ describe('Dashboard', () => {
     expect(screen.getByText('Cargando dashboard…')).toBeInTheDocument();
   });
 
+  // La carga ya no es un spinner: es el esqueleto de la propia pantalla, con la
+  // forma del dashboard. Se comprueba que el hueco tiene las mismas piezas que el
+  // contenido —los seis accesos, los siete paneles y las tres tablas— y que sigue
+  // siendo una región anunciable para la tecnología de asistencia técnica.
+  it('sustituye la carga por un esqueleto con la forma del dashboard', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/dashboard/summary') return new Promise(() => {});
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
+
+    const region = screen.getByRole('status');
+    expect(region).toHaveAttribute('aria-busy', 'true');
+    expect(within(region).getByText('Cargando dashboard…')).toBeInTheDocument();
+
+    // Seis accesos rápidos, siete paneles y tres tablas: los huecos que luego
+    // ocupa el contenido, ni uno más ni uno menos.
+    expect(region.querySelectorAll('.skeleton').length).toBeGreaterThan(0);
+    expect(region.querySelectorAll('.card')).toHaveLength(13);
+    expect(region.querySelectorAll('table')).toHaveLength(3);
+    // El esqueleto no inventa contenido: mientras carga no hay cifras ni enlaces.
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByText('Abiertos')).not.toBeInTheDocument();
+  });
+
+  // El esqueleto tiene que ocupar el sitio del contenido real: al llegar los
+  // datos la página no puede dar un salto. Se comprueba que replica las clases
+  // que fijan la medida —rejillas, cajas de la gráfica y celdas de las tablas—,
+  // porque es su relleno el que hace que cada fila mida lo mismo con esqueleto y
+  // con datos.
+  it('el esqueleto replica la medida del contenido que sustituye', async () => {
+    api.get.mockImplementation((url) => {
+      if (url === '/api/dashboard/summary') return new Promise(() => {});
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    renderWithProviders(<Dashboard />, { route: '/app/dashboard' });
+
+    const region = screen.getByRole('status');
+    // Rejilla de los accesos rápidos (2 / 3 / 6 columnas) y caja de la gráfica.
+    expect(region.querySelector('.grid.grid-cols-2.md\\:grid-cols-3.xl\\:grid-cols-6')).toBeInTheDocument();
+    expect(region.querySelector('.h-40')).toBeInTheDocument();
+    // Celdas reales de tabla, no filas de altura fija.
+    expect(region.querySelectorAll('.th').length).toBeGreaterThan(0);
+    expect(region.querySelectorAll('.td').length).toBeGreaterThan(0);
+  });
+
   it('muestra el error y permite reintentar', async () => {
     api.get.mockRejectedValueOnce(new Error('Fallo de red'));
 

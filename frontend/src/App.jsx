@@ -2,7 +2,9 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth, can } from './context/AuthContext';
 import Layout from './components/Layout';
+import ErrorBoundary from './components/ErrorBoundary';
 import { LoadingScreen } from './components/ui';
+import NotFound from './pages/NotFound';
 
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
@@ -54,11 +56,14 @@ function ProtectedAny({ permissions, children }) {
 
 export default function App() {
   return (
-    <Suspense fallback={<LoadingScreen />}>
-      <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/reset-password" element={<ResetPassword />} />
+    // El error va fuera del `Suspense`: una pantalla que tarda en cargar no es
+    // un fallo, pero una que lanza al pintarse dejaba antes el `#root` en blanco.
+    <ErrorBoundary>
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
       <Route
         path="/app"
@@ -102,11 +107,22 @@ export default function App() {
         <Route path="reports" element={<Protected permission="report.view"><Reports /></Protected>} />
         <Route path="settings" element={<Protected permission="settings.manage"><Settings /></Protected>} />
         <Route path="profile" element={<Profile />} />
+        {/* Ruta inexistente *dentro* de la aplicación: se muestra el 404 con la
+            cabecera y el menú intactos, para no perder el contexto de dónde
+            estaba el usuario. Queda dentro de `/app`, así que sigue exigiendo
+            sesión como cualquier otra ruta protegida. */}
+        <Route path="*" element={<NotFound embedded />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/app" replace />} />
+      {/* Cualquier otra ruta desconocida se muestra como 404 en pantalla
+          completa. Antes era `<Navigate to="/app" replace />`, que devolvía al
+          usuario a su inicio sin explicar el fallo. No se decide con `user`: la
+          pantalla es la misma con o sin sesión y "Volver al inicio" apunta a
+          `/app`, que ya encamina al login cuando no hay sesión. */}
+      <Route path="*" element={<NotFound />} />
       </Routes>
-    </Suspense>
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 

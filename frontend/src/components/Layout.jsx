@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, can } from '../context/AuthContext';
 import Notifications from './Notifications';
@@ -109,14 +109,19 @@ const TITLES = {
 export default function Layout() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [theme, setTheme] = useState(() => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'));
   const [q, setQ] = useState('');
   const [now, setNow] = useState(() => new Date());
+  const searchPanelRef = useRef(null);
+  const searchToggleRef = useRef(null);
+  const searchInputRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
     setOpen(false);
+    setSearchOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -137,6 +142,57 @@ export default function Layout() {
     const target = can(user, 'ticket.view.all') ? '/app/inbox' : '/app/my-tickets';
     navigate(term ? `${target}?search=${encodeURIComponent(term)}` : target);
   }
+
+  // El panel de búsqueda del móvil se apoya en el formulario de escritorio:
+  // mismo estado `q` y mismo `onGlobalSearch`, así que lo que se busca y a
+  // dónde se llega son exactamente los mismos en los dos tamaños.
+  //
+  // `focus` distingue dos cierres: al cerrar con el teclado (Escape) o al
+  // enviar, el foco vuelve al botón que abrió el panel —si no, se perdía en el
+  // cuerpo de la página y el usuario de teclado tenía que recorrer toda la
+  // cabecera para volver a él—. Al cerrar tocando fuera no se recupera: quien
+  // cierra con el dedo no espera que le devuelvan el foco a la barra.
+  function closeSearch({ focus = true } = {}) {
+    setSearchOpen(false);
+    if (focus) searchToggleRef.current?.focus();
+  }
+
+  function onMobileSearchSubmit(e) {
+    onGlobalSearch(e);
+    // El panel se retira para no tapar los resultados. No hace falta esperar a la
+    // navegación: si ya se estaba en el listado, la ruta no cambia y el panel se
+    // quedaría encima.
+    closeSearch();
+  }
+
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    // Foco en el campo al abrir: en móvil es lo único accionable y así el
+    // teclado sube directamente. En el efecto y no en el clic porque el campo
+    // todavía no existe cuando se atiende el evento.
+    searchInputRef.current?.focus();
+    // Igual que el panel de notificaciones: se cierra con Escape o al tocar
+    // fuera. Además, así los dos paneles de la cabecera no pueden quedar
+    // abiertos a la vez —el clic en el otro es un clic fuera de este—.
+    //
+    // El botón que abre el panel NO cuenta como clic exterior: si contara, el
+    // `mousedown` lo cerraría y el `click` del mismo toque lo volvería a abrir,
+    // y la lupa no serviría para cerrar.
+    const onClick = (e) => {
+      const dentro = searchPanelRef.current?.contains(e.target) || searchToggleRef.current?.contains(e.target);
+      if (!dentro) closeSearch({ focus: false });
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') closeSearch();
+    };
+    document.addEventListener('mousedown', onClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchOpen]);
 
   const primary = [];
   if (can(user, 'dashboard.view')) primary.push({ to: '/app/dashboard', label: 'Dashboard', icon: ICONS.home });
@@ -303,7 +359,114 @@ export default function Layout() {
               <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <h1 className="text-lg font-semibold text-slate-800">{currentTitle}</h1>
+{/* El título lleva el mismo texto claro que el resto de la barra (la hora, el
+              conmutador de tema). Antes iba `text-slate-800` y eso lo apagaba: la
+              barra institucional es siempre oscura (`#0b0f19`, en los dos temas) y
+              las utilidades slate solo se reescriben a un tono claro en tema
+              oscuro, así que en tema claro el título quedaba oscuro sobre oscuro
+              (1.3:1). Con `text-white` son 19.2:1 en los dos temas: sin regla por
+              tema y sin tocar el fondo de la barra. `min-w-0 truncate` se conserva
+              para que el título ceda espacio en pantallas estrechas. */}
+          <h1 className="min-w-0 truncate text-lg font-semibold text-white">{currentTitle}</h1>
+
+          {/* Búsqueda del móvil. El formulario de escritorio se oculta por debajo de
+              `md` (más abajo), así que sin este botón quien navega con el dedo se
+              queda sin ninguna forma de buscar. Reutiliza su estado `q` y su
+              `onGlobalSearch`: el término y el destino son los mismos.
+
+              Va justo antes del grupo de la derecha para que notificaciones, tema
+              y perfil se sigan leyendo como un bloque, y `ml-auto` lo deja pegado
+              a ese bloque en vez de junto al título. `md:hidden` lo mantiene lejos
+              del menú móvil, que es un overlay `z-40` por encima de todo.
+
+              El panel no cuelga de este botón sino del propio `header`, que es
+              `sticky` y por tanto bloque contenedor de sus hijos absolutos: así
+              sus dimensiones no dependen de dónde caiga la lupa ni de lo que
+              mida la fila. Antes, `right-0` + `w-[min(92vw,380px)]` medidos
+              desde una caja de 36px dejaban el margen izquierdo en el aire
+              (≈10px a 320px, y negativo en cuanto la fila se ensanchaba) y
+              `top-full` lo arrancaba 14px antes del borde inferior de la barra,
+              por lo que el panel se salía por la izquierda y se comía la barra.
+
+              El botón conserva siempre el nombre "Buscar" y comunica el estado
+              con `aria-expanded`, como cualquier control desplegable: así el
+              nombre no aparece dos veces al abrir (el del botón y el de la ✕) y
+              quien usa lector de pantalla oye si el panel está abierto. */}
+          <div className="ml-auto md:hidden">
+            <button
+              ref={searchToggleRef}
+              type="button"
+              onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+              className="rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
+              aria-label="Buscar"
+              aria-expanded={searchOpen}
+              aria-controls="header-search-mobile"
+              title="Buscar"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path strokeLinecap="round" d="m20 20-3.5-3.5" />
+              </svg>
+            </button>
+          </div>
+
+          {searchOpen && (
+            /* Capa a todo el ancho de la barra: `inset-x-0` la ata a los bordes
+               izquierdo y derecho del header, así que el panel no puede
+               desbordarse sea cual sea el viewport, y `top-full` lo deja justo
+               debajo de la barra. El `px-4` repite el padding del header (16px
+               de margen a cada lado) y `justify-center` + `max-w` lo centran en
+               pantallas anchas en lugar de pegarlo a un borde. Nada de `vw`: con
+               scrollbar el `100vw` mide más que el ancho visible. */
+            <div className="absolute inset-x-0 top-full z-50 mt-2 flex justify-center px-4">
+              <div
+                id="header-search-mobile"
+                ref={searchPanelRef}
+                role="dialog"
+                aria-label="Buscar"
+                className="panel-glass nex-pop w-full max-w-[22rem] rounded-2xl p-2"
+              >
+                <form onSubmit={onMobileSearchSubmit}>
+                  <div className="relative">
+                    <svg
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <circle cx="11" cy="11" r="7" />
+                      <path strokeLinecap="round" d="m20 20-3.5-3.5" />
+                    </svg>
+                    {/* Mismo `input` y mismo `!pl-9` que los filtros de las
+                        páginas: la lupa queda dentro del campo. `!pr-12` deja
+                        sitio a la ✕ de cerrar. `type` sin especificar a
+                        propósito: en `type="search"` el navegador se come el
+                        Escape para vaciar el campo y el panel no cerraría. */}
+                    <input
+                      ref={searchInputRef}
+                      value={q}
+                      onChange={(e) => setQ(e.target.value)}
+                      placeholder="Buscar ticket, usuario o asunto"
+                      aria-label="Buscar"
+                      className="input !pl-9 !pr-12"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => closeSearch()}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 rounded-lg p-2.5 text-[var(--text-muted)] transition hover:bg-[var(--surface-secondary)] hover:text-[var(--text)]"
+                      aria-label="Cerrar búsqueda"
+                    >
+                      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                        <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={onGlobalSearch} className="relative ml-1 hidden md:block">
             <svg
