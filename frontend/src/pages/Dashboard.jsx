@@ -6,10 +6,35 @@ import { api, STATUS_LABEL, PRIORITY_LABEL, formatDate } from '../lib/api';
 import { ErrorBox } from '../components/ui';
 import DashboardSkeleton from '../components/DashboardSkeleton';
 
+// Acentos informativos del dashboard. No son colores de estado: son el azul de
+// marca que ya gobierna la barra lateral, el elemento activo del menú y
+// "Reportar incidencia", y por eso usan los tokens institucionales en vez de un
+// hex fijo. Cada token cambia de valor con el tema, así que el acento no se
+// apaga al conmutar: en claro son los tres azules del sistema y en oscuro el
+// sistema los invierte a #93c5fd, #3b82f6 y #2563eb sobre el panel. Un hex azul
+// fijo se vería bien en un tema y se apagaría en el otro, y un verde como
+// #22c77a daba solo 1.99:1 sobre su propio tinte en claro.
+const ACCENT_NAVY = 'var(--brand)'; // #0A2540 en claro, #93c5fd en oscuro
+const ACCENT_DEEP = 'var(--brand-hover)'; // #1E3A8A en claro, #3B82F6 en oscuro
+const ACCENT_ACTION = 'var(--brand-action)'; // #1D4ED8 en claro, #2563EB en oscuro
+
+// Un color con alfa a partir de un valor que puede ser un hex o un token del
+// tema. Los hex de 8 dígitos (`#22c77a1f`) no admiten una variable dentro, así
+// que el alfa se compone con color-mix: mismo resultado visual que antes y
+// válido tanto para `#f59e0b` como para `var(--brand)`.
+function tint(color, percent) {
+  return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+}
+
+// Los estados que sí son semánticos conservan su color: ámbar para abierto y
+// pendiente de asignar, rojo para crítico y fuera de plazo, verde para
+// resuelto y dentro de tiempo. Solo los informativos pasan a azul, y ASSIGNED e
+// IN_PROGRESS usan el mismo acento que sus tarjetas superiores para que el
+// estado y su cifra no se pinten de dos colores distintos.
 const STATUS_COLORS = {
   OPEN: '#f59e0b',
-  ASSIGNED: '#2196f3',
-  IN_PROGRESS: '#22c77a',
+  ASSIGNED: ACCENT_NAVY,
+  IN_PROGRESS: ACCENT_DEEP,
   PENDING: '#38bdf8',
   RESOLVED: '#20c7b7',
   CLOSED: '#94a3b8',
@@ -59,9 +84,9 @@ const ICON = {
 // con onClick: aporta un href real (se puede abrir en pestaña nueva, copiar y se
 // anuncia como enlace), el foco por teclado y la activación con Enter vienen de
 // serie, y el aspecto es el de la tarjeta informativa de siempre. El hover solo
-// sube el borde y añade un halo verde; el foco dibuja el mismo outline que los
+// sube el borde y añade un halo azul; el foco dibuja el mismo outline que los
 // botones (.btn:focus-visible). Sin transiciones llamativas: 150 ms de color.
-function Card({ label, value, hint, icon, color = '#22c77a', to }) {
+function Card({ label, value, hint, icon, color = ACCENT_NAVY, to }) {
   return (
     <Link
       to={to}
@@ -74,7 +99,7 @@ function Card({ label, value, hint, icon, color = '#22c77a', to }) {
       <div className="flex items-center gap-3">
         <span
           className="grid h-10 w-10 shrink-0 place-items-center rounded-xl transition group-hover:scale-105"
-          style={{ background: `${color}1f`, color, boxShadow: `0 0 0 1px ${color}40` }}
+          style={{ background: tint(color, 12), color, boxShadow: `0 0 0 1px ${tint(color, 25)}` }}
         >
           {icon}
         </span>
@@ -96,11 +121,11 @@ function SlaStat({ label, value, tone, hint }) {
   return (
     <div
       className="flex items-start gap-3 rounded-xl border px-4 py-3"
-      style={{ borderColor: `${tone}40`, background: `${tone}14` }}
+      style={{ borderColor: tint(tone, 25), background: tint(tone, 8) }}
     >
       <span
         className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg"
-        style={{ background: `${tone}22`, color: tone }}
+        style={{ background: tint(tone, 13), color: tone }}
       >
         <span className="h-2 w-2 rounded-full" style={{ background: tone }} />
       </span>
@@ -264,11 +289,23 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
+          {/* "En vivo" informa del estado de la conexión, no de un ticket: es un
+              acento informativo y por eso lleva el azul de marca. El token --
+              brand mantiene el contraste tanto en claro (navy #0A2540 sobre
+              blanco, 15.5:1) como en oscuro (#93c5fd sobre el panel, 9.4:1). */}
           <span className="relative flex h-2.5 w-2.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            <span
+              className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60"
+              style={{ background: ACCENT_ACTION }}
+            />
+            <span
+              className="relative inline-flex h-2.5 w-2.5 rounded-full"
+              style={{ background: ACCENT_NAVY }}
+            />
           </span>
-          <span className="text-xs font-semibold uppercase tracking-wider text-emerald-300">En vivo</span>
+          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: ACCENT_NAVY }}>
+            En vivo
+          </span>
         </div>
         {lastUpdate && (
           <p className="text-xs text-slate-400">
@@ -308,7 +345,7 @@ export default function Dashboard() {
           label="Asignados"
           value={counts.ASSIGNED ?? 0}
           icon={ICON.assigned}
-          color="#20c7b7"
+          color={ACCENT_NAVY}
           hint="Llamado por el equipo"
           to="/app/tickets?status=ASSIGNED"
         />
@@ -316,7 +353,7 @@ export default function Dashboard() {
           label="En proceso"
           value={counts.IN_PROGRESS ?? 0}
           icon={ICON.progress}
-          color="#22c77a"
+          color={ACCENT_DEEP}
           hint="Siendo atendido"
           to="/app/tickets?status=IN_PROGRESS"
         />
@@ -458,7 +495,7 @@ export default function Dashboard() {
           <SlaStat
             label="Activos en cola"
             value={techTotals.active}
-            tone="#22c77a"
+            tone={ACCENT_NAVY}
             hint={`${techTotals.technicians} con carga`}
           />
           <SlaStat
