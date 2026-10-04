@@ -17,6 +17,21 @@ export default defineConfig({
     // contraseña a través del Host desde cualquier red, que es justo lo que
     // este control evita. Para un dominio propio, añadirlo aquí explícitamente.
     allowedHosts: ['tickets.lan', '.trycloudflare.com'],
+    // Sondeo en vez de inotify. El volumen de desarrollo es un bind mount de
+    // Windows dentro de un contenedor Linux y ese par no entrega eventos de
+    // fichero: chokidar se queda sin avisos, Vite no invalida su grafo de
+    // módulos y el plugin de Tailwind no vuelve a generar el CSS. El síntoma es
+    // silencioso y engañoso —las pruebas leen los ficheros del disco y salen
+    // verdes, pero el navegador sigue sirviendo el código y el CSS anteriores—:
+    // en Categories se alternaba el estado y no aparecía ningún Toast porque la
+    // página servida aún no llamaba a `toast.success`, y `main.jsx` servida
+    // todavía no montaba `ToastProvider`. Con sondeo, un cambio en el host llega
+    // al navegador en cuanto ocurre. `docker compose restart frontend` sigue
+    // siendo la forma rápida de forzar la relectura.
+    watch: {
+      usePolling: true,
+      interval: 400,
+    },
     proxy: {
       '/api': {
         target: 'http://backend:4000',

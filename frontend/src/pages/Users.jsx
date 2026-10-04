@@ -6,6 +6,7 @@ import { Modal, Pagination, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, Emp
 import Select from '../components/Select';
 import Tooltip from '../components/Tooltip';
 import UserTicketHistory from '../components/UserTicketHistory';
+import { useToast } from '../components/Toast';
 
 const EMPTY = {
   name: '',
@@ -39,6 +40,7 @@ function TextField({ label, value, onChange, type = 'text', help }) {
 export default function Users() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [filters, setFilters] = useState({ page: 1, perPage: 15 });
   const [error, setError] = useState('');
   const [loadingModal, setLoadingModal] = useState(false);
@@ -108,9 +110,10 @@ export default function Users() {
       setLoadingModal(true);
       setError('');
     },
-    onSuccess: () => {
+    onSuccess: (_data, m) => {
       setModal(null);
       invalidateUsers();
+      toast.success(m.mode === 'create' ? 'Usuario creado' : 'Usuario actualizado');
     },
     onError: (err) => {
       if (err.fields) setError(Object.values(err.fields).join('. '));
@@ -123,7 +126,10 @@ export default function Users() {
 
   const toggleMutation = useMutation({
     mutationFn: (u) => api.patch(`/api/users/${u.id}/status`, { active: !u.active }),
-    onSuccess: () => invalidateUsers(),
+    onSuccess: (_data, u) => {
+      invalidateUsers();
+      toast.success(u.active ? 'Usuario desactivado' : 'Usuario activado');
+    },
     onError: (err) => setError(err.message || 'No se pudo cambiar el estado'),
   });
 

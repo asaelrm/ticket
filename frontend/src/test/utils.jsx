@@ -7,6 +7,7 @@ import {
   Routes,
   Route,
 } from 'react-router-dom';
+import { ToastProvider } from '../components/Toast';
 
 export function createQueryClient() {
   return new QueryClient({
@@ -25,13 +26,17 @@ export function createQueryClient() {
 
 export function renderWithProviders(ui, { queryClient, route = '/', path, ...options } = {}) {
   const client = queryClient || createQueryClient();
+  // El wrapper no pinta `children`: el árbol real es el de la ruta. Por eso
+  // ToastProvider envuelve al router y no a los hijos del wrapper.
   const wrapper = ({ children }) => (
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[route]}>
-        <Routes>
-          <Route path={path || '*'} element={ui} />
-        </Routes>
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[route]}>
+          <Routes>
+            <Route path={path || '*'} element={ui} />
+          </Routes>
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>
   );
   return { ...render(ui, { wrapper, ...options }), queryClient: client };
@@ -114,11 +119,13 @@ export function renderWithHistory(ui, { queryClient, route = '/', path, ...optio
   const history = createTestHistory(route);
   const result = render(
     <QueryClientProvider client={client}>
-      <HistoryRouter history={history}>
-        <Routes>
-          <Route path={path || '*'} element={ui} />
-        </Routes>
-      </HistoryRouter>
+      <ToastProvider>
+        <HistoryRouter history={history}>
+          <Routes>
+            <Route path={path || '*'} element={ui} />
+          </Routes>
+        </HistoryRouter>
+      </ToastProvider>
     </QueryClientProvider>,
     options
   );

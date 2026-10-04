@@ -307,7 +307,7 @@ describe('Reports', () => {
     expect(arg.meta.length).toBeGreaterThan(0);
   });
 
-  it('avisa con alert cuando el navegador bloquea el PDF', async () => {
+  it('muestra un aviso persistente cuando el navegador bloquea el PDF', async () => {
     const user = userEvent.setup();
     printDocument.mockReturnValueOnce(false);
     renderWithProviders(<Reports />, { route: '/app/reports' });
@@ -315,7 +315,18 @@ describe('Reports', () => {
 
     await user.click(screen.getByRole('button', { name: 'Descargar PDF' }));
 
-    expect(alert).toHaveBeenCalledWith(expect.stringContaining('bloqueó la ventana del PDF'));
+    // Ni alert nativo ni window.alert: el aviso vive en la región de avisos.
+    expect(alert).not.toHaveBeenCalled();
+    const region = await screen.findByRole('status');
+    expect(region).toHaveTextContent(
+      'El navegador bloqueó la ventana del PDF. Habilite las ventanas emergentes e intente nuevamente.'
+    );
+    // Un error no se cierra solo: por eso lleva el tipo `error` (sin plazo) y
+    // mantiene el cierre manual.
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'error');
+
+    await user.click(screen.getByRole('button', { name: 'Cerrar notificación' }));
+    expect(screen.queryByText(/bloqueó la ventana del PDF/)).not.toBeInTheDocument();
   });
 
   it('no exporta CSV sin secciones seleccionadas', async () => {

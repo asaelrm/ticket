@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Modal, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
+import { useToast } from '../components/Toast';
 
 const EMPTY = { name: '', description: '', color: '#3366ff' };
 
 export default function Categories() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [modal, setModal] = useState(null);
   const [onlyActive, setOnlyActive] = useState(false);
 
@@ -18,27 +20,32 @@ export default function Categories() {
     queryFn: () => api.get('/api/categories?withCounts=1').then(res => res.data),
   });
 
-  // Muta para crear/editar
+  // Muta para crear/editar. El id viaja en las variables para que el aviso de
+  // éxito sepa qué fue sin depender del cierre del modal.
   const saveMutation = useMutation({
-    mutationFn: (form) =>
-      modal.id
-        ? api.patch(`/api/categories/${modal.id}`, { ...form, active: true })
+    mutationFn: ({ id, form }) =>
+      id
+        ? api.patch(`/api/categories/${id}`, { ...form, active: true })
         : api.post('/api/categories', form),
-    onSuccess: () => {
+    onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['categories-manage'] });
       setModal(null);
+      toast.success(id ? 'Categoría actualizada' : 'Categoría creada');
     },
   });
 
   // Muta para alternar estado
   const toggleMutation = useMutation({
     mutationFn: (c) => api.patch(`/api/categories/${c.id}`, { active: !c.active }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['categories-manage'] }),
+    onSuccess: (_data, c) => {
+      queryClient.invalidateQueries({ queryKey: ['categories-manage'] });
+      toast.success(c.active ? 'Categoría desactivada' : 'Categoría activada');
+    },
   });
 
   async function onSave(e) {
     e.preventDefault();
-    saveMutation.mutate(modal.form);
+    saveMutation.mutate({ id: modal.id, form: modal.form });
   }
 
   const visible = list ? (onlyActive ? list.filter((c) => c.active) : list) : [];

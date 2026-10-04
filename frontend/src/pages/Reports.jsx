@@ -3,6 +3,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api, download, STATUS_LABEL, PRIORITY_LABEL, STATUSES, PRIORITIES } from '../lib/api';
 import { LoadingScreen, ErrorBox, EmptyState } from '../components/ui';
 import Select from '../components/Select';
+import { useToast } from '../components/Toast';
 import { printDocument } from '../lib/print';
 
 const STATUS_COLORS = {
@@ -148,6 +149,7 @@ export default function Reports() {
   const [form, setForm] = useState(SIN_FILTROS);
   const [query, setQuery] = useState(SIN_FILTROS);
   const [sections, setSections] = useState(SECTIONS.map(([key]) => key));
+  const toast = useToast();
 
   const { data: departmentsData } = useQuery({
     queryKey: ['active-departments'],
@@ -284,7 +286,10 @@ export default function Reports() {
         .map(([, title, headers, rows]) => ({ title, headers, rows })),
     });
     if (!opened) {
-      alert('El navegador bloqueó la ventana del PDF. Habilite las ventanas emergentes e intente nuevamente.');
+      // El aviso es un error persistente: no se cierra solo, porque quien lo
+      // necesita tiene que leerlo y reintentar con las ventanas emergentes
+      // habilitadas. Un alert nativo bloqueaba la página entera.
+      toast.error('El navegador bloqueó la ventana del PDF. Habilite las ventanas emergentes e intente nuevamente.');
     }
   }
 

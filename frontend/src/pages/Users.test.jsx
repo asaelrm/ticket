@@ -390,3 +390,99 @@ describe('Users', () => {
     expect(await screen.findByText('Sin usuarios')).toBeInTheDocument();
   });
 });
+
+// Sólo los cuatro cambios de usuario avisan. Errores y validaciones siguen
+// en línea, y restablecer la contraseña no forma parte del grupo.
+describe('Users · avisos de éxito', () => {
+  it('avisa cuando se crea un usuario', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo usuario' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+    await user.type(inputFor('Nombre *', within(dialog)), 'Grace');
+    await user.type(inputFor('Apellidos *', within(dialog)), 'Hopper');
+    await user.type(inputFor('Usuario *', within(dialog)), 'ghopper');
+    await user.type(inputFor('Correo *', within(dialog)), 'grace@example.com');
+    await pickOption(user, selectFor('Departamento', within(dialog)), 'TI');
+    await user.type(inputFor('Contraseña inicial *', within(dialog)), 'secret1');
+    await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
+
+    expect(await screen.findByText('Usuario creado')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+    expect(screen.getByRole('status')).toHaveTextContent('Usuario creado');
+  });
+
+  it('avisa cuando se actualiza un usuario', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Editar usuario' });
+    const nameInput = inputFor('Nombre *', within(dialog));
+    await user.clear(nameInput);
+    await user.type(nameInput, 'Ada María');
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar cambios' }));
+
+    expect(await screen.findByText('Usuario actualizado')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+  });
+
+  it('avisa cuando se desactiva un usuario', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('switch', { name: 'estado de alovelace' }));
+
+    expect(await screen.findByText('Usuario desactivado')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+  });
+
+  it('avisa cuando se activa un usuario', async () => {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/users?page=')) return Promise.resolve(listResp([userRow({ active: false })]));
+      if (url === '/api/users/roles') return Promise.resolve({ roles: ROLES });
+      if (url === '/api/departments?active=1') return Promise.resolve(DEPARTMENTS);
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('switch', { name: 'estado de alovelace' }));
+
+    expect(await screen.findByText('Usuario activado')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+  });
+
+  it('las validaciones siguen en línea y no añaden avisos', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo usuario' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+    await user.type(inputFor('Nombre *', within(dialog)), 'Grace');
+    await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
+
+    expect(await within(dialog).findByText('La contraseña es obligatoria')).toBeInTheDocument();
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
+  });
+
+  it('restablecer la contraseña no añade avisos de éxito', async () => {
+    api.post.mockResolvedValue({ token: 'tok-abc-123', expires: '2026-10-01T00:00:00Z' });
+
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: 'Restablecer contraseña' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Restablecer contraseña' })).toBeInTheDocument();
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
+  });
+});

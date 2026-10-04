@@ -231,3 +231,76 @@ describe('Categories', () => {
     expect(screen.getByRole('dialog', { name: 'Nueva categoría' })).toBeInTheDocument();
   });
 });
+
+// Sólo las cuatro operaciones tienen avisos de éxito. Errores y validaciones
+// siguen donde estaban: en línea, con su ErrorBox.
+describe('Categories · avisos de éxito', () => {
+  it('avisa cuando se crea una categoría', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Categories />, { route: '/app/categories' });
+    await screen.findByText('Hardware');
+
+    await user.click(screen.getByRole('button', { name: '+ Nueva categoría' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nueva categoría' });
+    await user.type(fieldFor('Nombre *', 'input', within(dialog)), 'Accesorios');
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByText('Categoría creada')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+    expect(screen.getByRole('status')).toHaveTextContent('Categoría creada');
+  });
+
+  it('avisa cuando se actualiza una categoría', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Categories />, { route: '/app/categories' });
+    await screen.findByText('Hardware');
+
+    await user.click(within(cardFor('Hardware')).getByRole('button', { name: 'Editar' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Editar categoría' });
+    const name = fieldFor('Nombre *', 'input', within(dialog));
+    await user.clear(name);
+    await user.type(name, 'Hardware y periféricos');
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByText('Categoría actualizada')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+  });
+
+  it('avisa cuando se desactiva una categoría', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Categories />, { route: '/app/categories' });
+    await screen.findByText('Hardware');
+
+    await user.click(screen.getByRole('switch', { name: 'Hardware' }));
+
+    expect(await screen.findByText('Categoría desactivada')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+  });
+
+  it('avisa cuando se activa una categoría', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Categories />, { route: '/app/categories' });
+    await screen.findByText('Software');
+
+    await user.click(screen.getByRole('switch', { name: 'Software' }));
+
+    expect(await screen.findByText('Categoría activada')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+  });
+
+  it('los errores de guardado siguen en línea y no añaden avisos', async () => {
+    api.post.mockRejectedValueOnce(Object.assign(new Error('Datos inválidos'), { fields: { name: 'El nombre es obligatorio' } }));
+
+    const user = userEvent.setup();
+    renderWithProviders(<Categories />, { route: '/app/categories' });
+    await screen.findByText('Hardware');
+
+    await user.click(screen.getByRole('button', { name: '+ Nueva categoría' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nueva categoría' });
+    await user.type(fieldFor('Nombre *', 'input', within(dialog)), 'Duplicada');
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('El nombre es obligatorio');
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
+  });
+});
