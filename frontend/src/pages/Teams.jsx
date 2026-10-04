@@ -12,6 +12,11 @@ export default function Teams() {
   const canManage = can(user, 'team.manage');
 
   const [error, setError] = useState('');
+  // `error` es lo que falla fuera del formulario: la carga de miembros y el
+  // borrado, que ocurren en la página. El fallo al guardar el equipo se guarda
+  // aparte porque su sitio es dentro del modal: en la página quedaba tapado por
+  // el overlay del diálogo y, además, se veía dos veces.
+  const [formError, setFormError] = useState('');
 
   const [editing, setEditing] = useState(null); // { id?, name, description }
   const [membersTeam, setMembersTeam] = useState(null);
@@ -68,7 +73,7 @@ export default function Teams() {
       toast.success(id ? 'Equipo actualizado' : 'Equipo creado');
     },
     onError: (err) => {
-      setError(err.message || 'No se pudo guardar el equipo');
+      setFormError(err.message || 'No se pudo guardar el equipo');
     },
   });
 
@@ -100,7 +105,7 @@ export default function Teams() {
 
   function onSave(e) {
     e.preventDefault();
-    setError('');
+    setFormError('');
     saveTeam.mutate({ id: editing.id, name: editing.name, description: editing.description });
   }
 
@@ -128,7 +133,7 @@ export default function Teams() {
           {teams.length} equipo(s). Agrupe usuarios para asignar tickets a un equipo completo.
         </p>
         {canManage && (
-          <button className="btn-primary" onClick={() => setEditing({ name: '', description: '' })}>
+          <button className="btn-primary" onClick={() => { setFormError(''); setEditing({ name: '', description: '' }); }}>
             + Nuevo equipo
           </button>
         )}
@@ -165,7 +170,7 @@ export default function Teams() {
                 </button>
                 {canManage && (
                   <>
-                    <button className="btn-secondary !px-3 !py-1.5 text-sm" onClick={() => setEditing({ id: t.id, name: t.name, description: t.description || '' })}>
+                    <button className="btn-secondary !px-3 !py-1.5 text-sm" onClick={() => { setFormError(''); setEditing({ id: t.id, name: t.name, description: t.description || '' }); }}>
                       Editar
                     </button>
                     <button className="btn-ghost !px-2 text-sm text-red-600 hover:bg-red-50" onClick={() => setToDelete(t)}>
@@ -202,6 +207,7 @@ export default function Teams() {
                 maxLength={300}
               />
             </div>
+            {formError && <ErrorBox message={formError} />}
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
               <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>
                 Cancelar

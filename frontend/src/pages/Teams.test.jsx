@@ -121,6 +121,8 @@ describe('Teams', () => {
 await waitFor(() => expect(teamCalls()).toBeGreaterThan(before));
     expect(await screen.findByText('Equipo creado')).toBeInTheDocument();
     expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+    // Un guardado correcto no deja ningún ErrorBox detrás.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('mantiene deshabilitado el guardado mientras el nombre está vacío', async () => {
@@ -155,9 +157,10 @@ await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/teams/1', { nam
     expect(api.post).not.toHaveBeenCalled();
     expect(await screen.findByText('Equipo actualizado')).toBeInTheDocument();
     expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('muestra el error al no poder guardar el equipo', async () => {
+it('muestra el error al no poder guardar el equipo', async () => {
     api.post.mockRejectedValueOnce(new Error('Ya existe un equipo con ese nombre'));
 
     const user = userEvent.setup();
@@ -169,7 +172,12 @@ await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/teams/1', { nam
     await user.type(fieldFor('Nombre *', 'input', within(dialog)), 'Soporte');
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
-expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe un equipo con ese nombre');
+    // El error del formulario vive dentro del modal: es el único alert del
+    // documento y está en el diálogo, no detrás de su overlay.
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Ya existe un equipo con ese nombre');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    // El modal sigue abierto para poder corregir el nombre.
+    expect(screen.getByRole('dialog', { name: 'Nuevo equipo' })).toBeInTheDocument();
     // El error sigue en línea: no se convierte en Toast.
     expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
   });
@@ -360,6 +368,98 @@ await waitFor(() => expect(teamCalls()).toBeGreaterThan(before));
 
     expect(within(dialog).queryByRole('button', { name: 'Guardar miembros' })).not.toBeInTheDocument();
     expect(within(dialog).getByText('Cerrar', { selector: 'button' })).toBeInTheDocument();
+  });
+});
+
+// El guardado del equipo es la única operación cuyo error se pinta dentro de su
+// modal. Los de carga y guardado de miembros siguen en la página, como estaban.
+describe('Teams · errores dentro del modal', () => {
+  it('muestra dentro del modal el error al editar un equipo', async () => {
+    api.patch.mockRejectedValueOnce(new Error('No se pudo actualizar el equipo'));
+
+    const user = userEvent.setup();
+    renderWithProviders(<Teams />, { route: '/app/teams' });
+    await screen.findByText('Soporte');
+
+    await user.click(screen.getAllByRole('button', { name: 'Editar' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Editar equipo' });
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('No se pudo actualizar el equipo');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: 'Editar equipo' })).toBeInTheDocument();
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
+  });
+
+  it('mantiene el error de nombre duplicado en el modal hasta corregirlo', async () => {
+    api.post.mockRejectedValueOnce(new Error('Ya existe un equipo con ese nombre'));
+
+    const user = userEvent.setup();
+    renderWithProviders(<Teams />, { route: '/app/teams' });
+    await screen.findByText('Soporte');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo equipo' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo equipo' });
+    const name = fieldFor('Nombre *', 'input', within(dialog));
+    await user.type(name, 'Soporte');
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    await within(dialog).findByRole('alert');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+
+    // Segundo intento con un nombre libre: el error anterior desaparece y el
+    // modal se cierra con el aviso de éxito, como en un guardado correcto.
+    await user.clear(name);
+    await user.type(name, 'Mesa de ayuda');
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+
+    expect(await screen.findByText('Equipo creado')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nuevo equipo' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('no arrastra el error del formulario al abrir otro formulario', async () => {
+    api.post.mockRejectedValueOnce(new Error('Ya existe un equipo con ese nombre'));
+
+    const user = userEvent.setup();
+    renderWithProviders(<Teams />, { route: '/app/teams' });
+    await screen.findByText('Soporte');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo equipo' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo equipo' });
+    await user.type(fieldFor('Nombre *', 'input', within(dialog)), 'Soporte');
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
+    await within(dialog).findByRole('alert');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nuevo equipo' })).not.toBeInTheDocument());
+    // El error vivía en el modal, así que al cerrarlo no queda nada en la página.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo equipo' }));
+    const reopened = await screen.findByRole('dialog', { name: 'Nuevo equipo' });
+    expect(within(reopened).queryByRole('alert')).not.toBeInTheDocument();
+    expect(fieldFor('Nombre *', 'input', within(reopened))).toHaveValue('');
+  });
+
+  it('deja los errores de miembros en la página, como estaban', async () => {
+    api.put.mockRejectedValueOnce(new Error('No se pudieron guardar los miembros'));
+
+    const user = userEvent.setup();
+    renderWithProviders(<Teams />, { route: '/app/teams' });
+    await screen.findByText('Soporte');
+
+    await user.click(screen.getAllByRole('button', { name: 'Miembros' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'Miembros de Soporte' });
+    await waitFor(() => expect(within(dialog).getByRole('checkbox', { name: /Ada Lovelace/ })).toBeChecked());
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar miembros' }));
+
+    // Sin cambios en este camino: el aviso va en la página y no dentro del modal
+    // de miembros.
+    expect(await screen.findByRole('alert')).toHaveTextContent('No se pudieron guardar los miembros');
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
   });
 });
 

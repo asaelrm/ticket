@@ -10,7 +10,13 @@ export default function Departments() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [modal, setModal] = useState(null);
+  // Dos contextos y dos sitios. `error` es lo que falla en la página, como el
+  // interruptor de activo; `formError` es lo que falla dentro del modal. Con un
+  // único estado el mismo mensaje se pintaba en los dos sitios a la vez: dos
+  // role="alert" con el mismo texto, y el del formulario compitiendo con el
+  // overlay del diálogo.
   const [error, setError] = useState('');
+  const [formError, setFormError] = useState('');
   const [onlyActive, setOnlyActive] = useState(false);
 
   const { data: list, error: queryError } = useQuery({
@@ -31,8 +37,8 @@ export default function Departments() {
       toast.success(id ? 'Departamento actualizado' : 'Departamento creado');
     },
     onError: (err) => {
-      if (err.fields) setError(Object.values(err.fields).join('. '));
-      else setError(err.message || 'No se pudo guardar');
+      if (err.fields) setFormError(Object.values(err.fields).join('. '));
+      else setFormError(err.message || 'No se pudo guardar');
     },
   });
 
@@ -51,7 +57,7 @@ export default function Departments() {
 
   function onSave(e) {
     e.preventDefault();
-    setError('');
+    setFormError('');
     saveMutation.mutate({ id: modal.id, form: modal.form });
   }
 
@@ -75,7 +81,7 @@ export default function Departments() {
           />
           Solo activos
         </label>
-        <button className="btn-primary" onClick={() => { setError(''); setModal({ id: null, form: { ...EMPTY } }); }}>
+        <button className="btn-primary" onClick={() => { setError(''); setFormError(''); setModal({ id: null, form: { ...EMPTY } }); }}>
           + Nuevo departamento
         </button>
       </div>
@@ -101,7 +107,7 @@ export default function Departments() {
                 />
               </div>
               <p className="mt-2 line-clamp-2 text-sm text-slate-500">{d.description || 'Sin descripción'}</p>
-              <button className="btn-ghost mt-3 !px-2 !py-1 text-xs" onClick={() => { setError(''); setModal({ id: d.id, form: { name: d.name, description: d.description || '' } }); }}>
+              <button className="btn-ghost mt-3 !px-2 !py-1 text-xs" onClick={() => { setError(''); setFormError(''); setModal({ id: d.id, form: { name: d.name, description: d.description || '' } }); }}>
                 Editar
               </button>
             </div>
@@ -120,7 +126,7 @@ export default function Departments() {
               <label className="label">Descripción</label>
               <textarea className="input min-h-[80px]" value={modal.form.description} onChange={(e) => setModal({ ...modal, form: { ...modal.form, description: e.target.value } })} />
             </div>
-            {error && <ErrorBox message={error} />}
+            {formError && <ErrorBox message={formError} />}
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
               <button type="button" className="btn-secondary" onClick={() => setModal(null)}>Cancelar</button>
               <button type="submit" className="btn-primary" disabled={saveMutation.isPending}>

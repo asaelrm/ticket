@@ -178,6 +178,11 @@ describe('Departments', () => {
     await user.click(screen.getByRole('switch', { name: 'TI' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cambiar el estado');
+    // El interruptor está fuera del formulario: el aviso va en la página y no
+    // aparece dentro de ningún modal.
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
   });
 
   it('muestra el error dentro del modal al no poder guardar', async () => {
@@ -193,6 +198,9 @@ describe('Departments', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('No se pudo guardar');
+    // Un solo aviso y dentro del modal: la página no lo repite.
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: 'Nuevo departamento' })).toBeInTheDocument();
   });
 
   it('muestra los errores de validación por campo dentro del modal', async () => {
@@ -208,9 +216,11 @@ describe('Departments', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('El nombre ya existe');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: 'Nuevo departamento' })).toBeInTheDocument();
   });
 
-  it('mantiene el error visible al cerrar el modal y lo limpia al reabrirlo', async () => {
+  it('no deja el error del formulario en la página y reabre el modal limpio', async () => {
     api.post.mockRejectedValueOnce(new Error('No se pudo guardar'));
 
     const user = userEvent.setup();
@@ -222,13 +232,15 @@ describe('Departments', () => {
     await user.type(fieldFor('Nombre *', 'input', within(dialog)), 'Finanzas');
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
     expect(await within(dialog).findByRole('alert')).toBeInTheDocument();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
 
-    // El error vive en el estado de la página: sigue visible con el modal cerrado.
+    // El error pertenece al modal, no a la página: al cerrarlo no queda un
+    // aviso huérfano detrás del overlay.
     await user.click(within(dialog).getByRole('button', { name: 'Cancelar' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nuevo departamento' })).not.toBeInTheDocument());
-    expect(screen.getByRole('alert')).toHaveTextContent('No se pudo guardar');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
-    // Reabrir el modal limpia el error anterior.
+    // Reabrir el modal sale sin el error anterior y con el formulario vacío.
     await user.click(screen.getByRole('button', { name: '+ Nuevo departamento' }));
     const reopened = await screen.findByRole('dialog', { name: 'Nuevo departamento' });
     await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
@@ -265,6 +277,8 @@ describe('Departments · avisos de éxito', () => {
     expect(await screen.findByText('Departamento creado')).toBeInTheDocument();
     expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
     expect(screen.getByRole('status')).toHaveTextContent('Departamento creado');
+    // El aviso de éxito no convive con ningún ErrorBox.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('avisa cuando se actualiza un departamento', async () => {
@@ -281,6 +295,7 @@ describe('Departments · avisos de éxito', () => {
 
     expect(await screen.findByText('Departamento actualizado')).toBeInTheDocument();
     expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('avisa cuando se desactiva un departamento', async () => {
@@ -292,6 +307,7 @@ describe('Departments · avisos de éxito', () => {
 
     expect(await screen.findByText('Departamento desactivado')).toBeInTheDocument();
     expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('avisa cuando se activa un departamento', async () => {
@@ -303,6 +319,7 @@ describe('Departments · avisos de éxito', () => {
 
     expect(await screen.findByText('Departamento activado')).toBeInTheDocument();
     expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('los errores de validación siguen en línea y no añaden avisos', async () => {
@@ -319,5 +336,8 @@ describe('Departments · avisos de éxito', () => {
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('El nombre ya existe');
     expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
+    // Sigue siendo un único aviso, dentro del modal.
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: 'Nuevo departamento' })).toBeInTheDocument();
   });
 });
