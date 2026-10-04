@@ -216,7 +216,7 @@ export default function Tickets() {
     // de la barra y acababa tapando la última fila y la paginación.
     <div>
       {/* Chips de filtros rápidos con contadores */}
-      <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+      <div className="mb-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {visibleViews.map((v) => {
           const active = chipActive(v.key);
           const count = counterValue(v.counter);

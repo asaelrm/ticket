@@ -248,7 +248,7 @@ return (
           título a 1280 y 384 px a 1920. `min-w` protege el ancho de las
           columnas frente a un contenedor estrecho; por debajo de él la tabla
           se desplaza, que es lo único que justifica el scroll horizontal. */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <table className="table-fixed w-full min-w-[32rem] lg:min-w-[54rem]">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>

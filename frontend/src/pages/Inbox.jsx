@@ -465,7 +465,7 @@ export default function Inbox() {
       <div className="card mb-4">
         <div className="border-b border-slate-200 px-4 py-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Vista de trabajo</p>
-          <div className="flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Vistas de la bandeja">
+          <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Vistas de la bandeja">
             {visibleTabs.map((t) => {
               const active = tab === t.key;
               const count = counters?.[t.counter];
