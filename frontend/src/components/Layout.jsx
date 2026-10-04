@@ -107,13 +107,36 @@ const TITLES = {
   '/app/knowledge/admin': 'Administrar conocimientos',
 };
 
+// El reloj es lo único que cambia cada segundo, así que vive aquí y no en
+// Layout: con el estado arriba, cada tic repintaba la cabecera entera
+// (notificaciones, tooltips, enlaces del menú) aunque solo un texto hubiera
+// cambiado. Aquí solo se repinta este bloque.
+function HeaderClock() {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div className="mr-1 hidden text-right xl:block">
+      <p className="text-sm font-semibold leading-tight text-white">
+        {now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+      </p>
+      <p className="text-[11px] capitalize leading-tight text-slate-400">
+        {now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+      </p>
+    </div>
+  );
+}
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [theme, setTheme] = useState(() => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'));
   const [q, setQ] = useState('');
-  const [now, setNow] = useState(() => new Date());
   const searchPanelRef = useRef(null);
   const searchToggleRef = useRef(null);
   const searchInputRef = useRef(null);
@@ -124,11 +147,6 @@ export default function Layout() {
     setOpen(false);
     setSearchOpen(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
 
   function toggleTheme() {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -490,14 +508,7 @@ export default function Layout() {
           </form>
 
           <div className="ml-auto flex items-center gap-2">
-            <div className="mr-1 hidden text-right xl:block">
-              <p className="text-sm font-semibold leading-tight text-white">
-                {now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </p>
-              <p className="text-[11px] capitalize leading-tight text-slate-400">
-                {now.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
-              </p>
-            </div>
+            <HeaderClock />
             <Notifications />
             <Tooltip text={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}>
               <button

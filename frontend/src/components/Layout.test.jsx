@@ -1,7 +1,7 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -9,7 +9,13 @@ import Layout from './Layout';
 import { expectContrast } from '../test/contrast';
 import { createQueryClient } from '../test/utils';
 
-const { authState } = vi.hoisted(() => ({ authState: { user: null } }));
+const { authState, renders } = vi.hoisted(() => ({
+  authState: { user: null },
+  // Contadores de render de los dos hijos que cuelgan de Layout: el panel de
+  // notificaciones (su JSX lo crea Layout) y la página del Outlet (la crea el
+  // enrutador). Sirven para ver qué repinta de verdad el tic del reloj.
+  renders: { notifications: 0, page: 0 },
+}));
 
 vi.mock('../context/AuthContext', () => ({
   useAuth: () => ({ user: authState.user, logout: vi.fn() }),
@@ -17,7 +23,12 @@ vi.mock('../context/AuthContext', () => ({
 }));
 
 // El panel de notificaciones abre una conexión SSE: aquí solo interesa el menú.
-vi.mock('./Notifications', () => ({ default: () => <div>NOTIFICACIONES</div> }));
+vi.mock('./Notifications', () => ({
+  default: () => {
+    renders.notifications += 1;
+    return <div>NOTIFICACIONES</div>;
+  },
+}));
 
 const VIEWER = { id: 1, name: 'Lucía', last_name: 'Pérez', role_name: 'Técnico', permissions: ['kb.view'] };
 const MANAGER = { id: 2, name: 'Ana', last_name: 'Díaz', role_name: 'Admin', permissions: ['kb.view', 'kb.manage'] };
@@ -38,6 +49,27 @@ function renderLayout(route = '/app') {
           <Route path="/app/*" element={<Layout />} />
         </Routes>
         <LocationProbe />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+// Igual que `renderLayout`, pero con una página real detrás del `<Outlet />`:
+// cuenta sus renders para comprobar si el tic del reloj la repinta.
+function PageProbe() {
+  renders.page += 1;
+  return <p data-testid="pagina">PAGINA</p>;
+}
+
+function renderLayoutConPagina(route = '/app') {
+  return render(
+    <QueryClientProvider client={createQueryClient()}>
+      <MemoryRouter initialEntries={[route]}>
+        <Routes>
+          <Route path="/app/*" element={<Layout />}>
+            <Route index element={<PageProbe />} />
+          </Route>
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>
   );
@@ -66,6 +98,8 @@ const desktopField = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   authState.user = VIEWER;
+  renders.notifications = 0;
+  renders.page = 0;
   document.documentElement.dataset.theme = 'light';
   localStorage.clear();
 });
@@ -80,6 +114,90 @@ describe('Layout · tema visual', () => {
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(localStorage.getItem('sifha-theme')).toBe('dark');
     expect(screen.getByRole('button', { name: 'Activar tema claro' })).toBeInTheDocument();
+  });
+});
+
+// El reloj de la cabecera actualiza cada segundo. Estas pruebas fijan las dos
+// caras del asunto: lo que se ve (formato, clases y breakpoint, sin cambios) y
+// lo que ya no se repinta con cada tic —ni el resto de la cabecera ni la página
+// del Outlet— porque el reloj vive en su propio componente.
+describe('Layout · reloj de la cabecera', () => {
+  const HORA_FIJA = new Date(2024, 4, 15, 14, 30, 45);
+  const HORA = '14:30:45';
+  const FECHA = 'miércoles, 15 de mayo';
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(HORA_FIJA);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('muestra la hora y la fecha como siempre, y solo a partir de pantallas anchas', () => {
+    renderLayout();
+
+    expect(screen.getByText(HORA)).toBeInTheDocument();
+    const fecha = screen.getByText(FECHA);
+    expect(fecha).toBeInTheDocument();
+
+    // Mismo bloque, mismo sitio y mismo breakpoint que antes: los dos textos
+    // cuelgan del grupo de la derecha y solo se ven desde `xl`.
+    const bloque = screen.getByText(HORA).parentElement;
+    expect(bloque).toHaveClass('mr-1', 'hidden', 'text-right', 'xl:block');
+    expect(bloque.parentElement).toHaveClass('ml-auto');
+    expect(fecha).toHaveClass('capitalize', 'text-slate-400');
+  });
+
+  it('cambia al cumplirse el segundo, ni un tick antes', () => {
+    renderLayout();
+
+    act(() => {
+      vi.advanceTimersByTime(999);
+    });
+    expect(screen.getByText(HORA)).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(screen.getByText('14:30:46')).toBeInTheDocument();
+    // La fecha solo cambia al día: un tic no la toca.
+    expect(screen.getByText(FECHA)).toBeInTheDocument();
+  });
+
+  it('limpia su interval al desmontarse', () => {
+    const { unmount } = renderLayout();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+    unmount();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('no vuelve a renderizar el resto de la cabecera', () => {
+    renderLayout();
+    expect(renders.notifications).toBe(1);
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    // Notificaciones es un hijo del JSX de Layout: si Layout se repintara con
+    // cada tic, también se repintaría él. Con el reloj aislado no pasa.
+    expect(renders.notifications).toBe(1);
+  });
+
+  it('no vuelve a renderizar la página del Outlet', () => {
+    renderLayoutConPagina();
+    expect(renders.page).toBe(1);
+    expect(screen.getByTestId('pagina')).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(renders.page).toBe(1);
   });
 });
 
