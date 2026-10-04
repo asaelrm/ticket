@@ -156,6 +156,18 @@
 
 /* Capas compartidas del Layout y overlays. */
 .app-sidebar { background: var(--surface-inverse); border-color: rgb(255 255 255 / .1); color: var(--text-inverse); }
+/* Scroll del menú, y solo del menú: se aplica al <nav> que lleva
+   `overflow-y-auto`, no al <aside>. El track es transparente para que se vea
+   el fondo del sidebar y el thumb usa el azul institucional sólido (#1d4ed8,
+   el mismo de `.app-nav-active`), que al pasar el ratón se aclara un punto
+   para que se localice sin gritar. Los pseudo-elementos WebKit se conservan a
+   propósito porque son los que fijan estos 6 px: en Chromium y Edge, que ya
+   soportan `scrollbar-width`, esas propiedades estándar tienen prioridad y
+   dejarían el scrollbar del sistema. */
+.app-sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.app-sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.app-sidebar-scroll::-webkit-scrollbar-thumb { border-radius: 999px; background: #1d4ed8; }
+.app-sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgb(37 99 235 / .9); }
 .app-topbar { background: #0b0f19; border-bottom: 1px solid rgb(255 255 255 / .1); color: var(--text-inverse); box-shadow: 0 1px 0 rgb(255 255 255 / .03); }
 .app-nav-section { color: #9db1cc; }
 .app-nav-item { color: #c6d2e2; transition: color 150ms ease, background-color 150ms ease; }

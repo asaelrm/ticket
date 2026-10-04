@@ -280,7 +280,7 @@ export default function Layout() {
         </div>
       )}
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-2">
+      <nav className="app-sidebar-scroll flex-1 overflow-y-auto px-3 pb-2">
         {sections.map((section) => (
           <div key={section.title} className="mb-1">
             <p className="app-nav-section px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider">
