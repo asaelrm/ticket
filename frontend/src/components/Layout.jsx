@@ -254,7 +254,7 @@ export default function Layout() {
   const sidebar = (
     <div className="flex h-full flex-col">
       <button
-        className="mx-3 mb-3 mt-3 flex flex-col items-center rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-center"
+        className="mx-3 mb-3 mt-3 flex flex-col items-center rounded-xl px-4 py-4 text-center"
         onClick={() => navigate('/app')}
         title="SIFHA · Mesa de Ayuda"
       >
