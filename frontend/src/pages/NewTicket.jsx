@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api, PRIORITIES, PRIORITY_LABEL, isImage } from '../lib/api';
@@ -9,11 +9,41 @@ import Select from '../components/Select';
 const MAX_SIZE_MB = 5;
 const MAX_FILES = 5;
 
+// Campos que el servidor exige al crear un ticket: es su `validate()` en
+// `POST /api/tickets` (reglas `required` sobre título, categoría y
+// descripción). No se inventa ninguna regla nueva, sólo se comprueba antes de
+// gastar un POST en un fallo que el navegador no puede evitar por sí solo: el
+// `<form>` va con `noValidate`, así que sus `required` no hacen nada.
+// Los textos son los del backend para que el mensaje sea el mismo lo detecte
+// el formulario o el servidor.
+const REQUIRED_MESSAGE = {
+  title: 'Título es obligatorio',
+  category: 'Categoría es obligatorio',
+  description: 'Descripción es obligatorio',
+};
+
+// Orden en el que se revisan los campos: el foco salta al primero que falte.
+const FIELD_ORDER = ['title', 'category', 'description'];
+
+function validateRequired({ title: t, categoryId, description: d }) {
+  const errors = {};
+  if (!t.trim()) errors.title = REQUIRED_MESSAGE.title;
+  // La categoría viaja como texto del <Select>; vacío significa "sin elegir",
+  // que es justo lo que el backend rechaza.
+  if (!categoryId) errors.category = REQUIRED_MESSAGE.category;
+  if (!d.trim()) errors.description = REQUIRED_MESSAGE.description;
+  return errors;
+}
+
 export default function NewTicket() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // `error` es el aviso general (API, adjuntos) y `fieldErrors` el detalle junto
+  // a cada campo, como en el editor de la base de conocimiento: así un campo
+  // vacío no compite con el `role="alert"` del error general.
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const [title, setTitle] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -21,6 +51,30 @@ export default function NewTicket() {
   const [priority, setPriority] = useState('MEDIUM');
   const [departmentId, setDepartmentId] = useState('');
   const [files, setFiles] = useState([]);
+
+  const titleRef = useRef(null);
+  const descriptionRef = useRef(null);
+  const fieldRefs = { title: titleRef, description: descriptionRef };
+
+  function focusField(key) {
+    if (key === 'category') {
+      // El <Select> propio no admite refs (su trigger es un <button> real al que
+      // esta página ya le pasa `id`), así que se localiza por ese id en vez de
+      // tocar el componente compartido.
+      document.getElementById('category')?.focus();
+      return;
+    }
+    fieldRefs[key]?.current?.focus();
+  }
+
+  function clearFieldError(key) {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
 
   const categoriesQuery = useQuery({
     queryKey: ['categories-active'],
@@ -46,8 +100,9 @@ export default function NewTicket() {
   // "Sin departamento" era una `<option>` vacía seleccionable, así que se
   // conserva como opción real. En cambio la de categoría venía `disabled`, de
   // modo que no se podía elegir: eso equivale a un `placeholder`.
-  // El `required` del `<select>` era inerte (el `<form>` va con `noValidate`) y la
-  // validación real la hace el servidor, así que no se pierde ninguna.
+  // Los `required` del markup son inertes (`noValidate`), pero ya no son la
+  // única comprobación: `validateRequired` cubre los mismos campos antes de
+  // enviar, y el backend sigue validando igual por si acaso.
   const categoryOptions = useMemo(() => categories.map((c) => ({ value: c.id, label: c.name })), [categories]);
   const departmentOptions = useMemo(
     () => [{ value: '', label: 'Sin departamento' }, ...departments.map((d) => ({ value: d.id, label: d.name }))],
@@ -73,27 +128,67 @@ export default function NewTicket() {
     onSuccess: (data) => {
       navigate(`/app/my-tickets/${data.ticket.id}`);
     },
-    onError: (err) => setError(err.message || 'No se pudo crear el ticket'),
+    onError: (err) => {
+      // `err.fields` es el mecanismo de validación por campo que ya usan otros
+      // formularios del proyecto. Si viene, cada mensaje se pinta junto a su
+      // campo igual que los del cliente; si no, al ErrorBox de siempre. Así el
+      // backend nunca muestra su `Validation failed` en crudo.
+      const fields = err.fields;
+      if (fields) {
+        const mapped = {};
+        const resto = [];
+        for (const [key, message] of Object.entries(fields)) {
+          if (REQUIRED_MESSAGE[key]) mapped[key] = message;
+          else resto.push(message);
+        }
+        setFieldErrors(mapped);
+        setError(resto.join('. '));
+        const first = FIELD_ORDER.find((k) => mapped[k]);
+        if (first) focusField(first);
+        return;
+      }
+      setError(err.message || 'No se pudo crear el ticket');
+    },
     onSettled: () => setSaving(false),
   });
 
   function onFiles(e) {
     const list = Array.from(e.target.files || []);
-    const resized = [];
+    const accepted = [];
     const oversized = [];
     for (const f of list) {
       if (f.size > MAX_SIZE_MB * 1024 * 1024) {
         oversized.push(f.name);
         continue;
       }
-      resized.push(f);
+      accepted.push(f);
     }
+
+    // El tamaño manda sobre el resto, igual que hasta ahora: si hay un archivo
+    // grande no se agrega ninguno de los elegidos. Ahora el aviso lo dice, para
+    // que la selección no desaparezca sin explicación.
     if (oversized.length) {
-      setError(`Archivos demasiado grandes: ${oversized.join(', ')}. Máximo ${MAX_SIZE_MB} MB por archivo.`);
+      setError(`Archivos demasiado grandes: ${oversized.join(', ')}. Máximo ${MAX_SIZE_MB} MB por archivo. No se agregó ningún archivo.`);
       return;
     }
-    setError('');
-    setFiles((prev) => [...prev, ...resized].slice(0, MAX_FILES));
+
+    // El límite se respeta sin descartar nada en silencio: se agrega lo que cabe
+    // y se nombra lo que no. Antes, un `.slice(0, MAX_FILES)` se comía el resto
+    // sin decir nada y el usuario creía haber adjuntado todo.
+    const room = MAX_FILES - files.length;
+    const added = accepted.slice(0, Math.max(room, 0));
+    const dropped = accepted.slice(added.length);
+
+    if (dropped.length) {
+      setError(
+        dropped.length === 1
+          ? `Máximo ${MAX_FILES} archivos por ticket. No se agregó ${dropped[0].name}.`
+          : `Máximo ${MAX_FILES} archivos por ticket. No se agregaron ${dropped.length} archivos: ${dropped.map((f) => f.name).join(', ')}.`
+      );
+    } else {
+      setError('');
+    }
+    setFiles((prev) => [...prev, ...added]);
   }
 
   function removeFile(index) {
@@ -102,6 +197,15 @@ export default function NewTicket() {
 
   function onSubmit(e) {
     e.preventDefault();
+    const found = validateRequired({ title, categoryId, description });
+    setFieldErrors(found);
+    const first = FIELD_ORDER.find((k) => found[k]);
+    if (first) {
+      // No se envía nada: ni el POST ni se toca lo escrito ni los adjuntos. Se
+      // lleva el foco al primer campo que falta para corregirlo y reintentar.
+      focusField(first);
+      return;
+    }
     createMutation.mutate();
   }
 
@@ -122,13 +226,24 @@ export default function NewTicket() {
             </label>
             <input
               id="title"
-              className="input"
+              ref={titleRef}
+              className={`input ${fieldErrors.title ? '!border-red-400' : ''}`}
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                clearFieldError('title');
+              }}
               placeholder="Resumen breve del problema"
               maxLength={200}
               required
+              aria-invalid={fieldErrors.title ? 'true' : undefined}
+              aria-describedby={fieldErrors.title ? 'title-error' : undefined}
             />
+            {fieldErrors.title && (
+              <p id="title-error" className="mt-1 text-xs text-red-600">
+                {fieldErrors.title}
+              </p>
+            )}
           </div>
 
           <div className="grid gap-5 sm:grid-cols-2">
@@ -141,8 +256,18 @@ export default function NewTicket() {
                 placeholder="Seleccione…"
                 options={categoryOptions}
                 value={categoryId}
-                onChange={setCategoryId}
+                onChange={(v) => {
+                  setCategoryId(v);
+                  clearFieldError('category');
+                }}
+                aria-invalid={fieldErrors.category ? 'true' : undefined}
+                aria-describedby={fieldErrors.category ? 'category-error' : undefined}
               />
+              {fieldErrors.category && (
+                <p id="category-error" className="mt-1 text-xs text-red-600">
+                  {fieldErrors.category}
+                </p>
+              )}
             </div>
             <div>
               <label className="label" htmlFor="priority">
@@ -173,13 +298,24 @@ export default function NewTicket() {
             </label>
             <textarea
               id="description"
-              className="input min-h-[130px] resize-y"
+              ref={descriptionRef}
+              className={`input min-h-[130px] resize-y ${fieldErrors.description ? '!border-red-400' : ''}`}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                clearFieldError('description');
+              }}
               placeholder="Describa el problema, pasos para reproducirlo y cualquier detalle relevante…"
               maxLength={10000}
               required
+              aria-invalid={fieldErrors.description ? 'true' : undefined}
+              aria-describedby={fieldErrors.description ? 'description-error' : undefined}
             />
+            {fieldErrors.description && (
+              <p id="description-error" className="mt-1 text-xs text-red-600">
+                {fieldErrors.description}
+              </p>
+            )}
           </div>
 
           <div>
