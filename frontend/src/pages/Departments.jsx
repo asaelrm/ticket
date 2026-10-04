@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Modal, ErrorBox, Spinner, LoadingScreen, ConfirmToggle, EmptyState } from '../components/ui';
+import { useToast } from '../components/Toast';
 
 const EMPTY = { name: '', description: '' };
 
 export default function Departments() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [modal, setModal] = useState(null);
   const [error, setError] = useState('');
   const [onlyActive, setOnlyActive] = useState(false);
@@ -16,14 +18,17 @@ export default function Departments() {
     queryFn: () => api.get('/api/departments').then((res) => res.data),
   });
 
+  // Muta para crear/editar. El id viaja en las variables para que el aviso de
+  // éxito sepa qué fue sin depender del cierre del modal.
   const saveMutation = useMutation({
-    mutationFn: (form) =>
-      modal.id
-        ? api.patch(`/api/departments/${modal.id}`, { ...form, active: true })
+    mutationFn: ({ id, form }) =>
+      id
+        ? api.patch(`/api/departments/${id}`, { ...form, active: true })
         : api.post('/api/departments', form),
-    onSuccess: () => {
+    onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['departments'] });
       setModal(null);
+      toast.success(id ? 'Departamento actualizado' : 'Departamento creado');
     },
     onError: (err) => {
       if (err.fields) setError(Object.values(err.fields).join('. '));
@@ -31,9 +36,14 @@ export default function Departments() {
     },
   });
 
+  // Muta para activar/desactivar. `d.active` es el estado original: con él se
+  // redacta el aviso sin esperar a que el listado se refresque.
   const toggleMutation = useMutation({
     mutationFn: (d) => api.patch(`/api/departments/${d.id}`, { active: !d.active }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['departments'] }),
+    onSuccess: (_data, d) => {
+      queryClient.invalidateQueries({ queryKey: ['departments'] });
+      toast.success(d.active ? 'Departamento desactivado' : 'Departamento activado');
+    },
     onError: (err) => {
       setError(err.message || 'No se pudo cambiar el estado');
     },
@@ -42,7 +52,7 @@ export default function Departments() {
   function onSave(e) {
     e.preventDefault();
     setError('');
-    saveMutation.mutate(modal.form);
+    saveMutation.mutate({ id: modal.id, form: modal.form });
   }
 
   function toggle(d) {

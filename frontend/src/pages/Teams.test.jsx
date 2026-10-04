@@ -118,8 +118,9 @@ describe('Teams', () => {
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/teams', { name: 'Mesa de ayuda', description: 'Segunda línea' })
     );
-    await waitFor(() => expect(teamCalls()).toBeGreaterThan(before));
-    expect(await screen.findByText('Equipo guardado')).toBeInTheDocument();
+await waitFor(() => expect(teamCalls()).toBeGreaterThan(before));
+    expect(await screen.findByText('Equipo creado')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
   });
 
   it('mantiene deshabilitado el guardado mientras el nombre está vacío', async () => {
@@ -150,8 +151,10 @@ describe('Teams', () => {
     await user.type(name, 'Soporte Nivel 1');
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
-    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/teams/1', { name: 'Soporte Nivel 1', description: 'Atención de incidencias' }));
+await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/teams/1', { name: 'Soporte Nivel 1', description: 'Atención de incidencias' }));
     expect(api.post).not.toHaveBeenCalled();
+    expect(await screen.findByText('Equipo actualizado')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
   });
 
   it('muestra el error al no poder guardar el equipo', async () => {
@@ -166,7 +169,9 @@ describe('Teams', () => {
     await user.type(fieldFor('Nombre *', 'input', within(dialog)), 'Soporte');
     await user.click(within(dialog).getByRole('button', { name: 'Guardar' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe un equipo con ese nombre');
+expect(await screen.findByRole('alert')).toHaveTextContent('Ya existe un equipo con ese nombre');
+    // El error sigue en línea: no se convierte en Toast.
+    expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
   });
 
   it('carga los miembros del equipo al abrir el modal', async () => {
@@ -251,8 +256,9 @@ describe('Teams', () => {
     await user.click(within(dialog).getByRole('checkbox', { name: /Grace Hopper/ }));
     await user.click(within(dialog).getByRole('button', { name: 'Guardar miembros' }));
 
-    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/api/teams/1/members', { user_ids: [3] }));
+await waitFor(() => expect(api.put).toHaveBeenCalledWith('/api/teams/1/members', { user_ids: [3] }));
     expect(await screen.findByText('Miembros actualizados')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
   });
 
   it('envía la lista completa de miembros al guardar', async () => {
@@ -297,8 +303,9 @@ describe('Teams', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Eliminar' }));
 
     await waitFor(() => expect(api.del).toHaveBeenCalledWith('/api/teams/1'));
-    await waitFor(() => expect(teamCalls()).toBeGreaterThan(before));
+await waitFor(() => expect(teamCalls()).toBeGreaterThan(before));
     expect(await screen.findByText('Equipo eliminado')).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveAttribute('data-type', 'success');
   });
 
   it('cancela la eliminación sin llamar a la API', async () => {

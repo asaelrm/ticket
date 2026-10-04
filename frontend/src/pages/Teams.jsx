@@ -3,14 +3,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuth, can } from '../context/AuthContext';
 import { LoadingScreen, ErrorBox, EmptyState, Modal, ConfirmDialog, Spinner, Avatar } from '../components/ui';
+import { useToast } from '../components/Toast';
 
 export default function Teams() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const toast = useToast();
   const canManage = can(user, 'team.manage');
 
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
 
   const [editing, setEditing] = useState(null); // { id?, name, description }
   const [membersTeam, setMembersTeam] = useState(null);
@@ -59,10 +60,12 @@ export default function Teams() {
       id
         ? api.patch(`/api/teams/${id}`, { name, description })
         : api.post('/api/teams', { name, description }),
-    onSuccess: () => {
+    onSuccess: (_data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
       setEditing(null);
-      setNotice('Equipo guardado');
+      // El id viaja en las variables de la mutación: el aviso distingue crear de
+      // editar sin depender del estado `editing`, que ya está cerrado aquí.
+      toast.success(id ? 'Equipo actualizado' : 'Equipo creado');
     },
     onError: (err) => {
       setError(err.message || 'No se pudo guardar el equipo');
@@ -74,7 +77,7 @@ export default function Teams() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
       setMembersTeam(data.team);
-      setNotice('Miembros actualizados');
+      toast.success('Miembros actualizados');
     },
     onError: (err) => {
       setError(err.message || 'No se pudieron guardar los miembros');
@@ -86,7 +89,7 @@ export default function Teams() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
       setToDelete(null);
-      setNotice('Equipo eliminado');
+      toast.success('Equipo eliminado');
     },
     onError: (err) => {
       setError(err.message || 'No se pudo eliminar el equipo');
@@ -132,9 +135,6 @@ export default function Teams() {
       </div>
 
       {error && <div className="mb-3"><ErrorBox message={error} /></div>}
-      {notice && (
-        <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div>
-      )}
 
       {teams.length === 0 ? (
         <div className="card">
