@@ -537,7 +537,7 @@ export default function Reports() {
           {data.byTechnician.length === 0 ? (
             <EmptyState icon="👥" title="Sin trabajo asignado a técnicos" />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
@@ -580,7 +580,7 @@ export default function Reports() {
           {data.byTeam.data.length === 0 ? (
             <EmptyState icon="👥" title="Sin trabajo en equipos" />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
@@ -684,7 +684,7 @@ export default function Reports() {
   {data.details.length === 0 ? (
             <EmptyState icon="📋" title="Sin tickets que detallar" />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <table className="w-full">
                 <thead className="bg-slate-50"><tr><th className="th">Ticket</th><th className="th">Título</th><th className="th">Estado</th><th className="th">Prioridad</th><th className="th">Departamento</th><th className="th">Reportero</th><th className="th">Creado</th></tr></thead>
                 <tbody className="divide-y divide-slate-100">

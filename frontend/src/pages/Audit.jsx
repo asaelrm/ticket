@@ -170,7 +170,7 @@ export default function Audit() {
         <EmptyState icon="📜" title="Sin registros" subtitle="No se encontraron cambios con los criterios seleccionados." />
       ) : (
         <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
                 <tr>
