@@ -505,7 +505,7 @@ export default function Reports() {
           {data.performance.by_user.length === 0 ? (
             <EmptyState icon="👥" title="Sin datos de reportadores" />
           ) : (
-            <div className="overflow-x-auto">
+<div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
@@ -753,7 +753,7 @@ function CsatTable({ title, rows }) {
       {rows.length === 0 ? (
         <EmptyState icon="⭐" title="Sin respuestas de satisfacción" />
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <table className="w-full">
             <thead className="bg-slate-50">
               <tr>

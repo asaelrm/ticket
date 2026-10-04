@@ -712,7 +712,7 @@ export default function TicketDetail() {
                 </span>
               </div>
             </div>
-            <div ref={scrollRef} className="max-h-[560px] overflow-y-auto pr-1">
+            <div ref={scrollRef} className="max-h-[560px] overflow-y-auto pr-1 app-scrollbar">
               <TicketTimeline history={data.history} comments={commentsWithAttachments} />
             </div>
             {typingUsers.length > 0 && (

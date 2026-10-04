@@ -55,7 +55,7 @@ export default function UserTicketHistory({ userId, self = false, perPage = 8 })
       ) : !data || data.data.length === 0 ? (
         <EmptyState icon="🎫" title="Sin tickets" subtitle="No hay tickets en este historial." />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <table className="w-full">
             <thead className="bg-slate-50">
               <tr>

@@ -224,7 +224,7 @@ export default function Teams() {
       {/* Miembros */}
       <Modal open={!!membersTeam} onClose={() => setMembersTeam(null)} title={`Miembros de ${membersTeam?.name || ''}`}>
         <p className="mb-3 text-sm text-slate-500">Seleccione los usuarios que forman parte del equipo.</p>
-        <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+        <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2 app-scrollbar">
           {users.map((u) => (
             <label key={u.id} className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50">
               <input

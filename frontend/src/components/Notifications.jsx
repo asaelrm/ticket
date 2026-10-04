@@ -162,7 +162,7 @@ export default function Notifications() {
               </button>
             )}
           </div>
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto app-scrollbar">
             {itemsError ? (
               // El error va dentro del panel para que siga siendo usable y
               // cerrable: la cabecera, "Marcar todas leídas" y el cierre por

@@ -232,7 +232,7 @@ export function Modal({ open, onClose, title, children, wide }) {
         {/* `min-h-0` es lo que permite que este hijo se encoja dentro de una
             columna flex acotada; sin él el `overflow-y-auto` no llega a
             activarse y el diálogo crece por debajo del viewport. */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 app-scrollbar">{children}</div>
       </div>
     </div>,
     document.body
@@ -271,7 +271,7 @@ export function Drawer({ open, onClose, title, subtitle, children, footer, wide 
             </svg>
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 app-scrollbar">{children}</div>
         {footer && <div className="border-t border-slate-200 px-5 py-4">{footer}</div>}
       </div>
     </div>
@@ -385,7 +385,7 @@ export function Menu({ label, items, align = 'right', buttonClass = 'btn-seconda
           <div
             ref={ref}
             style={{ position: 'fixed', top: pos.top, left: pos.left }}
-            className="panel-glass z-50 max-h-[70vh] min-w-[200px] overflow-y-auto rounded-xl py-1 nex-pop"
+            className="panel-glass z-50 max-h-[70vh] min-w-[200px] overflow-y-auto rounded-xl py-1 nex-pop app-scrollbar"
             role="menu"
           >
             {visible.map((item) =>

@@ -233,7 +233,7 @@ function ArticlesTab() {
           />
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <div className="card overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <table className="w-full min-w-[46rem] text-sm">
             <thead className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>

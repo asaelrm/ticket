@@ -60,7 +60,7 @@ describe('Modal · el diálogo no puede quedar recortado por quien lo abre', () 
     const [cabecera, cuerpo] = Array.from(dialog.children);
     expect(cabecera).toHaveClass('shrink-0');
     expect(cabecera.querySelector('h3')).toHaveTextContent('Editar ticket');
-    expect(cuerpo).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'overscroll-contain');
+    expect(cuerpo).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'overscroll-contain', 'app-scrollbar');
     expect(cuerpo).toHaveTextContent('contenido');
   });
 

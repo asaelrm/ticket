@@ -168,6 +168,29 @@
 .app-sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
 .app-sidebar-scroll::-webkit-scrollbar-thumb { border-radius: 999px; background: #1d4ed8; }
 .app-sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgb(37 99 235 / .9); }
+/* Scrollbar vertical genérico para contenedores internos (no global). */
+.app-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #1d4ed8 transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.app-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #1d4ed8;
+}
+
+.app-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(37 99 235 / 0.9);
+}
+
 .app-topbar { background: #0b0f19; border-bottom: 1px solid rgb(255 255 255 / .1); color: var(--text-inverse); box-shadow: 0 1px 0 rgb(255 255 255 / .03); }
 .app-nav-section { color: #9db1cc; }
 .app-nav-item { color: #c6d2e2; transition: color 150ms ease, background-color 150ms ease; }

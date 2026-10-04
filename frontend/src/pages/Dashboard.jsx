@@ -422,7 +422,7 @@ export default function Dashboard() {
         </div>
 
         {sla?.top?.length ? (
-          <div className="overflow-x-auto border-t border-slate-200">
+          <div className="overflow-x-auto border-t border-slate-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <table className="w-full">
               <thead>
                 <tr>
@@ -512,7 +512,7 @@ export default function Dashboard() {
             Ningún técnico tiene tickets activos asignados.
           </div>
         ) : (
-          <div className="overflow-x-auto border-t border-slate-200">
+          <div className="overflow-x-auto border-t border-slate-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <table className="w-full">
               <thead>
                 <tr>
