@@ -4,6 +4,7 @@ import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Tickets from './Tickets';
 import { api, VIEWS } from '../lib/api';
+import { BAR_HEIGHT } from '../components/BulkTicketBar';
 import { renderWithProviders, renderWithHistory, pickOption } from '../test/utils';
 
 const { authState, download } = vi.hoisted(() => ({
@@ -1251,5 +1252,112 @@ describe('Tickets · el botón de refrescar se explica y sigue recargando', () =
       const despues = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).length;
       expect(despues).toBeGreaterThan(antes);
     });
+  });
+});
+
+// La barra de acciones en lote está anclada abajo con `position: fixed`, o sea
+// fuera del flujo, y por eso se apoya encima del final del contenido. Lo único
+// que la impedía tapar la última fila y la paginación era el hueco que deja en
+// el flujo normal, y ese hueco tiene que medir lo mismo que la barra.
+//
+// jsdom no calcula geometría, así que no se puede comprobar aquí que dos cajas no
+// se solapan. Lo que sí se fija es el contrato que lo garantiza: la barra sigue
+// siendo la pieza fija de siempre, sus acciones no se reparten en varias filas
+// (por eso el alto ya no depende del ancho de la pantalla) y el hueco del flujo
+// usa exactamente el mismo alto declarado que ella.
+describe('Tickets · la barra en lote deja hueco y no tapa el final del contenido', () => {
+  // 30 tickets en dos páginas: así la paginación trae botones y es el último
+  // control del contenido, justo lo que la barra no puede cubrir.
+  function dosPaginas() {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) {
+        return Promise.resolve(
+          listResp([row(), row({ id: 2, ticket_number: 'TCK-000002', title: 'Impresora atascada' })], 1, 2, 30)
+        );
+      }
+      if (url === '/api/categories') return Promise.resolve({ data: [] });
+      if (url === '/api/departments') return Promise.resolve({ data: [] });
+      if (url === '/api/users/assignable') return Promise.resolve({ data: [] });
+      if (url === '/api/teams/assignable') return Promise.resolve({ data: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+  }
+
+  it('sin selección no hay barra ni hueco reservado', async () => {
+    authState.user = FULL;
+    dosPaginas();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+    expect(screen.queryByTestId('bulk-bar-gap')).toBeNull();
+    // Antes la reserva era un `pb-28` en la raíz de la página: si volviera a
+    // aparecer junto al hueco, la pantalla reservaría el doble.
+    expect(document.querySelector('.pb-28')).toBeNull();
+  });
+
+  it('con selección aparecen la barra y un hueco de su mismo alto', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    dosPaginas();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar TCK-000001'));
+
+    // La barra es la misma pieza fija de antes...
+    const barra = screen.getByTestId('bulk-bar');
+    expect(barra).toHaveClass('fixed', 'inset-x-0', 'bottom-0', BAR_HEIGHT);
+    // ...y el hueco que la acompaña en el flujo mide lo mismo, que es lo que
+    // permite bajar del todo sin dejar nada debajo de la barra.
+    const hueco = screen.getByTestId('bulk-bar-gap');
+    expect(hueco).toHaveClass(BAR_HEIGHT);
+
+    // La línea de la barra no se reparte en filas: se desplaza. Antes, con
+    // `flex-wrap`, crecía al estrecharse y el hueco se quedaba corto.
+    const fila = barra.firstElementChild;
+    expect(fila).not.toHaveClass('flex-wrap');
+    expect(fila).toHaveClass('overflow-x-auto', 'h-full');
+
+    // La paginación sigue ahí, y el hueco va después de ella, nunca encima.
+    const paginacion = screen.getByText(/de 30/);
+    expect(paginacion).toHaveTextContent('Página 1 de 2');
+    expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeEnabled();
+    expect(paginacion.compareDocumentPosition(hueco) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('al limpiar la selección desaparecen la barra y el hueco', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    dosPaginas();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    expect(screen.getByTestId('bulk-bar-gap')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Quitar selección' }));
+
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+    expect(screen.queryByTestId('bulk-bar-gap')).toBeNull();
+  });
+
+  it('la selección y las acciones masivas siguen funcionando con el hueco puesto', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    dosPaginas();
+    api.patch.mockResolvedValue({});
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    expect(screen.getByText('2 seleccionado(s)')).toBeInTheDocument();
+
+    const acciones = within(screen.getByTestId('bulk-bar'));
+    await user.click(acciones.getByRole('button', { name: /^En proceso$/ }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'IN_PROGRESS' }));
+    expect(api.patch).toHaveBeenCalledWith('/api/tickets/2', { status: 'IN_PROGRESS' });
   });
 });

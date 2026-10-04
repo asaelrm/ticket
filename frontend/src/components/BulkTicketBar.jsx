@@ -5,6 +5,22 @@ import { Modal } from './ui';
 import ResolveTicketsModal from './ResolveTicketsModal';
 import Select from './Select';
 
+// La barra se ancla abajo con `fixed`, o sea fuera del flujo, así que se apoya
+// encima del final del contenido: para que no tape la última fila ni la
+// paginación hace falta un hueco a su medida en el flujo normal, y ese hueco
+// tiene que valer lo mismo que la barra en cualquier pantalla.
+//
+// Por eso el alto se declara aquí y no se deduce del contenido: las acciones
+// viven en una sola línea que se desplaza en horizontal cuando no cabe —el
+// mismo patrón que las pestañas de vistas de Bandeja y Tickets—, en lugar de
+// repartirse en varias filas. Con `flex-wrap` la barra medía una fila en
+// escritorio y tres o cuatro en móvil, y la reserva fija de la que disponían las
+// pantallas se quedaba corta justo donde la barra crecía. Este valor es 1px del
+// borde superior + el aire de los antiguos `py-3` (1.5rem) + el botón más alto
+// (2.5rem), y lo usan las dos piezas del componente —la barra y su hueco en el
+// flujo— para que midan lo mismo por construcción.
+export const BAR_HEIGHT = 'h-[65px]';
+
 // Barra de acciones en lote + sus diálogos. Es la misma pieza para la Bandeja y
 // para la pantalla general de tickets: recibe el estado de `useTicketBulk` y no
 // vuelve a decidir nada, salvo qué botón es visible según el permiso real que
@@ -12,6 +28,10 @@ import Select from './Select';
 // ticket.close).
 export default function BulkTicketBar({ bulk, canAssign, canManage, canResolve, canClose }) {
   const { selected, busy } = bulk;
+
+  // Barra y hueco van y vienen juntos, así que comparten la misma condición: sin
+  // selección no queda barra ni espacio reservado.
+  const visible = selected.size > 0;
 
   // El directorio solo se pide si quien puede asignar abre el diálogo, de modo
   // que un selector cerrado no genera peticiones que acabarían en 403.
@@ -45,46 +65,63 @@ export default function BulkTicketBar({ bulk, canAssign, canManage, canResolve, 
     <>
       {/* La barra depende de la selección, pero los diálogos no: el de resolución
           también se abre desde el menú de fila, donde no hay nada seleccionado. */}
-      {selected.size > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-4 py-3 lg:px-8">
-            <span className="text-sm font-semibold text-slate-800">{selected.size} seleccionado(s)</span>
-            <button type="button" className="btn-ghost text-sm" onClick={bulk.clearSelection}>
+      {visible && (
+        // El hueco de la barra en el flujo normal. Va después del contenido (esta
+        // pieza es el último nodo de la página) y se monta y se desmonta con la
+        // barra, así que sin selección no deja ni un píxel de espacio vacío.
+        <div data-testid="bulk-bar-gap" aria-hidden="true" className={BAR_HEIGHT} />
+      )}
+      {visible && (
+        <div
+          data-testid="bulk-bar"
+          className={`fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur ${BAR_HEIGHT}`}
+        >
+          {/* Una sola línea, sin saltos: es lo que hace que el alto sea siempre
+              `BAR_HEIGHT`. Si no cabe, se desplaza en vez de crecer, y como
+              `ml-auto` sólo consume espacio sobrante, el desborde cae a la
+              derecha, que es la dirección alcanzable con el scroll. El scrollbar
+              va oculto porque el alto está justo y en táctil no se dibuja. */}
+          <div className="mx-auto flex h-full max-w-7xl items-center gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:px-8">
+            <span className="shrink-0 text-sm font-semibold text-slate-800">{selected.size} seleccionado(s)</span>
+            <button type="button" className="btn-ghost shrink-0 text-sm" onClick={bulk.clearSelection}>
               Quitar selección
             </button>
-            <div className="ml-auto flex flex-wrap gap-2">
+            {/* `ml-auto` mantiene las acciones pegadas a la derecha cuando hay
+                sitio; al no haberlo, no empuja nada y la línea se desborda por
+                la derecha, que es la dirección en la que se puede desplazar. */}
+            <div className="ml-auto flex shrink-0 gap-2">
               {canAssign && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.bulkAssignMe}>
+                <button type="button" className="btn-secondary shrink-0" disabled={busy} onClick={bulk.bulkAssignMe}>
                   Asignarme
                 </button>
               )}
               {canAssign && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.openAssign}>
+                <button type="button" className="btn-secondary shrink-0" disabled={busy} onClick={bulk.openAssign}>
                   Asignar a…
                 </button>
               )}
               {canManage && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.bulkStatus('IN_PROGRESS')}>
+                <button type="button" className="btn-secondary shrink-0" disabled={busy} onClick={() => bulk.bulkStatus('IN_PROGRESS')}>
                   En proceso
                 </button>
               )}
               {canResolve && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.requestResolve([...selected])}>
+                <button type="button" className="btn-secondary shrink-0" disabled={busy} onClick={() => bulk.requestResolve([...selected])}>
                   Resuelto
                 </button>
               )}
               {canClose && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={() => bulk.bulkStatus('CLOSED')}>
+                <button type="button" className="btn-secondary shrink-0" disabled={busy} onClick={() => bulk.bulkStatus('CLOSED')}>
                   Cerrar
                 </button>
               )}
               {canManage && (
-                <button type="button" className="btn-secondary" disabled={busy} onClick={bulk.openPriority}>
+                <button type="button" className="btn-secondary shrink-0" disabled={busy} onClick={bulk.openPriority}>
                   Prioridad…
                 </button>
               )}
               {canManage && (
-                <button type="button" className="btn-danger" disabled={busy} onClick={bulk.openCancel}>
+                <button type="button" className="btn-danger shrink-0" disabled={busy} onClick={bulk.openCancel}>
                   Cancelar
                 </button>
               )}

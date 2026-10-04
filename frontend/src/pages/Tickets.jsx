@@ -210,7 +210,11 @@ export default function Tickets() {
   const hasAnyFilter = query.length > 0;
 
   return (
-    <div className={bulk.selected.size > 0 ? 'pb-28' : ''}>
+    // El hueco que deja la barra de acciones en lote lo pone la propia barra
+    // (`BulkTicketBar`), en el flujo y sólo mientras hay selección: aquí no hace
+    // falta reservar nada, porque un `pb-` fijo se desincronizaba del alto real
+    // de la barra y acababa tapando la última fila y la paginación.
+    <div>
       {/* Chips de filtros rápidos con contadores */}
       <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
         {visibleViews.map((v) => {

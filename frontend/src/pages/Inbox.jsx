@@ -457,7 +457,11 @@ export default function Inbox() {
   }, [hasAnyFilter, tab, clearFilters]);
 
   return (
-    <div className={bulk.selected.size > 0 ? 'pb-28' : ''}>
+    // El hueco que deja la barra de acciones en lote lo pone la propia barra
+    // (`BulkTicketBar`), en el flujo y sólo mientras hay selección: aquí no hace
+    // falta reservar nada, porque un `pb-` fijo se desincronizaba del alto real
+    // de la barra y acababa tapando la última fila y la paginación.
+    <div>
       <div className="card mb-4">
         <div className="border-b border-slate-200 px-4 py-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Vista de trabajo</p>

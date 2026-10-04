@@ -4,6 +4,7 @@ import { screen, waitFor, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Inbox from './Inbox';
 import { api } from '../lib/api';
+import { BAR_HEIGHT } from '../components/BulkTicketBar';
 import { renderWithProviders, renderWithHistory, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({
@@ -1355,9 +1356,89 @@ describe('Inbox · el botón de refrescar se explica y sigue recargando', () => 
 
     await user.click(screen.getByRole('button', { name: 'Actualizar' }));
 
-    await waitFor(() => {
+await waitFor(() => {
       const despues = api.get.mock.calls.filter(([u]) => u.startsWith('/api/tickets?')).length;
       expect(despues).toBeGreaterThan(antes);
     });
+  });
+});
+
+// La banda comparte barra con la pantalla de tickets: está anclada abajo con
+// `position: fixed` y lo único que la impedía tapar la última fila y la
+// paginación era el hueco que deja en el flujo normal, que tiene que medir lo
+// mismo que ella. jsdom no calcula geometría, así que se comprueba el contrato
+// —barra fija, acciones en una sola línea y hueco del flujo con el mismo alto
+// declarado— y no un solapamiento que el entorno no puede medir.
+describe('Inbox · la barra en lote deja hueco y no tapa el final del contenido', () => {
+  // 30 tickets en dos páginas: la paginación trae botones y es el último control
+  // del contenido, justo lo que la barra no puede cubrir.
+  function dosPaginas() {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/tickets/counters')) return Promise.resolve(COUNTERS);
+      if (url.startsWith('/api/tickets?')) {
+        return Promise.resolve(
+          listResp([row(), row({ id: 2, ticket_number: 'TCK-000002', title: 'Impresora atascada' })], 1, 2, 30)
+        );
+      }
+      if (url.startsWith('/api/categories')) return Promise.resolve({ data: [{ id: 1, name: 'Hardware' }] });
+      if (url.startsWith('/api/users/assignable')) return Promise.resolve({ data: [] });
+      return Promise.reject(new Error('404'));
+    });
+  }
+
+  it('sin selección no hay barra ni hueco reservado', async () => {
+    authState.user = FULL;
+    dosPaginas();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+    expect(screen.queryByTestId('bulk-bar-gap')).toBeNull();
+    // La reserva anterior era un `pb-28` en la raíz de la página: si volviera a
+    // aparecer junto al hueco, la pantalla reservaría el doble.
+    expect(document.querySelector('.pb-28')).toBeNull();
+  });
+
+  it('con selección aparecen la barra y un hueco de su mismo alto', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    dosPaginas();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar TCK-000001'));
+
+    const barra = screen.getByTestId('bulk-bar');
+    expect(barra).toHaveClass('fixed', 'inset-x-0', 'bottom-0', BAR_HEIGHT);
+    const hueco = screen.getByTestId('bulk-bar-gap');
+    expect(hueco).toHaveClass(BAR_HEIGHT);
+
+    // La línea no se reparte en filas, se desplaza: así el alto no depende del
+    // ancho y el hueco le sirve igual en móvil y en escritorio.
+    const fila = barra.firstElementChild;
+    expect(fila).not.toHaveClass('flex-wrap');
+    expect(fila).toHaveClass('overflow-x-auto', 'h-full');
+
+    // La paginación sigue en su sitio y el hueco va después de ella.
+    const paginacion = screen.getByText(/de 30/);
+    expect(paginacion).toHaveTextContent('Página 1 de 2');
+    expect(screen.getByRole('button', { name: 'Siguiente →' })).toBeEnabled();
+    expect(paginacion.compareDocumentPosition(hueco) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('al limpiar la selección desaparecen la barra y el hueco', async () => {
+    const user = userEvent.setup();
+    authState.user = FULL;
+    dosPaginas();
+    renderWithProviders(<Inbox />, { route: '/app/inbox' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByLabelText('Seleccionar todos los de la página'));
+    expect(screen.getByTestId('bulk-bar-gap')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Quitar selección' }));
+
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+    expect(screen.queryByTestId('bulk-bar-gap')).toBeNull();
   });
 });
