@@ -692,6 +692,7 @@ export default function Inbox() {
           currentUserId={user?.id}
           onAssignMe={assignMe}
           onStatusChange={changeStatus}
+          onClearError={clearError}
           selectable
           selected={bulk.selected}
           onToggle={bulk.toggleOne}

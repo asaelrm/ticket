@@ -556,7 +556,43 @@ it('asigna el ticket al usuario actual', async () => {
     await user.type(within(dialog).getByLabelText(/Motivo de cancelación/), 'Intento fallido');
     await user.click(within(dialog).getByRole('button', { name: 'Cancelar ticket' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Motivo rechazado');
+    // El rechazo ya no se traga en la fila, así que el diálogo sigue abierto y
+    // muestra el fallo. Y como avisa con `onClearError`, el `ErrorBox` de la
+    // página retira su copia: el mismo error queda representado una sola vez,
+    // dentro del diálogo, no detrás del modal.
+    const abierto = await screen.findByRole('dialog', { name: 'Cancelar TCK-000001' });
+    expect(within(abierto).getByRole('alert')).toHaveTextContent('Motivo rechazado');
+
+    const alertas = await screen.findAllByRole('alert');
+    expect(alertas).toHaveLength(1);
+    expect(alertas[0]).toBe(within(abierto).getByRole('alert'));
+
+    // El ticket no se dio por cancelado y el motivo escrito no se perdió: se
+    // puede reintentar sin volver a escribirlo.
+    expect(within(abierto).getByLabelText(/Motivo de cancelación/)).toHaveValue('Intento fallido');
+    expect(within(abierto).getByRole('button', { name: 'Cancelar ticket' })).toBeEnabled();
+  });
+
+  it('cerrar a mano el diálogo de cancelación descarta el error sin dejar ErrorBox detrás', async () => {
+    api.post.mockRejectedValueOnce(new Error('Motivo rechazado'));
+
+    const user = userEvent.setup();
+    renderWithProviders(<Tickets />, { route: '/app/tickets' });
+    await screen.findByText('TCK-000001');
+
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Cancelar ticket/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Cancelar TCK-000001' });
+    await user.type(within(dialog).getByLabelText(/Motivo de cancelación/), 'Intento fallido');
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar ticket' }));
+
+    await within(dialog).findByRole('alert');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Volver' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Cancelar TCK-000001' })).not.toBeInTheDocument());
+    // El mensaje era de esta operación: se va con el diálogo y no reaparece.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('exporta en CSV con los filtros actuales', async () => {

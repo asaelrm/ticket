@@ -99,7 +99,12 @@ function LastActivityCell({ ticket }) {
   );
 }
 
-function CancelTicketDialog({ ticket, onClose, onSubmit }) {
+// `onErrorShown` es opcional y lo connecta quien ya tiene el error a nivel de
+// página. Este diálogo muestra el fallo dentro de sí mismo, así que avisa para
+// que la página retire su propio `ErrorBox`: el mismo fallo no debe verse dos
+// veces a la vez, una detrás del modal y otra dentro. Si no se conecta, el
+// diálogo funciona igual y sólo cambia que el mensaje se ve también detrás.
+function CancelTicketDialog({ ticket, onClose, onSubmit, onErrorShown }) {
   const [reason, setReason] = useState('');
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState('');
@@ -118,7 +123,7 @@ function CancelTicketDialog({ ticket, onClose, onSubmit }) {
           maxLength={2000}
         />
       </label>
-      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+      {err && <p role="alert" className="mt-2 text-sm text-red-600">{err}</p>}
       <div className="mt-5 flex justify-end gap-2">
         <button className="btn-secondary" onClick={onClose} disabled={sending}>
           Volver
@@ -135,6 +140,10 @@ function CancelTicketDialog({ ticket, onClose, onSubmit }) {
             } catch (e) {
               setErr(e.message || 'No se pudo cancelar el ticket');
               setSending(false);
+              // El mensaje queda a cargo de este diálogo. Se pide a la página
+              // limpiar el suyo para que no haya dos representaciones del mismo
+              // fallo simultáneas.
+              onErrorShown?.();
             }
           }}
         >
@@ -175,6 +184,13 @@ export function TicketTable({
   // propio mensaje (no hay tickets, ni tickets asignados, ni filtros sin
   // resultado); si no se pasa, se conserva el estado vacío genérico.
   emptyState,
+  // Retira del `ErrorBox` de la página el error que el diálogo de cancelación
+  // va a mostrar por su cuenta. Es opcional: quien no lo pase (o no lo pase
+  // función) simplemente verá el mensaje en los dos sitios, como antes. No
+  // afecta a los errores de ninguna otra acción: aquí no se absorbe ni se
+  // reescribe error alguno, sólo se pide que se retire el que el diálogo va a
+  // representar por dentro.
+  onClearError,
 }) {
   const navigate = useNavigate();
   const [cancelTicket, setCancelTicket] = useState(null);
@@ -424,9 +440,17 @@ return (
       </div>
       <Pagination page={list.page} pages={list.pages} total={list.total} onChange={onPage} perPage={perPage || list.perPage} onPerPage={onPerPage} />
       {cancelTicket && (
-        // Cancelar mantiene su comportamiento previo: el diálogo se cierra y el
-        // `ErrorBox` de la pantalla explica el fallo.
-        <CancelTicketDialog ticket={cancelTicket} onClose={() => setCancelTicket(null)} onSubmit={(body) => fire(onStatusChange?.(cancelTicket, 'CANCELLED', body))} />
+        // La promesa se devuelve SIN pasar por `fire()`, igual que hace
+        // `ResolveTicketModal` dos líneas más abajo. `CancelTicketDialog` la
+        // espera en un `try/catch` para conservar el motivo escrito y explicar el
+        // fallo dentro del diálogo; si el rechazo se traga aquí, ese `catch` no
+        // entra nunca, el diálogo se cierra igual y el técnico creería haber
+        // cancelado un ticket que el servidor no tocó.
+        //
+        // `onErrorShown={onClearError}` deja el mensaje en un solo sitio: el
+        // diálogo lo muestra y la página retira su `ErrorBox`. Sin esta prop el
+        // comportamiento sería el de siempre, con el error visible en ambos.
+        <CancelTicketDialog ticket={cancelTicket} onClose={() => setCancelTicket(null)} onSubmit={(body) => onStatusChange?.(cancelTicket, 'CANCELLED', body)} onErrorShown={onClearError} />
       )}
       {resolveTicket && (
         <ResolveTicketModal

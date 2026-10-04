@@ -532,3 +532,190 @@ describe('TicketTable · resolver exige la solución', () => {
     expect(screen.getByRole('button', { name: 'Poner en espera TCK-000001' })).toBeInTheDocument();
   });
 });
+
+// Cancelar es la otra acción que abre un diálogo con su propio `try/catch`. La
+// diferencia con "Resolver" es que el `onSubmit` del diálogo se construía con
+// `fire()`, que absorbe el rechazo y devuelve `undefined`: el `catch` del
+// diálogo no llegaba a ejecutarse nunca y `onClose()` se llamaba igual, así que
+// el técnico cerraba el diálogo creyendo haber cancelado un ticket que el
+// servidor ni había tocado. Estas pruebas fijan el comportamiento correcto:
+// la promesa tiene que llegar al diálogo, igual que en `ResolveTicketModal`.
+describe('TicketTable · cancelar ticket', () => {
+  const MOTIVO = 'Duplicado de TCK-000002';
+  const FALLO = 'No se puede cancelar un ticket ya cerrado';
+
+  const enProgreso = () => [row({ status: 'IN_PROGRESS', assigned_to_id: ME })];
+
+  // La cancelación vive en el menú ⋯: es la entrada que exige `ticket.update.any`
+  // y abre el diálogo con el número del ticket en el título.
+  async function abrirDialogo(user) {
+    await user.click(screen.getByRole('button', { name: '⋯' }));
+    await user.click(await screen.findByRole('menuitem', { name: /Cancelar ticket/ }));
+    return screen.findByRole('dialog', { name: 'Cancelar TCK-000001' });
+  }
+
+  async function confirmar(user, dialog, motivo = MOTIVO) {
+    await user.type(within(dialog).getByLabelText(/Motivo de cancelación/), motivo);
+    await user.click(within(dialog).getByRole('button', { name: 'Cancelar ticket' }));
+  }
+
+  it('el menú abre el diálogo con el número y el motivo vacío, sin llamar al backend', async () => {
+    const user = userEvent.setup();
+    renderRows(enProgreso(), { onStatusChange: vi.fn() });
+
+    const dialog = await abrirDialogo(user);
+
+    expect(dialog).toBeInTheDocument();
+    // El título va entre comillas tipográficas dentro del `<b>`, así que se
+    // busca por fragmento y no por igualdad exacta.
+    expect(within(dialog).getByText(/PC no enciende/)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/Motivo de cancelación/)).toHaveValue('');
+    // Sin motivo no se puede confirmar: el backend exige `rules.required`.
+    expect(within(dialog).getByRole('button', { name: 'Cancelar ticket' })).toBeDisabled();
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('envía CANCELLED con el motivo y cierra el diálogo cuando el servidor acepta', async () => {
+    const user = userEvent.setup();
+    const onStatusChange = vi.fn().mockResolvedValue(undefined);
+    renderRows(enProgreso(), { onStatusChange });
+
+    const dialog = await abrirDialogo(user);
+    await confirmar(user, dialog);
+
+    await waitFor(() =>
+      expect(onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), 'CANCELLED', {
+        reason: MOTIVO,
+      })
+    );
+    expect(onStatusChange).toHaveBeenCalledTimes(1);
+    // Comportamiento previo intacto: éxito cierra y no de feedback de error.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Cancelar TCK-000001' })).not.toBeInTheDocument());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('mantiene el diálogo abierto y explica el fallo si el servidor rechaza', async () => {
+    const user = userEvent.setup();
+    const onStatusChange = vi.fn().mockRejectedValue(new Error(FALLO));
+    const onClearError = vi.fn();
+    renderRows(enProgreso(), { onStatusChange, onClearError });
+
+    const dialog = await abrirDialogo(user);
+    await confirmar(user, dialog);
+
+    // 1. El mensaje aparece DENTRO del diálogo, no sólo en el ErrorBox de la página.
+    const aviso = await within(dialog).findByRole('alert');
+    expect(aviso).toHaveTextContent(FALLO);
+    // 2. Aparece una sola vez: ni se duplica ni se acumula al reintentar.
+    expect(within(dialog).getAllByRole('alert')).toHaveLength(1);
+
+    // 3. El diálogo NO se cerró: sigue montado y con el motivo escrito.
+    expect(screen.getByRole('dialog', { name: 'Cancelar TCK-000001' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/Motivo de cancelación/)).toHaveValue(MOTIVO);
+
+    // 4. El ticket no cambia visualmente: sigue en proceso, no aparece "Cancelado".
+    const fila = (await screen.findByText('TCK-000001')).closest('tr');
+    expect(within(fila).getByText('En proceso')).toBeInTheDocument();
+    expect(within(fila).queryByText('Cancelado')).not.toBeInTheDocument();
+    expect(screen.queryByText('Cancelado')).not.toBeInTheDocument();
+
+    // 5. Se avisó a la página para que retire su ErrorBox: con la prop conectada
+    //    el mismo fallo no queda representado en dos sitios a la vez. Aquí la
+    //    tabla se monta sola, así que la cuenta global de avisos debe ser 1.
+    expect(onClearError).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getAllByRole('alert')[0]).toBe(aviso);
+  });
+
+  it('funciona igual sin la prop: el error se ve dentro y, además, detrás', async () => {
+    // `onClearError` es opcional: quien no la pase conserva el comportamiento
+    // anterior, con el mensaje en el diálogo y en el `ErrorBox` de la página.
+    // Comprueba que la tabla no depende de ella para funcionar.
+    const user = userEvent.setup();
+    renderRows(enProgreso(), { onStatusChange: vi.fn().mockRejectedValue(new Error(FALLO)) });
+
+    const dialog = await abrirDialogo(user);
+    await confirmar(user, dialog);
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(FALLO);
+    expect(screen.getByRole('dialog', { name: 'Cancelar TCK-000001' })).toBeInTheDocument();
+  });
+
+  it('cerrar a mano tras el fallo descarta el error sin dejar nada detrás', async () => {
+    const user = userEvent.setup();
+    const onClearError = vi.fn();
+    renderRows(enProgreso(), { onStatusChange: vi.fn().mockRejectedValue(new Error(FALLO)), onClearError });
+
+    const dialog = await abrirDialogo(user);
+    await confirmar(user, dialog);
+    await within(dialog).findByRole('alert');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Volver' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Cancelar TCK-000001' })).not.toBeInTheDocument());
+    // El mensaje pertenecía a esta operación: al cerrar el diálogo desaparece
+    // entero y no reaparece un ErrorBox global residual.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(onClearError).toHaveBeenCalledTimes(1);
+  });
+
+  it('no pide limpiar nada cuando el fallo viene de una acción fuera del diálogo', async () => {
+    // `onClearError` pertenece al contexto del diálogo de cancelar. Una acción
+    // rápida que falla sigue siendo responsabilidad del `ErrorBox` de la página
+    // y no debe pasar por este mecanismo.
+    const user = userEvent.setup();
+    const onClearError = vi.fn();
+    const onAssignMe = vi.fn().mockRejectedValue(new Error('No tiene permiso para asignar tickets'));
+    renderRows([row()], { onAssignMe, onClearError });
+
+    await user.click(await screen.findByRole('button', { name: 'Tomar ticket TCK-000001' }));
+
+    await waitFor(() => expect(onAssignMe).toHaveBeenCalledTimes(1));
+    expect(onClearError).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('deja el botón disponible para reintentar y cierra si el segundo intento sí funciona', async () => {
+    const user = userEvent.setup();
+    // El mismo motivo, dos respuestas distintas: primero 500, luego éxito.
+    const onStatusChange = vi
+      .fn()
+      .mockRejectedValueOnce(new Error(FALLO))
+      .mockResolvedValueOnce(undefined);
+    renderRows(enProgreso(), { onStatusChange });
+
+    const dialog = await abrirDialogo(user);
+    await confirmar(user, dialog);
+
+    await within(dialog).findByRole('alert');
+    const reintentar = within(dialog).getByRole('button', { name: 'Cancelar ticket' });
+    // 5. Se puede volver a pulsar: el diálogo no quedó bloqueado por el fallo.
+    await waitFor(() => expect(reintentar).toBeEnabled());
+    await user.click(reintentar);
+
+    await waitFor(() => expect(onStatusChange).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Cancelar TCK-000001' })).not.toBeInTheDocument());
+    // El aviso del intento fallido no sobrevive al cierre del diálogo.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('no traga el rechazo: el diálogo recibe la promesa, no un undefined', async () => {
+    // El fallo anterior era de contrato, no de estado: `fire()` devolvía
+    // `undefined`, así que `await onSubmit(...)` nunca podía lanzar. La única
+    // forma de vigilarlo sin montar nada es comprobar que la referencia que se
+    // entrega al diálogo es la misma promesa que produce `onStatusChange`.
+    const rechazo = Promise.reject(new Error(FALLO));
+    // Marcado como manejado desde el principio: aquí sólo se inspecciona, y una
+    // promesa rechazada sin captura se reportaría como error no controlado.
+    rechazo.catch(() => {});
+    const onStatusChange = vi.fn().mockReturnValue(rechazo);
+    const ticket = row({ status: 'IN_PROGRESS', assigned_to_id: ME });
+
+    // Equivale a la prop del JSX: `onSubmit={(body) => onStatusChange?.(...)}`.
+    const entregado = onStatusChange(ticket, 'CANCELLED', { reason: MOTIVO });
+
+    expect(entregado).toBe(rechazo);
+    expect(onStatusChange).toHaveBeenCalledWith(ticket, 'CANCELLED', { reason: MOTIVO });
+    await expect(entregado).rejects.toThrow(FALLO);
+  });
+});
