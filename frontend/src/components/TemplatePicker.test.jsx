@@ -70,6 +70,24 @@ function listResponse(list) {
   return Promise.resolve({ data: { data: list, total: list.length, page: 1, limit: 25 } });
 }
 
+// userEvent.setup() instala su propio stub de portapapeles, así que el espía se
+// define después de abrir el panel. Se guarda el descriptor original para
+// devolverlo: `navigator.clipboard` es una propiedad del prototipo en jsdom y
+// borrarla a lo bruto dejaría el resto de pruebas sin portapapeles.
+function stubClipboard(writeText) {
+  const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  return () => {
+    if (original) Object.defineProperty(navigator, 'clipboard', original);
+    else delete navigator.clipboard;
+  };
+}
+
+const selectorDialog = () => screen.queryByRole('dialog', { name: 'Respuestas rápidas' });
+// Los avisos se filtran por `data-type`: el testid es siempre "toast".
+const aviso = (tipo) => screen.queryAllByTestId('toast').find((el) => el.dataset.type === tipo) || null;
+const avisosDe = (tipo) => screen.queryAllByTestId('toast').filter((el) => el.dataset.type === tipo);
+
 beforeEach(() => {
   vi.resetAllMocks();
   api.get.mockImplementation((url) => {
@@ -310,8 +328,7 @@ describe('TemplatePicker', () => {
     // espía se define después de abrir el panel.
     const { user, onInsert } = await openPicker();
     const writeText = vi.fn().mockResolvedValue(undefined);
-    const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const restore = stubClipboard(writeText);
     try {
       await user.click(screen.getByText('Saludo inicial'));
       await user.click(screen.getByRole('button', { name: 'Copiar' }));
@@ -322,9 +339,157 @@ describe('TemplatePicker', () => {
       expect(api.post).not.toHaveBeenCalled();
       await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Respuestas rápidas' })).toBeNull());
     } finally {
-      if (original) Object.defineProperty(navigator, 'clipboard', original);
-      else delete navigator.clipboard;
+      restore();
     }
+  });
+
+  // --- Copiar: confirmar el resultado y no cerrar el panel si no se copió ---
+
+  describe('Copiar', () => {
+    it('copia el texto expandido, lo confirma y cierra el panel', async () => {
+      const { user } = await openPicker();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const restore = stubClipboard(writeText);
+      try {
+        await user.click(screen.getByText('Saludo inicial'));
+        await user.click(screen.getByRole('button', { name: 'Copiar' }));
+
+        // Recibe exactamente el texto expandido, ni el cuerpo con variables sin
+        // resolver ni otra cosa.
+        await waitFor(() => expect(writeText).toHaveBeenCalledWith('Hola Ana Ruiz, su ticket TCK-000042 está en revisión.'));
+        // Sin este aviso no había forma de saber si el portapapeles había
+        // guardado algo: la copia era silenciosa.
+        await waitFor(() => expect(aviso('success')).not.toBeNull());
+        const ok = aviso('success');
+        expect(ok).toHaveTextContent('Plantilla copiada');
+        await waitFor(() => expect(selectorDialog()).toBeNull());
+        expect(aviso('error')).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it('avisa del fallo, deja el panel abierto y permite reintentar', async () => {
+      const { user } = await openPicker();
+      const writeText = vi.fn().mockRejectedValue(new Error('NotAllowedError'));
+      const restore = stubClipboard(writeText);
+      try {
+        await user.click(screen.getByText('Saludo inicial'));
+        await user.click(screen.getByRole('button', { name: 'Copiar' }));
+
+        await waitFor(() => expect(aviso('error')).not.toBeNull());
+        const ko = aviso('error');
+        expect(ko).toHaveTextContent('No se pudo copiar la plantilla. Inténtelo de nuevo.');
+        // El panel se queda abierto: si se cerrara, el fallo quedaría sin ver y
+        // sin forma de reintentar.
+        expect(selectorDialog()).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Copiar' })).toBeEnabled();
+        expect(aviso('success')).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it('sin Clipboard API avisa del fallo y conserva el panel, sin romperse', async () => {
+      const { user } = await openPicker();
+      const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      delete navigator.clipboard;
+      try {
+        expect(navigator.clipboard).toBeUndefined();
+        await user.click(screen.getByText('Saludo inicial'));
+        await user.click(screen.getByRole('button', { name: 'Copiar' }));
+
+        await waitFor(() => expect(aviso('error')).not.toBeNull());
+        const ko = aviso('error');
+        expect(ko).toHaveTextContent('No se pudo copiar la plantilla. Inténtelo de nuevo.');
+        expect(selectorDialog()).toBeInTheDocument();
+        expect(aviso('success')).toBeNull();
+      } finally {
+        if (original) Object.defineProperty(navigator, 'clipboard', original);
+      }
+    });
+
+    it('reintentar tras un fallo copia, confirma y cierra', async () => {
+      const { user } = await openPicker();
+      const writeText = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('NotAllowedError'))
+        .mockResolvedValueOnce(undefined);
+      const restore = stubClipboard(writeText);
+      try {
+        await user.click(screen.getByText('Saludo inicial'));
+
+        await user.click(screen.getByRole('button', { name: 'Copiar' }));
+        await waitFor(() => expect(aviso('error')).not.toBeNull());
+        const ko = aviso('error');
+        expect(ko).toHaveTextContent('No se pudo copiar la plantilla. Inténtelo de nuevo.');
+        expect(selectorDialog()).toBeInTheDocument();
+
+        // Segundo intento desde el mismo panel, sin reabrir nada.
+        await user.click(screen.getByRole('button', { name: 'Copiar' }));
+
+        await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+        expect(writeText.mock.calls[1][0]).toBe('Hola Ana Ruiz, su ticket TCK-000042 está en revisión.');
+        await waitFor(() => expect(aviso('success')).not.toBeNull());
+        const ok = aviso('success');
+        expect(ok).toHaveTextContent('Plantilla copiada');
+        await waitFor(() => expect(selectorDialog()).toBeNull());
+        // No se apila un error y un éxito del mismo intento: cada aviso es del
+        // suyo.
+        expect(avisosDe('error')).toHaveLength(1);
+        expect(avisosDe('success')).toHaveLength(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it('no copia nada ni avisa si el texto expandido supera el máximo', async () => {
+      api.get.mockImplementation(() =>
+        listResponse([
+          { id: 10, title: 'Enorme', body: 'a'.repeat(2000) + ' {{ticket_title}} ' + 'b'.repeat(1990), scope: 'GLOBAL', is_active: 1, use_count: 0 },
+        ])
+      );
+      const { user } = await openPicker();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const restore = stubClipboard(writeText);
+      try {
+        expect(await screen.findByText(/supera el máximo de 4000/)).toBeInTheDocument();
+        await user.click(screen.getByRole('button', { name: 'Copiar' }));
+
+        expect(writeText).not.toHaveBeenCalled();
+        expect(selectorDialog()).toBeInTheDocument();
+        expect(screen.queryByTestId('toast')).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it('Insertar y Reemplazar no pasan por el portapapeles', async () => {
+      const { user, onInsert } = await openPicker();
+      // Portapapeles roto: si alguna de las dos acciones lo tocara, fallaría.
+      const restore = stubClipboard(vi.fn().mockRejectedValue(new Error('NotAllowedError')));
+      try {
+        await user.click(screen.getByText('Saludo inicial'));
+        await user.click(screen.getByRole('button', { name: 'Insertar' }));
+
+        expect(onInsert).toHaveBeenCalledTimes(1);
+        expect(onInsert.mock.calls[0][0]).toEqual({
+          text: 'Hola Ana Ruiz, su ticket TCK-000042 está en revisión.',
+          template: TEMPLATES[0],
+          mode: 'cursor',
+        });
+        await waitFor(() => expect(selectorDialog()).toBeNull());
+        expect(screen.queryByTestId('toast')).toBeNull();
+
+        await openPickerAgain(user);
+        await user.click(screen.getByRole('button', { name: 'Reemplazar todo' }));
+        expect(onInsert).toHaveBeenCalledTimes(2);
+        expect(onInsert.mock.calls[1][0].mode).toBe('replace');
+        expect(screen.queryByTestId('toast')).toBeNull();
+      } finally {
+        restore();
+      }
+    });
   });
 
   it('solo consulta el endpoint visible: nunca /manage ni /mine', async () => {

@@ -5,8 +5,15 @@ import { api } from '../lib/api';
 import { renderMessage } from '../lib/markdown';
 import { extractVariables, expandTemplate, MAX_COMMENT_LENGTH } from '../lib/templateVars';
 import { Spinner, EmptyState, ErrorBox } from './ui';
+import { useToast } from './Toast';
 
 const SCOPE_LABEL = { GLOBAL: 'Global', PERSONAL: 'Personal', TEAM: 'Equipo' };
+
+const COPIADO = 'Plantilla copiada';
+// Un aviso por motivo: no se distingue entre «no existe Clipboard API» y «el
+// navegador la rechazó» porque para quien está copiando es el mismo problema y
+// la solución es la misma (volver a pulsar Copiar).
+const NO_COPIADO = 'No se pudo copiar la plantilla. Inténtelo de nuevo.';
 
 function scopeBadge(t) {
   if (t.scope === 'TEAM') return `Equipo: ${t.team_name || '—'}`;
@@ -26,8 +33,10 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
   const [debounced, setDebounced] = useState('');
   const [highlight, setHighlight] = useState(0);
   const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [copiando, setCopiando] = useState(false);
   const buttonRef = useRef(null);
   const panelRef = useRef(null);
+  const toast = useToast();
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 150);
@@ -118,14 +127,33 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
     close();
   }
 
+  // Copiar no es insertar: no toca el comentario ni su contador, solo el
+  // portapapeles. Antes el fallo se tragaba con un `catch` vacío y el panel se
+  // cerraba igual, así que quien copiaba veía cómo se le cerraba el selector sin
+  // saber si el texto había llegado al portapapeles o no. Ahora solo se cierra si
+  // la copia ocurrió, y el fallo se avisa y se puede reintentar sin reabrir nada.
+  //
+  // Sin Clipboard API no se recurre a `document.execCommand`: es una API obsoleta
+  // que además exige un `document.execCommand('copy')` desde un evento del
+  // usuario, así que aquí solo se informa del problema.
   async function copy() {
-    if (!current || !expansion || tooLong) return;
-    try {
-      await navigator.clipboard?.writeText(expansion.text);
-    } catch {
-      /* el portapapeles puede estar bloqueado: no es crítico */
+    if (!current || !expansion || tooLong || copiando) return;
+    const writeText = navigator.clipboard?.writeText;
+    if (typeof writeText !== 'function') {
+      toast.error(NO_COPIADO);
+      return;
     }
-    close();
+    setCopiando(true);
+    try {
+      await navigator.clipboard.writeText(expansion.text);
+      toast.success(COPIADO);
+      close();
+    } catch {
+      // El panel sigue abierto: no se finge una copia que no ocurrió.
+      toast.error(NO_COPIADO);
+    } finally {
+      setCopiando(false);
+    }
   }
 
   function onPanelKeyDown(e) {
@@ -265,8 +293,8 @@ export default function TemplatePicker({ context, onInsert, onManagePersonal, on
                   </p>
                 )}
                 <div className="mt-2 flex flex-wrap justify-end gap-2">
-                  <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={copy} disabled={tooLong}>
-                    Copiar
+                  <button type="button" className="btn-ghost !px-2 !py-1 text-xs" onClick={copy} disabled={tooLong || copiando}>
+                    {copiando ? 'Copiando…' : 'Copiar'}
                   </button>
                   <button type="button" className="btn-secondary !px-2 !py-1 text-xs" onClick={() => insert('replace')} disabled={tooLong}>
                     Reemplazar todo
