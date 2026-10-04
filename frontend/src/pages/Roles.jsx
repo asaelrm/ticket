@@ -34,7 +34,12 @@ export default function Roles() {
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
 
-  const { data } = useQuery({
+  // `error` y `refetch` cierran el caso "la consulta falló": `data` sólo existe
+  // si el PromiseAll tuvo éxito, así que un 500 en cualquiera de las dos
+  // peticiones dejaba el `LoadingScreen` de abajo girando para siempre, sin
+  // decir nada. El `refetch` es el de la propia consulta: mismo patrón que
+  // TicketDetail, sin infraestructura nueva y sin Toast.
+  const { data, error: queryError, refetch: reload } = useQuery({
     queryKey: ['roles'],
     queryFn: () =>
       Promise.all([api.get('/api/roles'), api.get('/api/roles/permissions')]).then(([roles, perms]) => ({
@@ -51,7 +56,23 @@ export default function Roles() {
     },
   });
 
-  if (!data) return <LoadingScreen text="Cargando roles…" />;
+  // Se pregunta por el error antes que por la carga: sin esta rama, `!data`
+  // significaba lo mismo para "todavía no ha llegado" y para "no llegó nunca",
+  // y la pantalla de carga se quedaba para siempre. El error de las mutaciones
+  // de permisos que se muestra más abajo sigue siendo un estado aparte.
+  if (!data) {
+    if (queryError) {
+      return (
+        <div className="space-y-4">
+          <ErrorBox message={queryError.message || 'No se pudieron cargar los roles'} />
+          <button type="button" className="btn-secondary" onClick={() => reload()}>
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return <LoadingScreen text="Cargando roles…" />;
+  }
 
   function togglePerm(role, code) {
     setError('');

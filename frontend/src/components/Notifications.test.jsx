@@ -140,4 +140,114 @@ describe('Notifications', () => {
     hasEventSource.unmount();
     expect(es.close).toHaveBeenCalled();
   });
+
+  // El panel distingue los cuatro estados: cargando, error, vacío real y lista.
+  // Antes `!items` era la única condición, así que un fallo se quedaba en
+  // "Cargando…" indefinidamente y no había forma de saber qué había pasado.
+  describe('estados de la lista del panel', () => {
+    async function abrirPanel(user) {
+      renderWithProviders(<Notifications />);
+      await screen.findByTitle('Notificaciones');
+      await user.click(screen.getByTitle('Notificaciones'));
+      return screen.findByRole('dialog', { name: 'Notificaciones' });
+    }
+
+    it('muestra el indicador de carga mientras la petición sigue en curso', async () => {
+      const user = userEvent.setup();
+      api.get.mockImplementation((url) => {
+        if (url === '/api/notifications/unread-count') return Promise.resolve({ unread: 3 });
+        if (url === '/api/notifications') return new Promise(() => {});
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+
+      const dialog = await abrirPanel(user);
+
+      expect(await within(dialog).findByText(/Cargando…/)).toBeInTheDocument();
+      expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('muestra un mensaje de error si la petición falla, sin quedarse en "Cargando…"', async () => {
+      const user = userEvent.setup();
+      api.get.mockImplementation((url) => {
+        if (url === '/api/notifications/unread-count') return Promise.resolve({ unread: 3 });
+        if (url === '/api/notifications') return Promise.reject(new Error('Error 500'));
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+
+      const dialog = await abrirPanel(user);
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent('Error 500');
+      expect(within(dialog).queryByText(/Cargando…/)).not.toBeInTheDocument();
+      expect(within(dialog).queryByText('Sin notificaciones')).not.toBeInTheDocument();
+    });
+
+    it('mantiene el panel utilizable y cerrable cuando la carga falla', async () => {
+      const user = userEvent.setup();
+      api.get.mockImplementation((url) => {
+        if (url === '/api/notifications/unread-count') return Promise.resolve({ unread: 3 });
+        if (url === '/api/notifications') return Promise.reject(new Error('Error 500'));
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+
+      const dialog = await abrirPanel(user);
+      await within(dialog).findByRole('alert');
+
+      // La cabecera sobrevive al error: sigue habiendo contador y "marcar todas".
+      expect(within(dialog).getByRole('button', { name: 'Marcar todas leídas' })).toBeInTheDocument();
+      expect(screen.getByTitle('Notificaciones')).toHaveAttribute('aria-expanded', 'true');
+
+      await user.keyboard('{Escape}');
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Notificaciones' })).not.toBeInTheDocument());
+      expect(screen.getByTitle('Notificaciones')).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('recupera la lista al pulsar Reintentar', async () => {
+      const user = userEvent.setup();
+      let caido = true;
+      api.get.mockImplementation((url) => {
+        if (url === '/api/notifications/unread-count') return Promise.resolve({ unread: 3 });
+        if (url === '/api/notifications' && caido) return Promise.reject(new Error('Error 500'));
+        if (url === '/api/notifications') return Promise.resolve({ data: [notif()] });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+
+      const dialog = await abrirPanel(user);
+      await within(dialog).findByRole('alert');
+
+      caido = false;
+      await user.click(within(dialog).getByRole('button', { name: 'Reintentar' }));
+
+      expect(await within(dialog).findByText('Nuevo comentario')).toBeInTheDocument();
+      expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('distingue la respuesta vacía correcta de un error', async () => {
+      const user = userEvent.setup();
+      api.get.mockImplementation((url) => {
+        if (url === '/api/notifications/unread-count') return Promise.resolve({ unread: 0 });
+        if (url === '/api/notifications') return Promise.resolve({ data: [] });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+
+      const dialog = await abrirPanel(user);
+
+      expect(await within(dialog).findByText('Sin notificaciones')).toBeInTheDocument();
+      expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+      expect(within(dialog).queryByText(/Cargando…/)).not.toBeInTheDocument();
+      // Sin no leídas no hay contador ni botón de marcar todas.
+      expect(screen.getByTitle('Notificaciones')).not.toHaveTextContent('0');
+      expect(within(dialog).queryByRole('button', { name: 'Marcar todas leídas' })).not.toBeInTheDocument();
+    });
+
+    it('sigue marcando como leída con la lista válida', async () => {
+      const user = userEvent.setup();
+      const dialog = await abrirPanel(user);
+
+      await user.click(await within(dialog).findByRole('button', { name: /Nuevo comentario/ }));
+
+      await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/notifications/read', { ids: [1] }));
+      await waitFor(() => expect(screen.getByTitle('Notificaciones')).toHaveTextContent('2'));
+    });
+  });
 });

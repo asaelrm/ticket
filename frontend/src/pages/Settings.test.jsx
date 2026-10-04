@@ -256,6 +256,164 @@ describe('Settings', () => {
     renderWithProviders(<Settings />, { route: '/app/settings' });
 
     expect(await screen.findByText('Todavía no se han enviado correos.')).toBeInTheDocument();
+    // La respuesta fue exitosa: aquí sí es un estado vacío real, no un fallo
+    // disfrazado de lista sin correos.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('últimos 0')).toBeInTheDocument();
+  });
+
+  // Un 500 en la configuración principal no puede dejar la pantalla de carga
+  // girando: `form` nunca se rellena, así que antes no había nada que mostrar
+  // y el `LoadingScreen` se quedaba para siempre.
+  describe('si falla la carga de la configuración', () => {
+    function soloFallaSettings() {
+      api.get.mockImplementation((url) => {
+        if (url === '/api/settings') return Promise.reject(new Error('Error 500'));
+        if (url === '/api/settings/mail') return Promise.resolve({ data: MAIL });
+        if (url === '/api/settings/emails') return Promise.resolve({ data: [] });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+    }
+
+    it('muestra el error de la API en lugar del loading infinito', async () => {
+      soloFallaSettings();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Error 500');
+      expect(screen.queryByText('Cargando configuración…')).not.toBeInTheDocument();
+      // El formulario no se monta: no se pueden guardar ajustes que no se han leído.
+      expect(screen.queryByText('Configuración del sistema')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Guardar configuración' })).not.toBeInTheDocument();
+    });
+
+    it('vuelve a pedir la configuración al pulsar Reintentar', async () => {
+      const user = userEvent.setup();
+      soloFallaSettings();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByRole('alert');
+
+      // La segunda respuesta ya es correcta: el formulario aparece sin recargar.
+      api.get.mockImplementation((url) => {
+        if (url === '/api/settings') return Promise.resolve({ data: SETTINGS });
+        if (url === '/api/settings/mail') return Promise.resolve({ data: MAIL });
+        if (url === '/api/settings/emails') return Promise.resolve({ data: [] });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+      await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+
+      expect(await screen.findByText('Configuración del sistema')).toBeInTheDocument();
+      expect(fieldFor('Nombre del sistema', 'input')).toHaveValue('Ticket');
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('si falla la consulta del estado del correo', () => {
+    function fallaSoloMail() {
+      api.get.mockImplementation((url) => {
+        if (url === '/api/settings') return Promise.resolve({ data: SETTINGS });
+        if (url === '/api/settings/mail') return Promise.reject(new Error('Error 500'));
+        if (url === '/api/settings/emails') return Promise.resolve({ data: [] });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+    }
+
+    it('muestra un error contextual y no un "Consultando…" eterno', async () => {
+      fallaSoloMail();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByText('Configuración del sistema');
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Error 500');
+      await waitFor(() => expect(screen.queryByText('Consultando estado del correo…')).not.toBeInTheDocument());
+    });
+
+    it('no afirma ningún estado SMTP que no conoce', async () => {
+      fallaSoloMail();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByRole('alert');
+
+      // Ni "activo" ni "modo desarrollo": la consulta no devolvió nada.
+      expect(screen.queryByText('Correo SMTP activo')).not.toBeInTheDocument();
+      expect(screen.queryByText('Modo desarrollo')).not.toBeInTheDocument();
+      expect(screen.queryByText(/smtp\.acme\.com:587/)).not.toBeInTheDocument();
+    });
+
+    it('mantiene editable el resto de la configuración', async () => {
+      fallaSoloMail();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByRole('alert');
+
+      // Un fallo informativo de correo no puede dejar la pantalla inútil.
+      expect(screen.getByRole('button', { name: 'Guardar configuración' })).toBeEnabled();
+      expect(fieldFor('Nombre del sistema', 'input')).toHaveValue('Ticket');
+    });
+  });
+
+  describe('si falla la consulta de los correos recientes', () => {
+    function fallaSoloEmails() {
+      api.get.mockImplementation((url) => {
+        if (url === '/api/settings') return Promise.resolve({ data: SETTINGS });
+        if (url === '/api/settings/mail') return Promise.resolve({ data: MAIL });
+        if (url === '/api/settings/emails') return Promise.reject(new Error('Error 500'));
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+    }
+
+    it('muestra un error contextual en la sección de correos', async () => {
+      fallaSoloEmails();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByText('Configuración del sistema');
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Error 500');
+      // La sección sigue estando, incluido su título.
+      expect(screen.getByText('Correos recientes')).toBeInTheDocument();
+    });
+
+    it('no afirma que la bitácora esté vacía', async () => {
+      fallaSoloEmails();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByRole('alert');
+
+      // El requisito: ese texto es sólo para una respuesta exitosa y vacía.
+      expect(screen.queryByText('Todavía no se han enviado correos.')).not.toBeInTheDocument();
+      expect(screen.queryByText('Consultando correos recientes…')).not.toBeInTheDocument();
+      expect(screen.queryByText('últimos 0')).not.toBeInTheDocument();
+    });
+
+    it('deja ver el estado del correo, que es otra consulta', async () => {
+      fallaSoloEmails();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByRole('alert');
+
+      expect(screen.getByText('Correo SMTP activo')).toBeInTheDocument();
+    });
+  });
+
+  describe('mientras las consultas de correo siguen en curso', () => {
+    it('no presenta el estado vacío antes de saber si hay correos', async () => {
+      // Las dos consultas de correo no resuelven nunca: la configuración sí.
+      api.get.mockImplementation((url) => {
+        if (url === '/api/settings') return Promise.resolve({ data: SETTINGS });
+        if (url === '/api/settings/mail') return new Promise(() => {});
+        if (url === '/api/settings/emails') return new Promise(() => {});
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByText('Configuración del sistema');
+
+      expect(screen.getByText('Consultando estado del correo…')).toBeInTheDocument();
+      expect(screen.getByText('Consultando correos recientes…')).toBeInTheDocument();
+      expect(screen.queryByText('Todavía no se han enviado correos.')).not.toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
   });
 
   it('sincroniza la caché de ["settings"] con la respuesta del servidor al guardar', async () => {

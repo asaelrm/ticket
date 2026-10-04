@@ -73,6 +73,81 @@ describe('Roles', () => {
     expect(screen.getByText('Cargando roles…')).toBeInTheDocument();
   });
 
+  // `data` sólo se rellena si el Promise.all resuelve: un 500 en cualquiera de
+  // las dos peticiones dejaba el `LoadingScreen` girando para siempre.
+  describe('si falla la carga de los roles', () => {
+    function fallaPorUrl(roto) {
+      api.get.mockImplementation((url) => {
+        if (url === roto) return Promise.reject(new Error('Error 500'));
+        if (url === '/api/roles') return Promise.resolve({ roles: ROLES });
+        if (url === '/api/roles/permissions') return Promise.resolve({ permissions: PERMS });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+    }
+
+    it.each(['/api/roles', '/api/roles/permissions'])(
+      'muestra un ErrorBox y no el loading infinito cuando falla %s',
+      async (roto) => {
+        fallaPorUrl(roto);
+
+        renderWithProviders(<Roles />, { route: '/app/roles' });
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Error 500');
+        expect(screen.queryByText('Cargando roles…')).not.toBeInTheDocument();
+        // Sin datos no se pintan tarjetas de roles ni controles de permisos.
+        expect(screen.queryByText('Administrador')).not.toBeInTheDocument();
+        expect(screen.queryByText('Empleado')).not.toBeInTheDocument();
+        expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      }
+    );
+
+    it('vuelve a pedir los roles al pulsar Reintentar', async () => {
+      const user = userEvent.setup();
+      fallaPorUrl('/api/roles');
+
+      renderWithProviders(<Roles />, { route: '/app/roles' });
+      await screen.findByRole('alert');
+
+      api.get.mockImplementation((url) => {
+        if (url === '/api/roles') return Promise.resolve({ roles: ROLES });
+        if (url === '/api/roles/permissions') return Promise.resolve({ permissions: PERMS });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+      await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+
+      expect(await screen.findByText('Empleado')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('sigue permitiendo cambiar permisos una vez recuperada la carga', async () => {
+      const user = userEvent.setup();
+      let caido = true;
+      api.get.mockImplementation((url) => {
+        if (url === '/api/roles' && caido) return Promise.reject(new Error('Error 500'));
+        if (url === '/api/roles') return Promise.resolve({ roles: ROLES });
+        if (url === '/api/roles/permissions') return Promise.resolve({ permissions: PERMS });
+        return Promise.reject(new Error(`404 ${url}`));
+      });
+
+      renderWithProviders(<Roles />, { route: '/app/roles' });
+      await screen.findByRole('alert');
+
+      caido = false;
+      await user.click(screen.getByRole('button', { name: 'Reintentar' }));
+      await screen.findByText('Empleado');
+
+      // El manejo de mutaciones no se ha tocado: el toggle sigue funcionando.
+      await user.click(within(cardFor('Empleado')).getByRole('checkbox', { name: 'Asignar tickets' }));
+
+      await waitFor(() =>
+        expect(api.patch).toHaveBeenCalledWith(
+          '/api/roles/2/permissions',
+          expect.objectContaining({ permissions: expect.arrayContaining(['ticket.assign']) })
+        )
+      );
+    });
+  });
+
   it('muestra los roles y la agrupación de permisos', async () => {
     renderWithProviders(<Roles />, { route: '/app/roles' });
 

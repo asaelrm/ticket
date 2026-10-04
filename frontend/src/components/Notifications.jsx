@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, formatRelative } from '../lib/api';
 import { notifyTicketEvent } from '../lib/ticketEvents';
-import { Spinner } from './ui';
+import { ErrorBox, Spinner } from './ui';
 
 const TYPE_ICON = {
   NEW_TICKET: '🆕',
@@ -29,7 +29,11 @@ export default function Notifications() {
   const panelRef = useRef(null);
   const navigate = useNavigate();
 
-  const { data: items } = useQuery({
+  // Sin `error` ni valor por defecto, `!items` sólo era cierto mientras cargaba:
+  // si la petición fallaba el panel se quedaba en "Cargando…" para siempre y el
+  // usuario no tenía forma de distinguirlo de una lista que no terminaba de
+  // llegar. El contador de no leídas es otra consulta y no se toca.
+  const { data: items, error: itemsError, refetch: reloadItems } = useQuery({
     queryKey: ['notifications'],
     queryFn: () => api.get('/api/notifications').then((d) => d.data || []),
     enabled: open,
@@ -159,7 +163,21 @@ export default function Notifications() {
             )}
           </div>
           <div className="flex-1 overflow-y-auto">
-            {!items ? (
+            {itemsError ? (
+              // El error va dentro del panel para que siga siendo usable y
+              // cerrable: la cabecera, "Marcar todas leídas" y el cierre por
+              // clic fuera o Escape no dependen de que la lista haya cargado.
+              <div className="px-4 py-8">
+                <ErrorBox message={itemsError.message || 'No se pudieron cargar las notificaciones'} />
+                <button
+                  type="button"
+                  onClick={() => reloadItems()}
+                  className="mt-3 text-xs font-medium text-brand-600 hover:underline"
+                >
+                  Reintentar
+                </button>
+              </div>
+            ) : !items ? (
               <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-400">
                 <Spinner className="h-4 w-4 text-brand-600" /> Cargando…
               </div>

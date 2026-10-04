@@ -13,7 +13,10 @@ export default function Settings() {
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const { data: settingsData } = useQuery({
+  // `error` y `refetch` no son decorativos: sin ellos la pantalla no puede
+  // distinguir "todavía no ha llegado" de "no va a llegar nunca", y un 500 en
+  // esta petición dejaba el `LoadingScreen` de abajo indefinidamente.
+  const { data: settingsData, error: settingsError, refetch: reloadSettings } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.get('/api/settings').then((d) => normalize(d.data)),
   });
@@ -23,13 +26,19 @@ export default function Settings() {
     if (settingsData) setForm(settingsData);
   }, [settingsData]);
 
-  const { data: mail = null } = useQuery({
+  // Las dos consultas de correo son informativas: un fallo aquí no puede tumbar
+  // el formulario (que ya se está editando), así que cada sección decide por
+  // separado qué mostrar. Se quitan los valores por defecto a propósito: con
+  // `mail = null` y `emails = []` un fallo y una carga eran indistinguibles de
+  // "todavía no hay correos", y `MailStatus`/`EmailLog` no tenían forma de saber
+  // si ese `[]` era una respuesta real.
+  const { data: mail, isPending: mailPending, error: mailError } = useQuery({
     queryKey: ['settings-mail'],
     queryFn: () => api.get('/api/settings/mail').then((d) => d.data || {}),
     retry: false,
   });
 
-  const { data: emails = [] } = useQuery({
+  const { data: emails, isPending: emailsPending, error: emailsError } = useQuery({
     queryKey: ['settings-emails'],
     queryFn: () => api.get('/api/settings/emails').then((d) => d.data || []),
     retry: false,
@@ -65,7 +74,24 @@ export default function Settings() {
     onSettled: () => setSaving(false),
   });
 
-  if (!form) return <LoadingScreen text="Cargando configuración…" />;
+  // El error se mira antes que la carga y sólo mientras no haya datos: si el
+  // formulario ya está en pantalla, un fallo posterior (p. ej. al revalidar en
+  // segundo plano) no debe tirar lo que el usuario está escribiendo. El botón
+  // usa el `refetch` de la propia consulta, el mismo patrón que ya usa
+  // TicketDetail; no se añade ninguna infraestructura nueva.
+  if (!form) {
+    if (settingsError) {
+      return (
+        <div className="mx-auto max-w-2xl">
+          <ErrorBox message={settingsError.message || 'No se pudo cargar la configuración'} />
+          <button type="button" className="btn-secondary mt-4" onClick={() => reloadSettings()}>
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return <LoadingScreen text="Cargando configuración…" />;
+  }
 
   function set(key, value) {
     setForm({ ...form, [key]: value });
@@ -189,8 +215,8 @@ export default function Settings() {
                 onChange={(v) => set('notify_on_resolve', v)}
               />
             </div>
-            <MailStatus mail={mail} />
-            <EmailLog emails={emails} />
+            <MailStatus mail={mail} pending={mailPending} error={mailError} />
+            <EmailLog emails={emails} pending={emailsPending} error={emailsError} />
           </div>
 
           <div className="border-t border-slate-200 pt-5">
@@ -368,8 +394,19 @@ const ESCALATION_PRIORITY_OPTIONS = [
   { value: 'CRITICAL', label: 'Crítica' },
 ];
 
-function MailStatus({ mail }) {
-  if (!mail) return (
+function MailStatus({ mail, pending, error }) {
+  // Sin `mail` no se puede afirmar nada del SMTP. Antes, un fallo de
+  // `/api/settings/mail` dejaba "Consultando estado del correo…" para siempre:
+  // aparentaba una consulta en curso y, con suerte, un correo que funcionaba.
+  // Ahora el fallo se dice en su sitio y no se inventa ningún estado.
+  if (error) {
+    return (
+      <div className="mt-4">
+        <ErrorBox message={error.message || 'No se pudo consultar el estado del correo'} />
+      </div>
+    );
+  }
+  if (pending || !mail) return (
     <p className="mt-4 text-xs text-slate-400">Consultando estado del correo…</p>
   );
   const classes = mail.useSmtp
@@ -397,15 +434,23 @@ function MailStatus({ mail }) {
   );
 }
 
-function EmailLog({ emails }) {
-  const rows = emails.slice(0, 15);
+function EmailLog({ emails, pending, error }) {
+  const rows = (emails || []).slice(0, 15);
   return (
     <div className="mt-5">
       <div className="mb-2 flex items-center justify-between">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Correos recientes</h4>
-        <span className="text-xs text-slate-400">últimos {rows.length}</span>
+        {/* El contador sólo se afirma con datos: durante la carga o tras un fallo,
+            "últimos 0" daría a entender una bitácora vacía que nadie consultó. */}
+        {!pending && !error && <span className="text-xs text-slate-400">últimos {rows.length}</span>}
       </div>
-      {rows.length === 0 ? (
+      {error ? (
+        <ErrorBox message={error.message || 'No se pudo consultar el registro de correos'} />
+      ) : pending ? (
+        <p className="rounded-lg border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-400">
+          Consultando correos recientes…
+        </p>
+      ) : rows.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-400">
           Todavía no se han enviado correos.
         </p>
