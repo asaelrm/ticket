@@ -107,3 +107,67 @@ integration('MSSQL DEV transactionAsync departments', { timeout: 30_000 }, async
     }
   }
 });
+
+integration('MSSQL DEV transactionAsync role_permissions B8', { timeout: 30_000 }, async () => {
+  const contract = createMssqlContract(integrationConfig());
+  const roleCode = 'B8_TARGET_ROLE';
+  const initialCodes = ['b8.permission.alpha', 'b8.permission.beta'];
+  const gammaCode = 'b8.permission.gamma';
+
+  async function associationCodes(client) {
+    const rows = await client.queryMany(
+      `SELECT p.code
+       FROM dbo.role_permissions AS rp
+       JOIN dbo.roles AS r ON r.id = rp.role_id
+       JOIN dbo.permissions AS p ON p.id = rp.permission_id
+       WHERE r.code = @roleCode
+       ORDER BY p.code`,
+      { roleCode },
+    );
+    return rows.map((row) => row.code);
+  }
+
+  async function replaceWith(client, codes) {
+    const role = await client.queryOne('SELECT id FROM dbo.roles WHERE code = @roleCode', { roleCode });
+    assert.ok(role, 'B8_TARGET_ROLE debe existir antes de la integración');
+    await client.execute('DELETE FROM dbo.role_permissions WHERE role_id = @roleId', { roleId: role.id });
+    for (const code of codes) {
+      const permission = await client.queryOne('SELECT id FROM dbo.permissions WHERE code = @code', { code });
+      assert.ok(permission, `El permiso sintético ${code} debe existir`);
+      await client.execute(
+        'INSERT INTO dbo.role_permissions (role_id, permission_id) VALUES (@roleId, @permissionId)',
+        { roleId: role.id, permissionId: permission.id },
+      );
+    }
+    return role.id;
+  }
+
+  try {
+    assert.deepEqual(await associationCodes(contract), initialCodes);
+
+    await contract.transactionAsync(async (tx) => {
+      await replaceWith(tx, [gammaCode]);
+    });
+    assert.deepEqual(await associationCodes(contract), [gammaCode]);
+
+    await contract.transactionAsync(async (tx) => {
+      await replaceWith(tx, initialCodes);
+    });
+    assert.deepEqual(await associationCodes(contract), initialCodes);
+
+    await assert.rejects(
+      contract.transactionAsync(async (tx) => {
+        const roleId = await replaceWith(tx, [gammaCode]);
+        const gamma = await tx.queryOne('SELECT id FROM dbo.permissions WHERE code = @code', { code: gammaCode });
+        await tx.execute(
+          'INSERT INTO dbo.role_permissions (role_id, permission_id) VALUES (@roleId, @permissionId)',
+          { roleId, permissionId: gamma.id },
+        );
+      }),
+      /PK_role_permissions|duplicate|PRIMARY KEY/i,
+    );
+    assert.deepEqual(await associationCodes(contract), initialCodes);
+  } finally {
+    await contract.close();
+  }
+});
