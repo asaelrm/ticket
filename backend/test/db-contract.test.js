@@ -12,13 +12,24 @@ import { createSqliteDatabase, createSqliteContract } from '../src/db/sqlite.js'
 // nuevo en un directorio temporal que se borra al terminar.
 
 let dir;
+let dbFile;
 let db;
 let contract;
+let transactionConnections;
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-contrato-'));
-  db = createSqliteDatabase(path.join(dir, 'contrato.db'));
-  contract = createSqliteContract(db);
+  dbFile = path.join(dir, 'contrato.db');
+  db = createSqliteDatabase(dbFile);
+  transactionConnections = [];
+  contract = createSqliteContract(db, {
+    databasePath: dbFile,
+    openDatabase(file) {
+      const connection = createSqliteDatabase(file);
+      transactionConnections.push(connection);
+      return connection;
+    },
+  });
   db.exec(`
     CREATE TABLE usuarios (
       id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,6 +37,59 @@ beforeEach(() => {
       nota  TEXT
     )
   `);
+});
+
+describe('contrato SQLite · transactionAsync', () => {
+  it('usa conexión dedicada, confirma varias operaciones y devuelve el valor del callback', async () => {
+    const result = await contract.transactionAsync(async (tx) => {
+      assert.deepEqual(Object.keys(tx).sort(), ['execute', 'insertAndGetId', 'queryMany', 'queryOne']);
+      const inserted = await tx.insertAndGetId(
+        'INSERT INTO usuarios(email, nota) VALUES(:email, :nota)',
+        { email: 'tx@tickets.local', nota: 'uno' },
+      );
+      const one = await tx.queryOne('SELECT email FROM usuarios WHERE id = :id', { id: inserted.id });
+      const many = await tx.queryMany('SELECT id FROM usuarios WHERE id = :id', { id: inserted.id });
+      const updated = await tx.execute('UPDATE usuarios SET nota = :nota WHERE id = :id', { nota: 'dos', id: inserted.id });
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM usuarios').get().n, 0);
+      return { inserted, one, many, updated };
+    });
+
+    assert.equal(result.inserted.rowsAffected, 1);
+    assert.equal(result.one.email, 'tx@tickets.local');
+    assert.equal(result.many.length, 1);
+    assert.deepEqual(result.updated, { rowsAffected: 1 });
+    const committed = db.prepare('SELECT email, nota FROM usuarios').get();
+    assert.equal(committed.email, 'tx@tickets.local');
+    assert.equal(committed.nota, 'dos');
+    assert.equal(transactionConnections[0].isOpen, false);
+  });
+
+  it('revierte por excepción del callback y preserva el error original', async () => {
+    const failure = new Error('fallo controlado');
+    await assert.rejects(
+      contract.transactionAsync(async (tx) => {
+        await tx.execute('INSERT INTO usuarios(email) VALUES(:email)', { email: 'rollback@tickets.local' });
+        throw failure;
+      }),
+      failure,
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM usuarios').get().n, 0);
+  });
+
+  it('revierte por error SQL y rechaza transacciones anidadas', async () => {
+    await assert.rejects(
+      contract.transactionAsync(async (tx) => {
+        await tx.execute('INSERT INTO usuarios(email) VALUES(:email)', { email: 'sql-error@tickets.local' });
+        await tx.execute('INSERT INTO tabla_inexistente VALUES(1)');
+      }),
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM usuarios').get().n, 0);
+
+    await assert.rejects(
+      contract.transactionAsync(async () => contract.transactionAsync(async () => 'no')),
+      /anidadas/,
+    );
+  });
 });
 
 afterEach(() => {
@@ -363,6 +427,6 @@ describe('DB_CLIENT · SQLite legacy y contrato MSSQL', () => {
 
   it('el contrato no expone transactionAsync todavía (decisión de A2)', async () => {
     const { contract } = await import('../src/db.js');
-    assert.equal(contract.transactionAsync, undefined);
+    assert.equal(typeof contract.transactionAsync, 'function');
   });
 });

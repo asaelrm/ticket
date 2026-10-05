@@ -173,7 +173,7 @@ export function nowIso() {
 // sin reescribirlos dos veces. `transaction(fn)` de arriba sigue siendo la
 // transacción real en uso.
 export const contract = config.dbClient === 'sqlite'
-  ? createSqliteContract(db)
+  ? createSqliteContract(db, { databasePath: config.dbFile })
   : createMssqlContract(config.mssql);
 
 export default db;

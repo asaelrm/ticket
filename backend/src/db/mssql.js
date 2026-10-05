@@ -1,4 +1,7 @@
 import sql from 'mssql';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const transactionContext = new AsyncLocalStorage();
 
 // Las integraciones automáticas solo pueden escribir en una base que se
 // identifique de forma inequívoca como no productiva. Un guion bajo forma parte
@@ -42,9 +45,14 @@ function affected(result) {
  * @param {object} config Configuración compatible con `mssql.ConnectionPool`.
  * @param {{ connect?: Function }} dependencies Inyección para pruebas unitarias.
  */
-export function createMssqlContract(config, { connect = (options) => sql.connect(options) } = {}) {
+export function createMssqlContract(config, {
+  connect = (options) => sql.connect(options),
+  Transaction = sql.Transaction,
+  Request = sql.Request,
+} = {}) {
   let poolPromise;
   let closingPromise;
+  let activeTransactions = 0;
 
   async function pool() {
     if (!poolPromise) {
@@ -60,8 +68,75 @@ export function createMssqlContract(config, { connect = (options) => sql.connect
     return bind((await pool()).request(), params);
   }
 
+  function transactionOperations(transaction) {
+    async function transactionRequest(params) {
+      return bind(new Request(transaction), params);
+    }
+    return {
+      async queryOne(statement, params) {
+        const result = await (await transactionRequest(params)).query(statement);
+        return result.recordset?.[0] ?? null;
+      },
+      async queryMany(statement, params) {
+        const result = await (await transactionRequest(params)).query(statement);
+        return result.recordset ?? [];
+      },
+      async execute(statement, params) {
+        const result = await (await transactionRequest(params)).query(statement);
+        return { rowsAffected: affected(result) };
+      },
+      async insertAndGetId(statement, params) {
+        const result = await (await transactionRequest(params)).query(statement);
+        const id = result.recordset?.[0]?.id;
+        if (!Number.isSafeInteger(Number(id))) {
+          throw new Error('insertAndGetId requiere `OUTPUT INSERTED.id AS id` y un id numÃ©rico seguro.');
+        }
+        return { id: Number(id), rowsAffected: affected(result) };
+      },
+    };
+  }
+
+  async function transactionAsync(callback) {
+    if (typeof callback !== 'function') throw new TypeError('transactionAsync necesita un callback.');
+    if (transactionContext.getStore()) {
+      throw new Error('No se permiten transacciones anidadas; reutilice el tx recibido.');
+    }
+    if (closingPromise) throw new Error('El pool MSSQL se estÃ¡ cerrando; no se puede iniciar una transacciÃ³n.');
+
+    activeTransactions += 1;
+    let transaction;
+    let began = false;
+    let commitAttempted = false;
+    let failure;
+    let value;
+    try {
+      transaction = new Transaction(await pool());
+      await transaction.begin();
+      began = true;
+      value = await transactionContext.run({ engine: 'mssql' }, () => callback(transactionOperations(transaction)));
+      commitAttempted = true;
+      await transaction.commit();
+    } catch (error) {
+      failure = error;
+      if (began && !commitAttempted) {
+        try {
+          await transaction.rollback();
+        } catch (rollbackError) {
+          if (failure && typeof failure === 'object') failure.rollbackError = rollbackError;
+        }
+      }
+    } finally {
+      activeTransactions -= 1;
+    }
+    if (failure) throw failure;
+    return value;
+  }
+
   async function close() {
     if (closingPromise) return closingPromise;
+    if (activeTransactions > 0) {
+      throw new Error('No se puede cerrar el pool MSSQL mientras hay transacciones activas.');
+    }
 
     const activePoolPromise = poolPromise;
     if (!activePoolPromise) return;
@@ -82,6 +157,7 @@ export function createMssqlContract(config, { connect = (options) => sql.connect
 
   return {
     close,
+    transactionAsync,
 
     async queryOne(statement, params) {
       const result = await (await request(params)).query(statement);

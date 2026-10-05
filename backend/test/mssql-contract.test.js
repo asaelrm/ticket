@@ -24,6 +24,23 @@ function fakeDriver({ result = { recordset: [], rowsAffected: [0] } } = {}) {
   return { calls, connect: async (config) => { calls.connects.push(config); return pool; } };
 }
 
+function transactionDriver({ result = { recordset: [{ id: 9 }], rowsAffected: [1] }, beginError, queryError, commitError, rollbackError } = {}) {
+  const calls = { transactions: [], requests: [], begins: 0, commits: 0, rollbacks: 0, closes: 0, sql: [], inputs: [] };
+  const pool = { async close() { calls.closes += 1; } };
+  class Transaction {
+    constructor(parentPool) { calls.transactions.push(parentPool); }
+    async begin() { calls.begins += 1; if (beginError) throw beginError; }
+    async commit() { calls.commits += 1; if (commitError) throw commitError; }
+    async rollback() { calls.rollbacks += 1; if (rollbackError) throw rollbackError; }
+  }
+  class Request {
+    constructor(transaction) { calls.requests.push(transaction); }
+    input(name, value) { calls.inputs.push([name, value]); return this; }
+    async query(statement) { calls.sql.push(statement); if (queryError) throw queryError; return result; }
+  }
+  return { calls, pool, Transaction, Request, async connect() { return pool; } };
+}
+
 describe('contrato MSSQL', () => {
   it('solo reconoce nombres de base DEV/TEST inequívocos para integración', () => {
     assert.equal(isDevelopmentDatabase('SIFHA_Tickets_DEV'), true);
@@ -143,5 +160,76 @@ describe('contrato MSSQL', () => {
       contract.insertAndGetId('INSERT INTO departments(name) VALUES(@name)', { name: 'TI' }),
       /OUTPUT INSERTED.id/,
     );
+  });
+
+  it('transactionAsync usa Transaction/Request, confirma y devuelve el valor del callback', async () => {
+    const driver = transactionDriver();
+    const contract = createMssqlContract({}, driver);
+    const value = await contract.transactionAsync(async (tx) => {
+      assert.deepEqual(Object.keys(tx).sort(), ['execute', 'insertAndGetId', 'queryMany', 'queryOne']);
+      assert.equal((await tx.queryOne('SELECT @id AS id', { id: 1 })).id, 9);
+      assert.equal((await tx.queryMany('SELECT @id AS id', { id: 2 })).length, 1);
+      assert.deepEqual(await tx.execute('UPDATE x SET a = @id', { id: 3 }), { rowsAffected: 1 });
+      assert.deepEqual(await tx.insertAndGetId('INSERT x OUTPUT INSERTED.id AS id VALUES(@id)', { id: 4 }), { id: 9, rowsAffected: 1 });
+      return 'confirmado';
+    });
+    assert.equal(value, 'confirmado');
+    assert.deepEqual(driver.calls.transactions, [driver.pool]);
+    assert.equal(driver.calls.requests.length, 4);
+    assert.equal(driver.calls.begins, 1);
+    assert.equal(driver.calls.commits, 1);
+    assert.equal(driver.calls.rollbacks, 0);
+  });
+
+  it('transactionAsync no ejecuta callback si begin falla', async () => {
+    const beginError = new Error('begin fallido');
+    const driver = transactionDriver({ beginError });
+    const contract = createMssqlContract({}, driver);
+    let called = false;
+    await assert.rejects(contract.transactionAsync(async () => { called = true; }), beginError);
+    assert.equal(called, false);
+    assert.equal(driver.calls.rollbacks, 0);
+  });
+
+  it('hace rollback y preserva el error original, incluso si rollback falla', async () => {
+    const queryError = new Error('query fallida');
+    const rollbackError = new Error('rollback fallido');
+    const driver = transactionDriver({ queryError, rollbackError });
+    const contract = createMssqlContract({}, driver);
+    await assert.rejects(contract.transactionAsync(async (tx) => tx.queryOne('SELECT ERROR')), (error) => {
+      assert.equal(error, queryError);
+      assert.equal(error.rollbackError, rollbackError);
+      return true;
+    });
+    assert.equal(driver.calls.rollbacks, 1);
+  });
+
+  it('propaga fallo de commit sin rollback automático', async () => {
+    const commitError = new Error('commit fallido');
+    const driver = transactionDriver({ commitError });
+    const contract = createMssqlContract({}, driver);
+    await assert.rejects(contract.transactionAsync(async () => 'ok'), commitError);
+    assert.equal(driver.calls.commits, 1);
+    assert.equal(driver.calls.rollbacks, 0);
+  });
+
+  it('rechaza anidamiento y close mientras la transacción está activa', async () => {
+    const driver = transactionDriver();
+    const contract = createMssqlContract({}, driver);
+    let release;
+    const waiting = new Promise((resolve) => { release = resolve; });
+    let entered;
+    const enteredPromise = new Promise((resolve) => { entered = resolve; });
+    const running = contract.transactionAsync(async () => {
+      entered();
+      await assert.rejects(contract.transactionAsync(async () => 'nested'), /anidadas/);
+      await waiting;
+    });
+    await enteredPromise;
+    await assert.rejects(contract.close(), /transacciones activas/);
+    release();
+    await running;
+    await contract.close();
+    assert.equal(driver.calls.closes, 1);
   });
 });

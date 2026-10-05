@@ -1,4 +1,14 @@
 import { DatabaseSync } from 'node:sqlite';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const transactionContext = new AsyncLocalStorage();
+
+function configureDatabase(db) {
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA foreign_keys = ON');
+  db.exec('PRAGMA busy_timeout = 5000');
+  return db;
+}
 
 // ---------------------------------------------------------------------------
 // Adaptador SQLite.
@@ -23,8 +33,8 @@ import { DatabaseSync } from 'node:sqlite';
 // consumidor cuando llegue ese driver. Exponerlas como Promise ahora mantiene el
 // contrato idéntico entre los dos motores.
 //
-// `transactionAsync` NO existe todavía en A2, y es deliberado. Ver el bloque
-// `TRANSACCIONES` más abajo.
+// `transactionAsync(callback)` usa una conexión dedicada: las operaciones de
+// `tx` nunca comparten la conexión legacy global.
 // ---------------------------------------------------------------------------
 
 // Valores que SQLite no acepta tal cual pero que el resto del código produce de
@@ -78,12 +88,16 @@ function normalizeParams(params) {
  * @param {DatabaseSync} db - Conexión SQLite ya configurada (WAL, FK, busy_timeout).
  * @returns {{queryOne: Function, queryMany: Function, execute: Function, insertAndGetId: Function}}
  */
-export function createSqliteContract(db) {
+export function createSqliteContract(db, {
+  databasePath,
+  openDatabase = (file) => new DatabaseSync(file),
+} = {}) {
   if (!db || typeof db.prepare !== 'function') {
     throw new TypeError('createSqliteContract necesita una conexión SQLite (DatabaseSync).');
   }
 
-  return {
+  function operations(connection) {
+    return {
     /**
      * Una fila o null.
      *
@@ -92,7 +106,7 @@ export function createSqliteContract(db) {
      * comprobar con `=== null` sin conocer el driver.
      */
     async queryOne(sql, params) {
-      const fila = db.prepare(sql).get(normalizeParams(params)) ?? null;
+      const fila = connection.prepare(sql).get(normalizeParams(params)) ?? null;
       return fila;
     },
 
@@ -100,7 +114,7 @@ export function createSqliteContract(db) {
      * Todas las filas; array vacío si no hay ninguna (nunca null ni undefined).
      */
     async queryMany(sql, params) {
-      return db.prepare(sql).all(normalizeParams(params)) ?? [];
+      return connection.prepare(sql).all(normalizeParams(params)) ?? [];
     },
 
     /**
@@ -109,7 +123,7 @@ export function createSqliteContract(db) {
      * existe en otros motores.
      */
     async execute(sql, params) {
-      const info = db.prepare(sql).run(normalizeParams(params));
+      const info = connection.prepare(sql).run(normalizeParams(params));
       return { rowsAffected: Number(info.changes) };
     },
 
@@ -117,54 +131,67 @@ export function createSqliteContract(db) {
      * INSERT que devuelve el id generado, normalizado.
      */
     async insertAndGetId(sql, params) {
-      const info = db.prepare(sql).run(normalizeParams(params));
+      const info = connection.prepare(sql).run(normalizeParams(params));
       return {
         id: Number(info.lastInsertRowid),
         rowsAffected: Number(info.changes),
       };
     },
-  };
+    };
+  }
+
+  async function transactionAsync(callback) {
+    if (typeof callback !== 'function') throw new TypeError('transactionAsync necesita un callback.');
+    if (transactionContext.getStore()) {
+      throw new Error('No se permiten transacciones anidadas; reutilice el tx recibido.');
+    }
+    if (!databasePath) {
+      throw new Error('transactionAsync SQLite necesita la ruta del archivo de base de datos.');
+    }
+
+    const transactionDb = openDatabase(databasePath);
+    let began = false;
+    let commitAttempted = false;
+    let failure;
+    let value;
+    try {
+      configureDatabase(transactionDb);
+      transactionDb.exec('BEGIN IMMEDIATE');
+      began = true;
+      value = await transactionContext.run({ engine: 'sqlite' }, () => callback(operations(transactionDb)));
+      commitAttempted = true;
+      transactionDb.exec('COMMIT');
+    } catch (error) {
+      failure = error;
+      if (began && !commitAttempted) {
+        try {
+          transactionDb.exec('ROLLBACK');
+        } catch (rollbackError) {
+          if (failure && typeof failure === 'object') failure.rollbackError = rollbackError;
+        }
+      }
+    }
+
+    try {
+      transactionDb.close();
+    } catch (closeError) {
+      if (failure && typeof failure === 'object') {
+        failure.closeError = closeError;
+      } else {
+        throw closeError;
+      }
+    }
+    if (failure) throw failure;
+    return value;
+  }
+
+  return { ...operations(db), transactionAsync };
 }
 
 // ---------------------------------------------------------------------------
-// TRANSACCIONES (decisión de A2: NO implementar)
-//
-// La interfaz prevista para A3 es:
-//
-//   const client = await db.transactionAsync();
-//   try {
-//     await client.queryOne(sql, params);
-//     await client.execute(sql, params);
-//     await client.commit();
-//   } catch (err) {
-//     await client.rollback();
-//     throw err;
-//   }
-//
-// O, si se prefiere una forma con callback, el mismo objeto `client` se pasa al
-// callback. Lo que NO se hará es `transactionAsync(fn)` que abre y cierra la
-// transacción alrededor de un `await fn()`, por dos razones concretas:
-//
-// 1. `DatabaseSync` es UNA conexión síncrona. Si el callback hace `await`, el
-//    control vuelve al bucle de eventos y cualquier otra operación que se cuele
-//    entremedias se ejecutaría DENTRO de esa transacción. SQLite no tiene
-//    transacciones anidadas (`cannot start a transaction within a transaction`),
-//    así que la segunda parte secome a la primera y el resultado no es el que
-//    el llamador cree. Con `mssql` esto no pasa porque la transacción va atada a
-//    una conexión reservada, no a un singleton.
-//
-// 2. En `mssql` la transacción no se abre con `BEGIN`: se crea un objeto
-//    `Transaction` sobre una conexión del pool y TODAS las consultas de esa
-//    transacción tienen que pasar por esa conexión. Un `transactionAsync(fn)`
-//    que esconde la conexión por dentro obligaría en A4 a cambiar la firma.
-//
-// Implementar ahora una versión con `BEGIN/COMMIT` sobre la conexión compartida
-// daría una falsa seguridad: los tests en verde sobre un único flujo, y un
-// `SQLITE_BUSY` o una escritura ajena colándose en la transacción en producción.
-// Se prefiere no tener esa abstracción antes que tenerla rota.
-//
-// En A2 el contrato verificable son las cuatro operaciones. La transacción async
-// se define en A3, con una implementación real de pool detrás.
+// transactionAsync abre una conexión dedicada al mismo archivo, inicia
+// `BEGIN IMMEDIATE` y la cierra tras COMMIT o ROLLBACK. Mantener el callback
+// corto evita retener el bloqueo de escritura durante I/O externo.
 // ---------------------------------------------------------------------------
 
 /**
@@ -173,9 +200,5 @@ export function createSqliteContract(db) {
  * misma API DatabaseSync que ya consumen las rutas.
  */
 export function createSqliteDatabase(dbFile) {
-  const db = new DatabaseSync(dbFile);
-  db.exec('PRAGMA journal_mode = WAL');
-  db.exec('PRAGMA foreign_keys = ON');
-  db.exec('PRAGMA busy_timeout = 5000');
-  return db;
+  return configureDatabase(new DatabaseSync(dbFile));
 }
