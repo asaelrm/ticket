@@ -674,7 +674,7 @@ export default function TicketDetail() {
         </div>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         {/* Columna principal */}
         <main className="space-y-5">
           <div className="card p-5">

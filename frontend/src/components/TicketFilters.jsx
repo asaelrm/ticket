@@ -75,7 +75,7 @@ export default function TicketFilters({ showUser, onChange, onReset, filters }) 
 
   return (
     <div className="card mb-4">
-      <div className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center">
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="7" />
@@ -88,7 +88,7 @@ export default function TicketFilters({ showUser, onChange, onReset, filters }) 
             placeholder="Buscar por número, título, texto…"
           />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button className="btn-secondary" type="button" onClick={() => setExpanded(!expanded)}>
             Filtros
             {activeCount > 0 && (

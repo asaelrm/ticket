@@ -465,7 +465,7 @@ export default function Inbox() {
       <div className="card mb-4">
         <div className="border-b border-slate-200 px-4 py-3">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Vista de trabajo</p>
-          <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label="Vistas de la bandeja">
+           <div className="flex flex-wrap gap-2 pb-1" role="group" aria-label="Vistas de la bandeja">
             {visibleTabs.map((t) => {
               const active = tab === t.key;
               const count = counters?.[t.counter];
@@ -526,7 +526,7 @@ export default function Inbox() {
           </div>
         </div>
 
-        <div className="grid gap-3 p-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+        <div className="grid gap-3 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
           <div className="relative">
             <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="7" />
@@ -551,7 +551,7 @@ export default function Inbox() {
           </div>
         </div>
 
-        <div className="grid gap-3 border-t border-slate-200 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_1fr_1.4fr_auto] xl:items-end">
+        <div className="grid gap-3 border-t border-slate-200 px-4 py-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)_auto] xl:items-end">
           <div>
             <label className="label" htmlFor="inbox-status">Estado</label>
             <Select

@@ -216,7 +216,7 @@ export default function Tickets() {
     // de la barra y acababa tapando la última fila y la paginación.
     <div>
       {/* Chips de filtros rápidos con contadores */}
-      <div className="mb-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="mb-3 flex flex-wrap gap-2 pb-1">
         {visibleViews.map((v) => {
           const active = chipActive(v.key);
           const count = counterValue(v.counter);
@@ -242,35 +242,39 @@ export default function Tickets() {
 
       {/* Barra de herramientas */}
       <div className="card mb-4">
-        <div className="flex flex-wrap items-center gap-2 p-3">
-            <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
-              Búsqueda avanzada
-              {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
-            </button>
-            <Select
-              className="!w-auto"
-              options={sortOptions}
-              value={filters.sort}
-              onChange={(v) => update({ sort: v })}
-              title="Ordenar por"
-            />
-            <button
-              type="button"
-              className="btn-secondary !px-2.5"
-              onClick={() => update({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
-              title={filters.dir === 'asc' ? 'Ascendente' : 'Descendente'}
-            >
-              {filters.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
-            </button>
-            {hasAnyFilter && (
-              <button type="button" className="btn-ghost text-sm" onClick={() => setSearchParams({}, { replace: false })}>
-                Limpiar
+        <div className="flex flex-wrap items-center justify-between gap-2 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
+                Búsqueda avanzada
+                {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
               </button>
-            )}
+              {hasAnyFilter && (
+                <button type="button" className="btn-ghost text-sm" onClick={() => setSearchParams({}, { replace: false })}>
+                  Limpiar
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                className="!w-auto"
+                options={sortOptions}
+                value={filters.sort}
+                onChange={(v) => update({ sort: v })}
+                title="Ordenar por"
+              />
+              <button
+                type="button"
+                className="btn-secondary !px-2.5"
+                onClick={() => update({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
+                title={filters.dir === 'asc' ? 'Ascendente' : 'Descendente'}
+              >
+                {filters.dir === 'asc' ? '↑ Asc' : '↓ Desc'}
+              </button>
+            </div>
         </div>
 
         {filters.view === 'closed' && (
-          <div className="flex items-center gap-2 border-t border-slate-200 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-3 py-2.5">
             <span className="text-sm text-slate-500">Cierre:</span>
             {CLOSED_PERIODS.map(([v, l]) => (
               <button
@@ -290,11 +294,11 @@ export default function Tickets() {
 
       {/* Resumen y acciones */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-sm text-slate-500">
+        <p className="flex items-center gap-2 truncate text-sm text-slate-500">
           {list ? (
             <>
               {rowActions.busy && <Spinner className="h-4 w-4 text-brand-600" />}
-              <span>
+              <span className="truncate">
                 <b>{list.total}</b> ticket(s) {filters.view === 'closed' ? 'cerrados' : 'encontrados'}
                 {hasAnyFilter ? ' con los filtros aplicados' : ''}
               </span>
@@ -309,7 +313,7 @@ export default function Tickets() {
             {rowActions.notice}
           </p>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Tooltip text="Actualizar">
             <button type="button" className="btn-secondary !px-2.5" onClick={reload} aria-label="Actualizar">
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -320,7 +324,7 @@ export default function Tickets() {
           {canExport && (
             <Menu
               label={
-                <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                   <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
                   </svg>
@@ -334,7 +338,7 @@ export default function Tickets() {
               ]}
             />
           )}
-          <Link to="/app/new-ticket" className="btn-primary">
+          <Link to="/app/new-ticket" className="btn-primary whitespace-nowrap">
             + Reportar
           </Link>
         </div>

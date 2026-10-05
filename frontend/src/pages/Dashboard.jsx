@@ -332,7 +332,7 @@ export default function Dashboard() {
           los estados no terminales, así que sin ese filtro saldrían también los
           tickets críticos ya resueltos, cerrados o cancelados. La lista queda
           entonces alineada con la cifra. */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         <Card
           label="Abiertos"
           value={counts.OPEN ?? 0}

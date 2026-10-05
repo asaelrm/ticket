@@ -146,7 +146,7 @@ export default function Teams() {
           <EmptyState icon="👥" title="Sin equipos" subtitle="Cree el primer equipo de trabajo para organizar la atención." />
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {teams.map((t) => (
             <div key={t.id} className="card flex flex-col p-5">
               <div className="flex items-start justify-between gap-3">

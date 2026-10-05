@@ -250,7 +250,7 @@ export default function Users() {
           {list.data.length === 0 ? (
             <EmptyState icon="👥" title="Sin usuarios" subtitle="No se encontraron usuarios con los criterios seleccionados." />
           ) : (
-            <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
