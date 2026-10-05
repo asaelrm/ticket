@@ -24,6 +24,17 @@ process.env.UPLOAD_DIR = path.join(dir, 'uploads');
 // La instantánea del directorio se resuelve contra la raíz del backend, no
 // contra DATA_DIR: si no se indica, la suite escribiría backend/directory.json.
 process.env.DIRECTORY_SNAPSHOT_FILE = path.join(dir, 'directory.json');
+// Esta suite es la suite de SQLite y lo dice de forma explícita, en vez de
+// depender del .env de quien la lanza. Sin esto, un .env con DB_CLIENT=mssql
+// hacía que el `runMigrations()` de abajo lanzara y se caía entero el archivo
+// de pruebas. Que `mssql` sea un valor admitido se comprueba en config.js y en
+// db-contract.test.js, no aquí.
+process.env.DB_CLIENT = 'sqlite';
+// La integración contra SQL Server DEV hace DML (crea y borra fixtures), así que
+// no puede colgarse de la suite de SQLite. Para ejecutarla hay que pedirla
+// explícitamente y sin este arranque:
+//   node --test --env-file-if-exists=.env test/mssql-integration.test.js
+process.env.RUN_MSSQL_INTEGRATION = '0';
 // Las pruebas necesitan las cuentas que usa el resto de la suite, y el seed ya
 // no inventa ninguna: se las pide explícitamente con contraseñas de fixture que
 // solo existen aquí. Además, el resultado no puede depender del NODE_ENV de
