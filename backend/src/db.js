@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import config from './config.js';
-import { createSqliteDatabase } from './db/sqlite.js';
+import { createSqliteDatabase, createSqliteContract } from './db/sqlite.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -157,6 +157,13 @@ export function transaction(fn) {
 export function nowIso() {
   return new Date().toISOString();
 }
+
+// Contrato de datos de A2. Es la misma conexión SQLite que consume todo lo
+// demás, envuelta en la API `queryOne`/`queryMany`/`execute`/`insertAndGetId`.
+// Ninguna ruta la usa todavía: existe para poder migrar consumidores más adelante
+// sin reescribirlos dos veces. `transaction(fn)` de arriba sigue siendo la
+// transacción real en uso.
+export const contract = createSqliteContract(db);
 
 export default db;
 
