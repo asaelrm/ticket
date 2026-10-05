@@ -14,14 +14,12 @@ function int(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-// A1 de la migración de base de datos: el selector existe para que la elección
-// del proveedor tenga un único punto de entrada. SQLite sigue siendo el único
-// cliente soportado; no se aceptan clientes futuros hasta que tengan una
-// implementación y pruebas propias.
+// La elección del proveedor tiene un único punto de entrada. Ambos clientes
+// tienen contrato de datos, aunque las rutas legacy todavía solo usan SQLite.
 function dbClient(v) {
   const client = String(v || 'sqlite').trim().toLowerCase();
-  if (client !== 'sqlite') {
-    throw new Error(`DB_CLIENT no soportado: "${client}". En esta versión solo se admite "sqlite".`);
+  if (!['sqlite', 'mssql'].includes(client)) {
+    throw new Error(`DB_CLIENT no soportado: "${client}". Se admite "sqlite" o "mssql".`);
   }
   return client;
 }
@@ -181,6 +179,21 @@ const config = {
   env: process.env.NODE_ENV || 'development',
   port: int(process.env.PORT, 4000),
   dbClient: dbClient(process.env.DB_CLIENT),
+  // `mssql`/tedious usa SQL Server Authentication con una cuenta dedicada.
+  // Windows Authentication requiere otro driver nativo (p. ej. msnodesqlv8),
+  // que no se instala ni se activa en B1 para no acoplar Docker/Linux a Windows.
+  mssql: {
+    server: (process.env.DB_SERVER || '').trim(),
+    port: process.env.DB_PORT ? int(process.env.DB_PORT, 1433) : undefined,
+    database: (process.env.DB_DATABASE || '').trim(),
+    user: (process.env.DB_USER || '').trim(),
+    password: process.env.DB_PASSWORD || '',
+    options: {
+      encrypt: bool(process.env.DB_ENCRYPT, true),
+      trustServerCertificate: bool(process.env.DB_TRUST_SERVER_CERTIFICATE, false),
+      instanceName: (process.env.DB_INSTANCE || '').trim() || undefined,
+    },
+  },
   dataDir: path.resolve(rootDir, process.env.DATA_DIR || 'data'),
   uploadDir: path.resolve(rootDir, process.env.UPLOAD_DIR || 'uploads'),
   dbFile: process.env.DB_FILE || null,

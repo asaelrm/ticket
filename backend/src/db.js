@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import config from './config.js';
 import { createSqliteDatabase, createSqliteContract } from './db/sqlite.js';
+import { createMssqlContract } from './db/mssql.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,6 +14,14 @@ const db = (() => {
   switch (config.dbClient) {
     case 'sqlite':
       return createSqliteDatabase(config.dbFile);
+    case 'mssql':
+      // Las rutas actuales dependen de DatabaseSync. No fingir compatibilidad:
+      // B2 migrará un consumidor al contrato async antes de activar el backend.
+      return new Proxy({}, {
+        get() {
+          throw new Error('La API legacy db.prepare/db.exec solo está disponible con DB_CLIENT=sqlite.');
+        },
+      });
     default:
       // config.js impide llegar aquí con otro valor. Mantener la barrera evita
       // que un cambio futuro active accidentalmente un cliente incompleto.
@@ -163,7 +172,9 @@ export function nowIso() {
 // Ninguna ruta la usa todavía: existe para poder migrar consumidores más adelante
 // sin reescribirlos dos veces. `transaction(fn)` de arriba sigue siendo la
 // transacción real en uso.
-export const contract = createSqliteContract(db);
+export const contract = config.dbClient === 'sqlite'
+  ? createSqliteContract(db)
+  : createMssqlContract(config.mssql);
 
 export default db;
 

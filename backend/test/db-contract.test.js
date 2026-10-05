@@ -328,7 +328,7 @@ async function configCon(env) {
   }
 }
 
-describe('DB_CLIENT · sigue siendo SQLite en A2', () => {
+describe('DB_CLIENT · SQLite legacy y contrato MSSQL', () => {
   it('sin DB_CLIENT usa sqlite', async () => {
     assert.equal((await configCon({ DB_CLIENT: undefined })).dbClient, 'sqlite');
   });
@@ -337,8 +337,8 @@ describe('DB_CLIENT · sigue siendo SQLite en A2', () => {
     assert.equal((await configCon({ DB_CLIENT: 'sqlite' })).dbClient, 'sqlite');
   });
 
-  it('DB_CLIENT=mssql se rechaza explícitamente', async () => {
-    await assert.rejects(configCon({ DB_CLIENT: 'mssql' }), /DB_CLIENT no soportado.*sqlite/i);
+  it('DB_CLIENT=mssql se acepta para el contrato async', async () => {
+    assert.equal((await configCon({ DB_CLIENT: 'mssql' })).dbClient, 'mssql');
   });
 
   it('db.js exporta el contrato y la conexión legacy a la vez', async () => {

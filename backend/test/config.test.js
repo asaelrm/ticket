@@ -61,10 +61,15 @@ describe('config · DB_CLIENT', () => {
     assert.equal(config.dbClient, 'sqlite');
   });
 
+  it('acepta mssql para su contrato async futuro', async () => {
+    const config = await configCon({ DB_CLIENT: 'mssql' });
+    assert.equal(config.dbClient, 'mssql');
+  });
+
   it('rechaza proveedores sin implementación', async () => {
     await assert.rejects(
-      configCon({ DB_CLIENT: 'mssql' }),
-      /DB_CLIENT no soportado.*sqlite/i,
+      configCon({ DB_CLIENT: 'otro' }),
+      /DB_CLIENT no soportado.*sqlite.*mssql/i,
     );
   });
 });
