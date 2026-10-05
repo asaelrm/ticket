@@ -178,6 +178,49 @@ describe('catálogo de categorías de conocimiento', () => {
     assert.equal((await admin.get(`/api/kb-categories/${category.id}`)).status, 200);
   });
 
+  it('trata el nombre del usuario como valor enlazado, no como SQL', async () => {
+    // La consulta de duplicados usa `LOWER(name) = LOWER(:name)`. Si el valor
+    // se concatenara en el SQL, este nombre rompería la consulta o affectaría
+    // otras filas.
+    const hostile = `${uniq('Ataque')}') OR 1=1 --`;
+    const created = await admin.post('/api/kb-categories', { name: hostile });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.equal(created.body.category.name, hostile);
+    assert.equal(typeof created.body.category.id, 'number');
+
+    const detail = await admin.get(`/api/kb-categories/${created.body.category.id}`);
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.category.name, hostile);
+  });
+
+  it('el id de la ruta se enlaza, no se interpola', async () => {
+    // `parseIntSafe` recorta a 1, que es una categoría sembrada real: el 200 es
+    // correcto y además prueba que el resto del texto se descartó en vez de
+    // acabar dentro del SQL.
+    const parsed = await admin.get('/api/kb-categories/1 OR 1=1');
+    assert.equal(parsed.status, 200);
+    assert.equal(parsed.body.category.id, 1);
+
+    // Esto ya no es numérico: `parseIntSafe` devuelve null y no hay coincidencia.
+    const res = await admin.get('/api/kb-categories/no-existe');
+    assert.equal(res.status, 404);
+
+    const patch = await admin.patch('/api/kb-categories/999999; DROP TABLE kb_articles', { name: uniq('X') });
+    assert.equal(patch.status, 404);
+
+    // La tabla sigue existiendo: el DROP nunca llegó a interpretarse.
+    const list = await admin.get('/api/kb-categories');
+    assert.equal(list.status, 200);
+    assert.ok(Array.isArray(list.body.data));
+    const article = await tech.post('/api/kb-articles', {
+      title: uniq('Sigue viva'),
+      summary: 's',
+      description: 'd',
+      solution: 'sol',
+    });
+    assert.equal(article.status, 201);
+  });
+
   it('mantiene los artículos publicados visibles al navegar por una categoría desactivada', async () => {
     const category = await createCategory({ name: uniq('Histórica') });
     const article = await tech.post('/api/kb-articles', {
