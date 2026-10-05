@@ -5,6 +5,7 @@ import session from 'express-session';
 import helmet from 'helmet';
 import config from './config.js';
 import SqliteSessionStore from './utils/sessionStore.js';
+import MssqlSessionStore from './utils/mssqlSessionStore.js';
 import { ensureCsrfCookie, csrfProtect } from './middleware/csrf.js';
 import { rateLimit } from './utils/rateLimit.js';
 import { resolveTrustProxy, shouldSendHsts } from './transportSecurity.js';
@@ -113,7 +114,7 @@ export function createApp(options = {}) {
   app.use(
     session({
       name: 'tf_sid',
-      store: new SqliteSessionStore(),
+      store: config.dbClient === 'mssql' ? new MssqlSessionStore() : new SqliteSessionStore(),
       secret: config.session.secret,
       resave: false,
       saveUninitialized: false,

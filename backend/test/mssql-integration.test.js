@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import config from '../src/config.js';
 import { createMssqlContract, isDevelopmentDatabase } from '../src/db/mssql.js';
+import MssqlSessionStore, { destroyUserSessionsMssql } from '../src/utils/mssqlSessionStore.js';
 
 const enabled = process.env.RUN_MSSQL_INTEGRATION === '1';
 const integration = enabled ? test : test.skip;
@@ -169,5 +170,153 @@ integration('MSSQL DEV transactionAsync role_permissions B8', { timeout: 30_000 
     assert.deepEqual(await associationCodes(contract), initialCodes);
   } finally {
     await contract.close();
+  }
+});
+
+function callbackResult(invoke) {
+  return new Promise((resolve, reject) => invoke((error, value) => (error ? reject(error) : resolve(value))));
+}
+
+integration('MSSQL DEV MssqlSessionStore B10 · aislamiento', { timeout: 30_000 }, async () => {
+  const contract = createMssqlContract(integrationConfig());
+  const store = new MssqlSessionStore({ contract });
+
+  // Todos los SIDs de B10 llevan el marcador `b10-session-`. Es la única llave
+  // que permite setup y cleanup: ninguna sentencia borra sesiones por expire,
+  // por tabla completa ni por TRUNCATE.
+  const MARKER = 'b10-session-';
+  const markerLike = `${MARKER}%`;
+  const sidA = 'b10-session-A';
+  const sidB = 'b10-session-B';
+  const sidExpired = 'b10-session-A-expired';
+  const sidMalicious = `${MARKER}A'; DROP TABLE dbo.sessions; --`;
+  const runId = `b10-${Date.now()}`;
+  const userA = `${runId}-user-a`;
+  const userB = `${runId}-user-b`;
+
+  async function cleanupMarker() {
+    return contract.execute('DELETE FROM dbo.sessions WHERE sid LIKE @marker', { marker: markerLike });
+  }
+
+  async function markerRows() {
+    const row = await contract.queryOne('SELECT COUNT(*) AS n FROM dbo.sessions WHERE sid LIKE @marker', { marker: markerLike });
+    return Number(row.n);
+  }
+
+  async function rowOf(sid) {
+    return contract.queryOne('SELECT sess, expire FROM dbo.sessions WHERE sid = @sid', { sid });
+  }
+
+  async function rowsOfSid(sid) {
+    const row = await contract.queryOne('SELECT COUNT(*) AS n FROM dbo.sessions WHERE sid = @sid', { sid });
+    return Number(row.n);
+  }
+
+  const sessionA = {
+    userId: userA,
+    cookie: { expires: new Date(Date.now() + 60 * 60 * 1000).toISOString(), originalMaxAge: 3_600_000 },
+    nota: "O'Reilly \"comillas\" áéíóú 你好 \u{1F600} -- no SQL",
+    lista: [{ n: 1 }, { n: 2 }],
+    anidado: { a: { b: { c: null } } },
+  };
+  const sessionB = {
+    userId: userB,
+    cookie: { expires: new Date(Date.now() + 120 * 60 * 1000).toISOString(), originalMaxAge: 7_200_000 },
+    nota: 'sesión ajena intacta',
+  };
+
+  let snapshotB;
+
+  async function assertBIntacto(step) {
+    assert.deepEqual(await rowOf(sidB), snapshotB, `${step}: la sesión B no puede cambiar`);
+  }
+
+  try {
+    await cleanupMarker();
+    assert.equal(await markerRows(), 0, 'El setup debe partir de cero sesiones B10');
+
+    // get() sobre SIDs inexistentes.
+    assert.equal(await callbackResult((done) => store.get(sidA, done)), null);
+    assert.equal(await callbackResult((done) => store.get(sidB, done)), null);
+    assert.equal(await markerRows(), 0, 'get() no puede crear filas');
+
+    // set() + get() de A y de B.
+    await callbackResult((done) => store.set(sidA, sessionA, done));
+    assert.equal(await rowsOfSid(sidA), 1);
+    assert.equal((await rowOf(sidA)).sess, JSON.stringify(sessionA), 'Unicode y JSON deben persistir literalmente');
+    assert.deepEqual(await callbackResult((done) => store.get(sidA, done)), sessionA);
+
+    await callbackResult((done) => store.set(sidB, sessionB, done));
+    snapshotB = await rowOf(sidB);
+    assert.deepEqual(await callbackResult((done) => store.get(sidB, done)), sessionB);
+    await assertBIntacto('set(A)');
+
+    // Update de A: una sola fila, contenido nuevo, B intacta.
+    const sessionAUpdated = {
+      ...sessionA,
+      nota: 'actualizada',
+      cookie: { ...sessionA.cookie, expires: new Date(Date.now() + 180 * 60 * 1000).toISOString() },
+    };
+    await callbackResult((done) => store.set(sidA, sessionAUpdated, done));
+    assert.equal(await rowsOfSid(sidA), 1, 'set() repetido no debe duplicar el SID');
+    assert.deepEqual(await callbackResult((done) => store.get(sidA, done)), sessionAUpdated);
+    await assertBIntacto('update(A)');
+
+    // touch(A) renueva solo el expire de A.
+    const touchedExpiry = new Date(Date.now() + 240 * 60 * 1000).toISOString();
+    await callbackResult((done) => store.touch(sidA, { cookie: { expires: touchedExpiry } }, done));
+    assert.equal(Number((await rowOf(sidA)).expire), new Date(touchedExpiry).getTime());
+    await assertBIntacto('touch(A)');
+
+    // get(A) repetido no muta nada.
+    await callbackResult((done) => store.get(sidA, done));
+    await assertBIntacto('get(A)');
+
+    // Sesión expirada: get() devuelve null y la fila sigue ahí.
+    await callbackResult((done) => store.set(sidExpired, { userId: userA, cookie: { expires: new Date(0).toISOString() } }, done));
+    assert.equal(await callbackResult((done) => store.get(sidExpired, done)), null);
+    assert.equal(await rowsOfSid(sidExpired), 1, 'get() no debe borrar la fila expirada');
+    await assertBIntacto('get(expirada)');
+
+    // length() coincide con el conteo real y no muta.
+    const length = await callbackResult((done) => store.length(done));
+    const total = await contract.queryOne('SELECT COUNT(*) AS n FROM dbo.sessions');
+    assert.equal(length, Number(total.n));
+    assert.equal(await markerRows(), 3);
+    await assertBIntacto('length()');
+
+    // SID malicioso tratado como parámetro.
+    await callbackResult((done) => store.set(sidMalicious, { userId: userA, cookie: { expires: new Date(Date.now() + 60 * 60 * 1000).toISOString() } }, done));
+    assert.ok(await rowOf(sidMalicious), 'El SID malicioso debe insertarse como dato, no como SQL');
+    await callbackResult((done) => store.destroy(sidMalicious, done));
+    assert.equal(await rowOf(sidMalicious), null);
+
+    // destroyUserSessionsMssql(userA) no toca las sesiones de userB.
+    const destroyed = await destroyUserSessionsMssql(userA, contract);
+    assert.equal(destroyed.rowsAffected, 2, 'Solo las dos sesiones propias de userA deben desaparecer');
+    assert.equal(await callbackResult((done) => store.get(sidA, done)), null);
+    assert.equal(await rowsOfSid(sidExpired), 0);
+    await assertBIntacto('destroyUserSessionsMssql(userA)');
+    assert.deepEqual(await callbackResult((done) => store.get(sidB, done)), sessionB);
+
+    // destroy(A) explícito sobre una fila nueva no afecta a B.
+    await callbackResult((done) => store.set(sidA, { userId: userA, cookie: { expires: new Date(Date.now() + 60 * 60 * 1000).toISOString() } }, done));
+    await callbackResult((done) => store.destroy(sidA, done));
+    assert.equal(await rowOf(sidA), null);
+    await assertBIntacto('destroy(A)');
+
+    await callbackResult((done) => store.destroy(sidB, done));
+    assert.equal(await rowOf(sidB), null);
+    assert.equal(await callbackResult((done) => store.get(sidB, done)), null);
+    assert.equal(await markerRows(), 0);
+  } finally {
+    try {
+      await cleanupMarker();
+      const remaining = await markerRows();
+      assert.equal(remaining, 0, 'El cleanup B10 debe dejar cero sesiones con marcador');
+      console.log(`B10_SESSION_ROWS_REMAINING=${remaining}`);
+    } finally {
+      await contract.close();
+    }
   }
 });
