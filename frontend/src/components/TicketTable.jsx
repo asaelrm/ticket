@@ -276,8 +276,8 @@ return (
               <th className="th hidden xl:table-cell w-28">Solicitante</th>
               <SortHeader col="priority" label="Prioridad" sort={sort} dir={dir} onSort={onSort} className="w-24" />
               <SortHeader col="status" label="Estado" sort={sort} dir={dir} onSort={onSort} className="w-28" />
-              <SortHeader col="sla" label="SLA" sort={sort} dir={dir} onSort={onSort} className="hidden md:table-cell w-28" />
-              <SortHeader col="updated_at" label="Actividad" sort={sort} dir={dir} onSort={onSort} className="hidden sm:table-cell w-24" />
+              <SortHeader col="sla" label="SLA" sort={sort} dir={dir} onSort={onSort} className="hidden lg:table-cell w-28" />
+              <SortHeader col="updated_at" label="Actividad" sort={sort} dir={dir} onSort={onSort} className="hidden md:table-cell w-24" />
               {/* El ancho de Acciones acompaña a las acciones visibles: una
                   primaria + menú por debajo de `2xl`, y las dos por encima. */}
               {showActions && <th className="th w-40 2xl:w-56 text-right">Acciones</th>}
@@ -357,7 +357,7 @@ return (
                     {subTitle}
                   </span>
                 </td>
-                <td className="td hidden lg:table-cell">
+                <td className="td hidden 2xl:table-cell">
                   {t.category_name ? (
                     <span className="flex items-center gap-2" title={t.category_name}>
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: t.category_color || '#64748b' }} />
@@ -379,10 +379,10 @@ return (
                 <td className="td">
                   <StatusBadge status={t.status} />
                 </td>
-                <td className="td hidden md:table-cell">
+                <td className="td hidden lg:table-cell">
                   <SlaCell ticket={t} />
                 </td>
-                <td className="td hidden text-slate-500 sm:table-cell">
+                <td className="td hidden text-slate-500 md:table-cell">
                   <LastActivityCell ticket={t} />
                 </td>
                 {showActions && (
