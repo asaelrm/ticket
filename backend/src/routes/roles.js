@@ -1,6 +1,7 @@
 import express from 'express';
-import db from '../db.js';
+import db, { contract } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -27,7 +28,7 @@ router.get('/permissions', requirePermission('role.manage'), (req, res) => {
   res.json({ permissions: db.prepare('SELECT * FROM permissions ORDER BY id').all() });
 });
 
-router.patch('/:id/permissions', requirePermission('role.manage'), (req, res) => {
+router.patch('/:id/permissions', requirePermission('role.manage'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const role = db.prepare('SELECT id, code FROM roles WHERE id = ?').get(id);
   if (!role) return res.status(404).json({ error: 'Rol no encontrado' });
@@ -41,21 +42,20 @@ router.patch('/:id/permissions', requirePermission('role.manage'), (req, res) =>
     if (!valid.has(c)) return res.status(400).json({ error: `Permiso desconocido: ${c}` });
   }
 
-  db.exec('BEGIN');
-  try {
-    db.prepare('DELETE FROM role_permissions WHERE role_id = ?').run(id);
-    const stmt = db.prepare('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)');
+  await contract.transactionAsync(async (tx) => {
+    await tx.execute('DELETE FROM role_permissions WHERE role_id = @roleId', { roleId: id });
     for (const code of codes) {
-      const p = db.prepare('SELECT id FROM permissions WHERE code = ?').get(code);
-      if (p) stmt.run(id, p.id);
+      const permission = await tx.queryOne('SELECT id FROM permissions WHERE code = @code', { code });
+      if (permission) {
+        await tx.execute(
+          'INSERT INTO role_permissions (role_id, permission_id) VALUES (@roleId, @permissionId)',
+          { roleId: id, permissionId: permission.id },
+        );
+      }
     }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+  });
 
   res.json({ ok: true });
-});
+}));
 
 export default router;
