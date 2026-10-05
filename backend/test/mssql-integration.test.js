@@ -55,9 +55,13 @@ integration('integración MSSQL DEV · contrato departments', { timeout: 30_000 
 
     await assert.rejects(contract.queryOne('SELECT * FROM dbo.tabla_inexistente_b2'), /Invalid object name|tabla_inexistente_b2/i);
   } finally {
-    if (id !== undefined) {
-      const deleted = await contract.execute('DELETE FROM dbo.departments WHERE id = @id', { id });
-      assert.equal(deleted.rowsAffected, 1);
+    try {
+      if (id !== undefined) {
+        const deleted = await contract.execute('DELETE FROM dbo.departments WHERE id = @id', { id });
+        assert.equal(deleted.rowsAffected, 1);
+      }
+    } finally {
+      await contract.close();
     }
   }
 });

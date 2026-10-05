@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { createMssqlContract, isDevelopmentDatabase } from '../src/db/mssql.js';
 
 function fakeDriver({ result = { recordset: [], rowsAffected: [0] } } = {}) {
-  const calls = { connects: [], inputs: [], sql: [] };
+  const calls = { connects: [], inputs: [], sql: [], closes: 0 };
   const pool = {
+    async close() {
+      calls.closes += 1;
+    },
     request() {
       return {
         input(name, value) {
@@ -37,6 +40,72 @@ describe('contrato MSSQL', () => {
     await contract.queryMany('SELECT @id AS id', { ':id': 8 });
     assert.equal(driver.calls.connects.length, 1);
     assert.deepEqual(driver.calls.inputs, [['id', 7], ['id', 8]]);
+  });
+
+  it('close sin conexión previa no abre ni cierra un pool', async () => {
+    const driver = fakeDriver();
+    const contract = createMssqlContract({}, driver);
+    await contract.close();
+    assert.equal(driver.calls.connects.length, 0);
+    assert.equal(driver.calls.closes, 0);
+  });
+
+  it('close cierra el pool activo, es idempotente y la siguiente query reconecta', async () => {
+    const pools = [];
+    const contract = createMssqlContract({}, {
+      async connect() {
+        const pool = {
+          closed: 0,
+          async close() { this.closed += 1; },
+          request() {
+            return { async query() { return { recordset: [{ id: 1 }], rowsAffected: [1] }; } };
+          },
+        };
+        pools.push(pool);
+        return pool;
+      },
+    });
+    await contract.queryOne('SELECT 1 AS id');
+    await contract.close();
+    await contract.close();
+    assert.equal(pools[0].closed, 1);
+
+    await contract.queryOne('SELECT 1 AS id');
+    assert.equal(pools.length, 2);
+    assert.notEqual(pools[0], pools[1]);
+  });
+
+  it('permite retry tras un fallo inicial de conexión', async () => {
+    let attempts = 0;
+    const pool = fakeDriver({ result: { recordset: [{ id: 1 }] } });
+    const contract = createMssqlContract({}, {
+      async connect(config) {
+        attempts += 1;
+        if (attempts === 1) throw new Error('conexión inicial fallida');
+        return pool.connect(config);
+      },
+    });
+    await assert.rejects(contract.queryOne('SELECT 1 AS id'), /inicial fallida/);
+    await contract.queryOne('SELECT 1 AS id');
+    assert.equal(attempts, 2);
+  });
+
+  it('propaga un error real al cerrar y libera la referencia para reconectar', async () => {
+    const closeError = new Error('cierre fallido');
+    let connects = 0;
+    const pool = {
+      request() {
+        return { async query() { return { recordset: [{ id: 1 }], rowsAffected: [1] }; } };
+      },
+      async close() {
+        throw closeError;
+      },
+    };
+    const contract = createMssqlContract({}, { async connect() { connects += 1; return pool; } });
+    await contract.queryOne('SELECT 1 AS id');
+    await assert.rejects(contract.close(), closeError);
+    await contract.queryOne('SELECT 1 AS id');
+    assert.equal(connects, 2);
   });
 
   it('entrega el SQL intacto y usa binding nativo', async () => {

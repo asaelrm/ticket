@@ -44,6 +44,7 @@ function affected(result) {
  */
 export function createMssqlContract(config, { connect = (options) => sql.connect(options) } = {}) {
   let poolPromise;
+  let closingPromise;
 
   async function pool() {
     if (!poolPromise) {
@@ -59,7 +60,29 @@ export function createMssqlContract(config, { connect = (options) => sql.connect
     return bind((await pool()).request(), params);
   }
 
+  async function close() {
+    if (closingPromise) return closingPromise;
+
+    const activePoolPromise = poolPromise;
+    if (!activePoolPromise) return;
+
+    // Liberar la referencia antes de esperar el cierre permite que una consulta
+    // posterior cree un pool nuevo, sin cerrar ni reutilizar el anterior.
+    poolPromise = undefined;
+    closingPromise = (async () => {
+      try {
+        const activePool = await activePoolPromise;
+        await activePool.close();
+      } finally {
+        closingPromise = undefined;
+      }
+    })();
+    return closingPromise;
+  }
+
   return {
+    close,
+
     async queryOne(statement, params) {
       const result = await (await request(params)).query(statement);
       return result.recordset?.[0] ?? null;
