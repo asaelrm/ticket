@@ -7,6 +7,7 @@ import { visibleArticlesForTicket } from './kbArticles.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { uploadMiddleware, uploadSizeError } from '../middleware/upload.js';
 import { validateFile, persistUpload } from '../utils/fileType.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 import { nextTicketNumber } from '../utils/ticketNumber.js';
 import { computeSlaDue, OPEN_STATUSES, slaAtRiskUntilIso } from '../utils/sla.js';
 import { getWorkflowOptions, requireResolutionToClose, isCsatEnabled } from '../utils/options.js';
@@ -22,10 +23,6 @@ import {
 
 const router = express.Router();
 router.use(requireAuth);
-
-// Express 4 no reenvía rechazos de promesas al error handler (Node 24 los
-// convertiría en unhandledRejection). Este wrapper los propaga a `next`.
-const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 export const STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING', 'RESOLVED', 'CLOSED', 'CANCELLED'];
 export const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];

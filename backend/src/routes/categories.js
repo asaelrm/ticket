@@ -2,6 +2,7 @@ import express from 'express';
 import { nowIso, contract } from '../db.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 // Migrado al contrato de A3: las cuatro consultas de esta ruta pasan por
 // `contract`. Los parámetros van con nombre (`:name`) porque es la sintaxis que
@@ -9,11 +10,6 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 // concatenados. Respuestas, permisos y validaciones no cambian.
 const router = express.Router();
 router.use(requireAuth);
-
-// Express 4 no reenvía rechazos de promesas al error handler, así que un
-// `validate()` que lanza dentro de un handler async dejaría la petición colgada
-// en lugar de devolver 400. Mismo wrapper que usa routes/tickets.js.
-const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 router.get('/', asyncHandler(async (req, res) => {
   const onlyActive = req.query.active === '1' || req.query.active === 'true';

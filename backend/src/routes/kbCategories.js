@@ -2,6 +2,7 @@ import express from 'express';
 import { nowIso, contract } from '../db.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 
 // Migrado al contrato de A3: las consultas de esta ruta pasan por `contract`
 // con parámetros nombrados. `LIST_SQL` y el fragmento `where` siguen siendo
@@ -9,11 +10,6 @@ import { requireAuth, requirePermission } from '../middleware/auth.js';
 // como valor enlazado, nunca concatenado en el SQL.
 const router = express.Router();
 router.use(requireAuth);
-
-// Express 4 no reenvía rechazos de promesas al error handler, así que un
-// `validate()` que lanza dentro de un handler async dejaría la petición colgada
-// en lugar de devolver 400. Mismo wrapper que usa routes/tickets.js.
-const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // Taxonomía propia de la base de conocimiento. Deliberadamente separada de
 // `categories`: esas clasifican incidencias y mezclar ambos dominios obligaría
