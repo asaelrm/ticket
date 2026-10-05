@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createMssqlContract } from '../src/db/mssql.js';
+import { createMssqlContract, isDevelopmentDatabase } from '../src/db/mssql.js';
 
 function fakeDriver({ result = { recordset: [], rowsAffected: [0] } } = {}) {
   const calls = { connects: [], inputs: [], sql: [] };
@@ -22,6 +22,13 @@ function fakeDriver({ result = { recordset: [], rowsAffected: [0] } } = {}) {
 }
 
 describe('contrato MSSQL', () => {
+  it('solo reconoce nombres de base DEV/TEST inequívocos para integración', () => {
+    assert.equal(isDevelopmentDatabase('SIFHA_Tickets_DEV'), true);
+    assert.equal(isDevelopmentDatabase('tickets-test'), true);
+    assert.equal(isDevelopmentDatabase('TicketsProduction'), false);
+    assert.equal(isDevelopmentDatabase('devops'), false);
+  });
+
   it('abre el pool de forma perezosa y lo reutiliza', async () => {
     const driver = fakeDriver({ result: { recordset: [{ id: 7 }], rowsAffected: [1] } });
     const contract = createMssqlContract({ server: 'dev', database: 'tickets' }, driver);

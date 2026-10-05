@@ -1,5 +1,12 @@
 import sql from 'mssql';
 
+// Las integraciones automáticas solo pueden escribir en una base que se
+// identifique de forma inequívoca como no productiva. Un guion bajo forma parte
+// de una palabra para `\b`, por eso se comprueban expresamente los separadores.
+export function isDevelopmentDatabase(database) {
+  return /(^|[_-])(dev|test)([_-]|$)/i.test(String(database || '').trim());
+}
+
 function parameterName(key) {
   const name = String(key).replace(/^[:@]/, '');
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
@@ -78,3 +85,10 @@ export function createMssqlContract(config, { connect = (options) => sql.connect
     },
   };
 }
+
+// B3: `transactionAsync(async (tx) => ...)` creará un `sql.Transaction` sobre
+// el pool y cada operación de `tx` construirá `new sql.Request(transaction)`.
+// Así queryOne/queryMany/execute/insertAndGetId quedan atadas a la misma
+// conexión reservada hasta commit o rollback. SQLite no puede ofrecer esa misma
+// forma sobre su DatabaseSync compartido: requerirá serializar la sección
+// completa y prohibir awaits externos antes de exponer una API equivalente.
