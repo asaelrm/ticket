@@ -668,7 +668,7 @@ export default function Reports() {
               </ChartCard>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
               <CsatTable title="CSAT por técnico" rows={data.csat.by_technician} />
               <CsatTable title="CSAT por departamento" rows={data.csat.by_department} />
               <CsatTable title="CSAT por categoría" rows={data.csat.by_category} />
