@@ -49,3 +49,22 @@ describe('config · PUBLIC_URL', () => {
     assert.equal(config.publicUrl, 'https://a.example');
   });
 });
+
+describe('config · DB_CLIENT', () => {
+  it('sin DB_CLIENT conserva SQLite por compatibilidad', async () => {
+    const config = await configCon({ DB_CLIENT: undefined });
+    assert.equal(config.dbClient, 'sqlite');
+  });
+
+  it('acepta SQLite de forma explícita sin distinguir mayúsculas', async () => {
+    const config = await configCon({ DB_CLIENT: 'SQLITE' });
+    assert.equal(config.dbClient, 'sqlite');
+  });
+
+  it('rechaza proveedores sin implementación', async () => {
+    await assert.rejects(
+      configCon({ DB_CLIENT: 'mssql' }),
+      /DB_CLIENT no soportado.*sqlite/i,
+    );
+  });
+});

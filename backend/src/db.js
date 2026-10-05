@@ -1,16 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
 import config from './config.js';
+import { createSqliteDatabase } from './db/sqlite.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const db = new DatabaseSync(config.dbFile);
-
-db.exec('PRAGMA journal_mode = WAL');
-db.exec('PRAGMA foreign_keys = ON');
-db.exec('PRAGMA busy_timeout = 5000');
+// La fachada exportada por este módulo conserva la API síncrona de SQLite
+// durante A1. El selector centraliza el punto donde una implementación futura
+// podrá registrarse sin obligar a las rutas a conocer el driver.
+const db = (() => {
+  switch (config.dbClient) {
+    case 'sqlite':
+      return createSqliteDatabase(config.dbFile);
+    default:
+      // config.js impide llegar aquí con otro valor. Mantener la barrera evita
+      // que un cambio futuro active accidentalmente un cliente incompleto.
+      throw new Error(`DB_CLIENT no soportado: ${config.dbClient}`);
+  }
+})();
 
 // Migraciones aditivas idempotentes (SQLite no soporta ADD COLUMN IF NOT EXISTS).
 function columnExists(table, column) {

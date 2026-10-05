@@ -14,6 +14,18 @@ function int(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// A1 de la migración de base de datos: el selector existe para que la elección
+// del proveedor tenga un único punto de entrada. SQLite sigue siendo el único
+// cliente soportado; no se aceptan clientes futuros hasta que tengan una
+// implementación y pruebas propias.
+function dbClient(v) {
+  const client = String(v || 'sqlite').trim().toLowerCase();
+  if (client !== 'sqlite') {
+    throw new Error(`DB_CLIENT no soportado: "${client}". En esta versión solo se admite "sqlite".`);
+  }
+  return client;
+}
+
 const rootDir = path.resolve(__dirname, '..');
 
 // ---------------------------------------------------------------------------
@@ -168,6 +180,7 @@ export function assertStartupConfig(env = process.env) {
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: int(process.env.PORT, 4000),
+  dbClient: dbClient(process.env.DB_CLIENT),
   dataDir: path.resolve(rootDir, process.env.DATA_DIR || 'data'),
   uploadDir: path.resolve(rootDir, process.env.UPLOAD_DIR || 'uploads'),
   dbFile: process.env.DB_FILE || null,
