@@ -24,9 +24,10 @@ router.get('/', requirePermission('role.manage'), (req, res) => {
   });
 });
 
-router.get('/permissions', requirePermission('role.manage'), (req, res) => {
-  res.json({ permissions: db.prepare('SELECT * FROM permissions ORDER BY id').all() });
-});
+router.get('/permissions', requirePermission('role.manage'), asyncHandler(async (req, res) => {
+  const permissions = await contract.queryMany('SELECT * FROM permissions ORDER BY id');
+  res.json({ permissions });
+}));
 
 router.patch('/:id/permissions', requirePermission('role.manage'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id, 10);
