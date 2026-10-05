@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import config from '../src/config.js';
 import { createMssqlContract, isDevelopmentDatabase } from '../src/db/mssql.js';
 import MssqlSessionStore, { destroyUserSessionsMssql } from '../src/utils/mssqlSessionStore.js';
+import { loadUser, touchLastLogin } from '../src/middleware/auth.js';
 
 const enabled = process.env.RUN_MSSQL_INTEGRATION === '1';
 const integration = enabled ? test : test.skip;
@@ -33,6 +34,69 @@ integration('MSSQL DEV DATETIME2(3) UTC B10.5', { timeout: 30_000 }, async () =>
       { at: new Date(isoUtc) },
     );
     assert.equal(rendered.value, '2026-10-05T18:20:29.317');
+  } finally {
+    await contract.close();
+  }
+});
+
+integration('MSSQL DEV B11-A · SQL de autenticación solo lectura', { timeout: 30_000 }, async () => {
+  const contract = createMssqlContract(integrationConfig());
+  try {
+    // El SQL exacto que produce el código de producción se captura con un
+    // contrato grabador y después se reproduce contra SQL Server. Así se
+    // valida el texto real, los nombres de parámetro y la resolución de tablas
+    // sin duplicar el SQL en la prueba y sin escribir un solo dato: solo
+    // SELECT con parámetros sintéticos que no pueden existir.
+    const captured = [];
+    const recorder = {
+      async queryOne(sql, params) {
+        captured.push({ sql, params });
+        return { id: -1, active: 1, role_id: -1, name: 'x', username: 'x', email: 'x' };
+      },
+      async queryMany(sql, params) {
+        captured.push({ sql, params });
+        return [];
+      },
+      async execute(sql, params) {
+        captured.push({ sql, params });
+        return { rowsAffected: 0 };
+      },
+    };
+    await loadUser({ session: { userId: -1 } }, recorder);
+    await touchLastLogin(-1, recorder);
+    assert.equal(captured.length, 3);
+
+    // 1. Carga del usuario por id: @userId nombrado y tablas sin prefijo de
+    //    esquema resueltas por el esquema por defecto del usuario DEV.
+    const [userQuery, permsQuery, touchQuery] = captured;
+    assert.match(userQuery.sql, /WHERE u\.id = @userId/);
+    assert.deepEqual(userQuery.params, { userId: -1 });
+    assert.deepEqual(await contract.queryMany(userQuery.sql, userQuery.params), []);
+
+    // 2. Permisos por rol: @roleId nombrado, mismo criterio.
+    assert.match(permsQuery.sql, /WHERE rp\.role_id = @roleId/);
+    assert.deepEqual(permsQuery.params, { roleId: -1 });
+    assert.deepEqual(await contract.queryMany(permsQuery.sql, permsQuery.params), []);
+
+    // 3. touchLastLogin: la fecha viaja como Date canónica y se verifica el texto
+    //    sin ejecutar el UPDATE, porque B11-A no permite DML.
+    assert.match(touchQuery.sql, /SET last_login_at = @now WHERE id = @userId/);
+    assert.equal(touchQuery.params.userId, -1);
+    assert.ok(touchQuery.params.now instanceof Date);
+    assert.ok(Date.now() - touchQuery.params.now.getTime() < 60_000);
+
+    // 4. El riesgo propio del login es que @account aparece dos veces, en el
+    //    nombre de usuario y en el correo. Se comprueba que SQL Server enlaza el
+    //    mismo parámetro nombrado repetido y que los JOIN del lookup compilan.
+    const lookup = await contract.queryMany(
+      `SELECT u.id
+       FROM users u
+       JOIN roles r ON r.id = u.role_id
+       LEFT JOIN departments d ON d.id = u.department_id
+       WHERE LOWER(u.username) = LOWER(@account) OR LOWER(u.email) = LOWER(@account)`,
+      { account: 'b11a-inexistente@example.invalid' },
+    );
+    assert.deepEqual(lookup, []);
   } finally {
     await contract.close();
   }

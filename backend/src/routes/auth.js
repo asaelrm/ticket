@@ -1,31 +1,43 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import db from '../db.js';
+import db, { contract } from '../db.js';
 import config from '../config.js';
 import { authRateLimit } from '../utils/rateLimit.js';
 import { verifyPassword, hashPassword } from '../utils/password.js';
 import { saveDirectorySnapshot } from '../directorySync.js';
 import { validate, rules, safeStr } from '../utils/validation.js';
 import { requireAuth, touchLastLogin, loadUser } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 import { nowIso } from '../db.js';
 import { notifyPasswordReset } from '../utils/mailer.js';
 import { destroyUserSessions } from '../utils/sessionStore.js';
+import { destroyUserSessionsMssql } from '../utils/mssqlSessionStore.js';
 
 const router = express.Router();
 
+// Mismo criterio que app.js elige el store de sesiones: el backend activo decide
+// qué implementación se usa. Cada variante ya es correcta en su motor (el
+// SQLite extrae el userId con json_extract y el SQL Server con JSON_VALUE), así
+// que no hace falta unificar la semántica de `userId` entre las dos.
+const invalidateUserSessions = config.dbClient === 'mssql'
+  ? (userId) => destroyUserSessionsMssql(userId)
+  : (userId) => destroyUserSessions(userId);
+
+// Sin prefijo de esquema: SQLite no tiene esquemas y SQL Server resuelve estos
+// nombres contra `dbo`, el esquema por defecto del usuario de la aplicación.
 const FIND_USER = `
   SELECT u.*, r.code AS role_code, r.name AS role_name, d.name AS department_name
   FROM users u
   JOIN roles r ON r.id = u.role_id
   LEFT JOIN departments d ON d.id = u.department_id
-  WHERE LOWER(u.username) = LOWER(?) OR LOWER(u.email) = LOWER(?)
+  WHERE LOWER(u.username) = LOWER(@account) OR LOWER(u.email) = LOWER(@account)
 `;
 
 // Hash señuelo de un bcrypt real (coste 12) contra una contraseña que nadie
 // conoce. Solo sirve para gastar el mismo tiempo que un usuario existente.
 const DUMMY_HASH = hashPassword('contraseña-inexistente-para-igualar-coste');
 
-router.post('/login', authRateLimit(), (req, res) => {
+router.post('/login', authRateLimit(), asyncHandler(async (req, res) => {
   const account = safeStr(req.body.account);
   const password = String(req.body.password || '');
   const remember = req.body.remember === true || req.body.remember === 'true';
@@ -35,7 +47,7 @@ router.post('/login', authRateLimit(), (req, res) => {
     password: rules.required(password, 'Contraseña'),
   });
 
-  const user = db.prepare(FIND_USER).get(account, account);
+  const user = await contract.queryOne(FIND_USER, { account });
   // Si el usuario no existe hay que calcular un bcrypt igualmente. Con
   // `!user || !verify(...)` el cortocircuito evitaba el bcrypt y la respuesta
   // llegaba ~80 veces más rápida: bastaba medir el tiempo para enumerar qué
@@ -48,17 +60,20 @@ router.post('/login', authRateLimit(), (req, res) => {
     return res.status(403).json({ error: 'Su cuenta está desactivada. Contacte a un administrador.' });
   }
 
-  touchLastLogin(user.id);
+  await touchLastLogin(user.id);
 
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ error: 'Error al iniciar sesión' });
     req.session.userId = user.id;
     req.session.cookie.maxAge = remember ? config.session.rememberMaxAge : config.session.maxAge;
     req.session.save(() => {
-      return res.json({ user: loadUser(req) });
+      loadUser(req).then(
+        (loaded) => res.json({ user: loaded }),
+        () => res.status(500).json({ error: 'Error al iniciar sesión' }),
+      );
     });
   });
-});
+}));
 
 router.post('/logout', (req, res) => {
   req.session.destroy(() => {
@@ -110,7 +125,7 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-router.post('/change-password', requireAuth, (req, res) => {
+router.post('/change-password', requireAuth, asyncHandler(async (req, res) => {
   const current = String(req.body.current_password || '');
   const next = String(req.body.new_password || '');
 
@@ -131,11 +146,11 @@ router.post('/change-password', requireAuth, (req, res) => {
     req.user.id
   );
   saveDirectorySnapshot();
-  destroyUserSessions(req.user.id);
+  await invalidateUserSessions(req.user.id);
   return res.json({ ok: true });
-});
+}));
 
-router.post('/reset-password', (req, res) => {
+router.post('/reset-password', asyncHandler(async (req, res) => {
   const token = safeStr(req.body.token);
   const next = String(req.body.password || '');
 
@@ -156,9 +171,9 @@ router.post('/reset-password', (req, res) => {
      last_password_change_at = ?, updated_at = ? WHERE id = ?`
   ).run(hashPassword(next), nowIso(), nowIso(), row.id);
   saveDirectorySnapshot();
-  destroyUserSessions(row.id);
+  await invalidateUserSessions(row.id);
 
   return res.json({ ok: true });
-});
+}));
 
 export default router;
