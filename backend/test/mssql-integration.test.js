@@ -18,6 +18,26 @@ function integrationConfig() {
   return { server, database, user, password, port, options };
 }
 
+integration('MSSQL DEV DATETIME2(3) UTC B10.5', { timeout: 30_000 }, async () => {
+  const contract = createMssqlContract(integrationConfig());
+  const isoUtc = '2026-10-05T18:20:29.317Z';
+  try {
+    // Consulta de solo lectura: valida ISO 8601 → DATETIME2(3), sin DML.
+    const row = await contract.queryOne(
+      'SELECT CONVERT(datetime2(3), @at, 127) AS at',
+      { at: new Date(isoUtc) },
+    );
+    assert.equal(row.at, isoUtc);
+    const rendered = await contract.queryOne(
+      "SELECT CONVERT(char(23), CONVERT(datetime2(3), @at, 127), 126) AS value",
+      { at: new Date(isoUtc) },
+    );
+    assert.equal(rendered.value, '2026-10-05T18:20:29.317');
+  } finally {
+    await contract.close();
+  }
+});
+
 integration('integración MSSQL DEV · contrato departments', { timeout: 30_000 }, async () => {
   const contract = createMssqlContract(integrationConfig());
   const marker = `B2 ${Date.now()} O'Reilly áéíóú -- DROP TABLE departments`;

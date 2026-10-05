@@ -40,6 +40,19 @@ beforeEach(() => {
 });
 
 describe('contrato SQLite · transactionAsync', () => {
+  it('normaliza Date en la conexión dedicada y conserva milisegundos', async () => {
+    const date = new Date('2026-10-05T18:20:29.317Z');
+    await contract.transactionAsync(async (tx) => {
+      await tx.execute('INSERT INTO usuarios(email, nota) VALUES(:email, :nota)', {
+        email: 'tx-date@tickets.local', nota: date,
+      });
+    });
+    assert.equal(
+      (await contract.queryOne('SELECT nota FROM usuarios WHERE email = :email', { email: 'tx-date@tickets.local' })).nota,
+      '2026-10-05T18:20:29.317Z',
+    );
+  });
+
   it('usa conexión dedicada, confirma varias operaciones y devuelve el valor del callback', async () => {
     const result = await contract.transactionAsync(async (tx) => {
       assert.deepEqual(Object.keys(tx).sort(), ['execute', 'insertAndGetId', 'queryMany', 'queryOne']);
@@ -200,6 +213,31 @@ describe('contrato SQLite · insertAndGetId', () => {
 });
 
 describe('contrato SQLite · parámetros nombrados', () => {
+  it('normaliza Date válido a ISO UTC con milisegundos, sin tocar ISO o null', async () => {
+    const date = new Date('2026-10-05T18:20:29.317Z');
+    const isoUtc = '2026-10-05T18:20:29.317Z';
+    const isoSinZona = '2026-10-05T18:20:29.317';
+    await contract.execute('INSERT INTO usuarios(email, nota) VALUES(:email, :nota)', { email: 'date@b.c', nota: date });
+    assert.equal((await contract.queryOne('SELECT nota FROM usuarios WHERE email = :email', { email: 'date@b.c' })).nota, isoUtc);
+    assert.equal((await contract.queryOne('SELECT :value AS value', { value: isoUtc })).value, isoUtc);
+    assert.equal((await contract.queryOne('SELECT :value AS value', { value: isoSinZona })).value, isoSinZona);
+    assert.equal((await contract.queryOne('SELECT :value AS value', { value: null })).value, null);
+  });
+
+  it('rechaza Date inválido antes de escribir y no altera epoch, cadenas ni JSON', async () => {
+    await assert.rejects(
+      contract.execute('INSERT INTO usuarios(email, nota) VALUES(:email, :nota)', { email: 'bad-date@b.c', nota: new Date('invalid') }),
+      /fecha inválida/,
+    );
+    assert.equal((await contract.queryOne('SELECT COUNT(*) AS n FROM usuarios')).n, 0);
+    const epoch = 1791224429317;
+    const text = 'fecha normal';
+    const json = '{"when":"2026-10-05T18:20:29.317Z"}';
+    assert.equal((await contract.queryOne('SELECT :value AS value', { value: epoch })).value, epoch);
+    assert.equal((await contract.queryOne('SELECT :value AS value', { value: text })).value, text);
+    assert.equal((await contract.queryOne('SELECT :value AS value', { value: json })).value, json);
+  });
+
   it('acepta varios parámetros en la misma consulta', async () => {
     await contract.insertAndGetId('INSERT INTO usuarios(email, nota) VALUES(:email, :nota)', {
       email: 'multi@b.c',

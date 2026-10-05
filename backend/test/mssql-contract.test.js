@@ -135,6 +135,33 @@ describe('contrato MSSQL', () => {
     assert.deepEqual(driver.calls.inputs, [['name', "O'Reilly"]]);
   });
 
+  it('normaliza Date a ISO UTC y conserva los demás valores', async () => {
+    const driver = fakeDriver({ result: { recordset: [{ at: new Date('2026-10-05T18:20:29.317Z') }], rowsAffected: [0] } });
+    const contract = createMssqlContract({}, driver);
+    const date = new Date('2026-10-05T18:20:29.317Z');
+    const isoSinZona = '2026-10-05T18:20:29.317';
+    const epoch = 1791224429317;
+    const row = await contract.queryOne('SELECT @date AS at', { date, isoSinZona, epoch, nullValue: null });
+    assert.deepEqual(driver.calls.inputs, [
+      ['date', '2026-10-05T18:20:29.317Z'],
+      ['isoSinZona', isoSinZona],
+      ['epoch', epoch],
+      ['nullValue', null],
+    ]);
+    assert.equal(row.at, '2026-10-05T18:20:29.317Z');
+  });
+
+  it('rechaza Date inválido también dentro de transactionAsync', async () => {
+    const driver = transactionDriver();
+    const contract = createMssqlContract({}, driver);
+    await assert.rejects(
+      contract.transactionAsync(async (tx) => tx.execute('UPDATE x SET at = @at', { at: new Date('invalid') })),
+      /fecha inválida/,
+    );
+    assert.equal(driver.calls.rollbacks, 1);
+    assert.deepEqual(driver.calls.sql, []);
+  });
+
   it('normaliza rowsAffected e id mediante OUTPUT INSERTED.id', async () => {
     const driver = fakeDriver({ result: { recordset: [{ id: 42 }], rowsAffected: [1] } });
     const contract = createMssqlContract({}, driver);

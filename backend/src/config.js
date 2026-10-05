@@ -191,6 +191,9 @@ const config = {
     options: {
       encrypt: bool(process.env.DB_ENCRYPT, true),
       trustServerCertificate: bool(process.env.DB_TRUST_SERVER_CERTIFICATE, false),
+      // DATETIME2 no guarda zona; tedious debe interpretar sus componentes como
+      // UTC para que el contrato ISO UTC no dependa del huso del proceso.
+      useUTC: true,
       instanceName: (process.env.DB_INSTANCE || '').trim() || undefined,
     },
   },

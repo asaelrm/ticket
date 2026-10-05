@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { normalizeDateParameter } from './datetime.js';
 
 const transactionContext = new AsyncLocalStorage();
 
@@ -57,7 +58,7 @@ function normalizeValue(value, clave) {
       `Parámetro ":${clave}" es undefined. Usa null para un valor NULL.`,
     );
   }
-  return value;
+  return normalizeDateParameter(value, `:${clave}`);
 }
 
 // node:sqlite acepta las claves con o sin los dos puntos (`{id:1}` y `{':id':1}`

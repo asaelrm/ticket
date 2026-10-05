@@ -1,5 +1,6 @@
 import sql from 'mssql';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { normalizeDateParameter, normalizeDateRow } from './datetime.js';
 
 const transactionContext = new AsyncLocalStorage();
 
@@ -28,7 +29,7 @@ function bind(request, params) {
     if (value === undefined) {
       throw new TypeError(`Parámetro "${name}" es undefined. Usa null para un valor NULL.`);
     }
-    request.input(name, value);
+    request.input(name, normalizeDateParameter(value, `@${name}`));
   }
   return request;
 }
@@ -75,11 +76,11 @@ export function createMssqlContract(config, {
     return {
       async queryOne(statement, params) {
         const result = await (await transactionRequest(params)).query(statement);
-        return result.recordset?.[0] ?? null;
+        return normalizeDateRow(result.recordset?.[0] ?? null);
       },
       async queryMany(statement, params) {
         const result = await (await transactionRequest(params)).query(statement);
-        return result.recordset ?? [];
+        return (result.recordset ?? []).map(normalizeDateRow);
       },
       async execute(statement, params) {
         const result = await (await transactionRequest(params)).query(statement);
@@ -161,12 +162,12 @@ export function createMssqlContract(config, {
 
     async queryOne(statement, params) {
       const result = await (await request(params)).query(statement);
-      return result.recordset?.[0] ?? null;
+      return normalizeDateRow(result.recordset?.[0] ?? null);
     },
 
     async queryMany(statement, params) {
       const result = await (await request(params)).query(statement);
-      return result.recordset ?? [];
+      return (result.recordset ?? []).map(normalizeDateRow);
     },
 
     async execute(statement, params) {
