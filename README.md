@@ -144,6 +144,31 @@ contraseña que está escrita en el repositorio.
 | ------------------------ | --------------------------------- |
 | `npm run db:migrate`     | Aplica migraciones (idempotente)  |
 | `npm run db:seed`        | Siembra roles, permisos y datos   |
+| `npm run migrate:departments` | B13-A: dry-run de la migración de `departments` a SQL Server. No escribe |
+| `npm run migrate:departments:execute` | B13-A: ejecuta la Fase 1 (cargar las 25 filas). Hoy **aborta**: el destino quedó en `RECUPERACION_MANUAL` |
+| `npm run verify:departments` | B13-A: clasifica el destino, solo lectura |
+
+Los tres de B13-A se ejecutan **dentro del contenedor** (`ticket-dev-backend`),
+porque la SQLite de origen es la del volumen `ticket_dev_data`, no la del host.
+Ver [`backend/src/scripts/B13-A.md`](backend/src/scripts/B13-A.md).
+
+B13-A está partido en **dos fases**: la Fase 1 carga las 25 filas y es
+transaccional; la Fase 2 ajusta la identidad a 480 y no lo es, porque el
+`ROLLBACK` no la restaura. Eso está medido, no supuesto: un `INSERT` explícito
+con `id = 478` dejó el contador en 478 después de deshacer, y el destino está
+ahora en `0` filas / `last_value 478`. El migrador reconoce cuatro estados
+(`CARGA_PENDIENTE`, `CARGA_CONFIRMADA_RESEED_PENDIENTE`, `COMPLETADO`,
+`RECUPERACION_MANUAL`) y solo escribe en el primero. Volver a
+`CARGA_PENDIENTE` exige una restauración administrativa aprobada que este
+código no hace.
+
+`migrate:departments:execute` **no** se ejecuta con `sifha_ticket_dev`: usa una
+identidad **exclusiva de migración** con permisos temporales `SELECT`, `INSERT` y
+`ALTER` solo sobre `SIFHA_Tickets_DEV.dbo.departments`, que un administrador
+concede antes de la ventana y revoca después. El nombre de esa identidad se
+declara en `B13A_MIGRATION_LOGIN`, que es una allowlist de un solo nombre
+**sin contraseña**; el migrador solo verifica esos permisos, no los otorga. El
+dry-run no necesita esa variable.
 
 ### Tests del backend
 

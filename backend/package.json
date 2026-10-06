@@ -8,6 +8,11 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "db:migrate": "node --env-file-if-exists=.env src/scripts/migrate.js",
     "db:seed": "node --env-file-if-exists=.env src/scripts/seed.js",
+    "seed:mssql": "node --env-file-if-exists=.env src/scripts/seed-mssql.mjs --check",
+    "seed:mssql:execute": "node --env-file-if-exists=.env src/scripts/seed-mssql.mjs --execute",
+    "migrate:departments": "node --env-file-if-exists=.env src/scripts/migrate-departments-sqlite-to-mssql.mjs",
+    "migrate:departments:execute": "node --env-file-if-exists=.env src/scripts/migrate-departments-sqlite-to-mssql.mjs --execute",
+    "verify:departments": "node --env-file-if-exists=.env src/scripts/verify-departments-migration.mjs",
     "test": "node --test --import ./test/setup.js --env-file-if-exists=.env \"test/*.test.js\""
   },
   "dependencies": {
