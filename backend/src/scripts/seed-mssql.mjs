@@ -39,6 +39,8 @@ import {
   REQUIRED_UNIQUE_KEYS,
   RESOLUTION_ORDER,
   ROLES,
+  SEQUENCES,
+  SETTINGS,
   TABLES_REQUIRING_DDL,
   assertPlanIsConsistent,
 } from './lib/mssqlSeedPlan.mjs';
@@ -68,11 +70,14 @@ async function listTables(tx) {
     WHERE s.name = 'dbo'`);
 }
 
-async function assertUniqueKeysExist(tx) {
+async function assertUniqueKeysExist(tx, present = null) {
   // Sin la clave lógica no hay idempotencia posible, así que esto aborta antes de
-  // escribir nada en vez de descubrirlo a mitad.
+  // escribir nada en vez de descubrirlo a mitad. `present` es el conjunto de
+  // tablas dbo que existen ahora mismo: las tablas C2 que aún no tienen DDL se
+  // saltan porque son las listas de pendientes las que las reportan, no un error.
   const problems = [];
   for (const [step, spec] of Object.entries(REQUIRED_UNIQUE_KEYS)) {
+    if (present && !present.has(step)) continue;
     const indexes = await tx.queryMany(`
       SELECT i.is_unique AS is_unique, i.is_primary_key AS is_primary_key
       FROM sys.indexes i
@@ -221,6 +226,80 @@ async function seedRolePermissions(tx, report, roleIds, permissionIds) {
   return { created, already };
 }
 
+// ---------------------------------------------------------------------------
+// C2 · Los catálogos que C1 crea bajo DDL: categories, sequences y settings.
+// Son pasos OPCIONALES: solo corren si la tabla ya existe. Si aún no, la lista
+// de pendientes de DDL ya lo dice desde inspect() y el seed no se detiene.
+// ---------------------------------------------------------------------------
+
+async function seedCategories(tx, report) {
+  const existing = new Map((await tx.queryMany('SELECT id, name FROM categories'))
+    .map((r) => [r.name, r.id]));
+
+  let created = 0;
+  let already = 0;
+  for (const { name, description, color } of CATEGORIES) {
+    if (existing.has(name)) {
+      already += 1;
+      report.push({ paso: 'categories', clave: name, accion: 'ya-existe', id: existing.get(name) });
+      continue;
+    }
+    const { id } = await tx.insertAndGetId(
+      `INSERT INTO categories (name, description, color)
+       OUTPUT INSERTED.id AS id
+       VALUES (@name, @description, @color)`,
+      { name, description, color },
+    );
+    created += 1;
+    report.push({ paso: 'categories', clave: name, accion: 'creado', id });
+  }
+  return { created, already };
+}
+
+async function seedSequences(tx, report) {
+  const existing = new Map((await tx.queryMany('SELECT name, value FROM sequences'))
+    .map((r) => [r.name, r.value]));
+
+  let created = 0;
+  let already = 0;
+  for (const { name, value } of SEQUENCES) {
+    if (existing.has(name)) {
+      already += 1;
+      report.push({ paso: 'sequences', clave: name, accion: 'ya-existe', value: existing.get(name) });
+      continue;
+    }
+    const res = await tx.execute(
+      'INSERT INTO sequences (name, value) VALUES (@name, @value)',
+      { name, value },
+    );
+    created += res.rowsAffected > 0 ? 1 : 0;
+    report.push({ paso: 'sequences', clave: name, accion: 'creado', value });
+  }
+  return { created, already };
+}
+
+async function seedSettings(tx, report) {
+  const existing = new Set((await tx.queryMany('SELECT [key] FROM settings'))
+    .map((r) => r.key));
+
+  let created = 0;
+  let already = 0;
+  for (const { key, value } of SETTINGS) {
+    if (existing.has(key)) {
+      already += 1;
+      report.push({ paso: 'settings', clave: key, accion: 'ya-existe' });
+      continue;
+    }
+    const res = await tx.execute(
+      'INSERT INTO settings ([key], value) VALUES (@key, @value)',
+      { key, value },
+    );
+    created += res.rowsAffected > 0 ? 1 : 0;
+    report.push({ paso: 'settings', clave: key, accion: 'creado' });
+  }
+  return { created, already };
+}
+
 async function seedAdmin(tx, report, roleIds, departmentIds, env) {
   const password = process.env[ADMIN_DEFAULTS.passwordEnv] || '';
   const force = boolEnv(process.env[ADMIN_DEFAULTS.forceEnv]);
@@ -322,7 +401,13 @@ async function inspect(contract) {
     counts[t] = (await contract.queryOne(`SELECT COUNT_BIG(*) AS n FROM [dbo].[${t}]`)).n;
   }
 
-  return { names, missingRequired, pendingDdl, counts };
+  const c2Counts = {};
+  for (const t of ['categories', 'sequences', 'settings']) {
+    if (!names.has(t)) continue;
+    c2Counts[t] = (await contract.queryOne(`SELECT COUNT_BIG(*) AS n FROM [dbo].[${t}]`)).n;
+  }
+
+  return { names, missingRequired, pendingDdl, counts, c2Counts };
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +454,17 @@ export async function runSeed({ contract, execute, log = console.log }) {
       const actual = Number(before.counts[tabla] ?? 0);
       log(`[b13-c]   ${tabla}: ${total} en el plan, ${actual} ya, ${Math.max(0, total - actual)} a crear`);
     }
+    // C2: catálogos opcionales. Solo se cuentan si su tabla ya existe (tras el
+    // DDL de C1); si no, la lista de pendientes ya lo explica abajo.
+    log(`[b13-c] C2 (solo si la tabla existe):`);
+    for (const [tabla, total] of [['categories', CATEGORIES.length], ['sequences', SEQUENCES.length], ['settings', SETTINGS.length]]) {
+      if (!before.names.has(tabla)) {
+        log(`[b13-c]   ${tabla}: tabla ausente, pendiente de DDL (${TABLES_REQUIRING_DDL[tabla]})`);
+        continue;
+      }
+      const actual = Number(before.c2Counts[tabla] ?? 0);
+      log(`[b13-c]   ${tabla}: ${total} en el plan, ${actual} ya, ${Math.max(0, total - actual)} a crear`);
+    }
     if (before.pendingDdl.length) {
       log('[b13-c] tablas que NO se pueden sembrar porque no existen (requieren DDL aparte):');
       for (const p of before.pendingDdl) log(`[b13-c]   ${p.tabla}: ${p.motivo}`);
@@ -382,16 +478,23 @@ export async function runSeed({ contract, execute, log = console.log }) {
   }
 
   await contract.transactionAsync(async (tx) => {
-    await assertUniqueKeysExist(tx);
+    await assertUniqueKeysExist(tx, before.names);
 
     const permissionIds = await seedPermissions(tx, report);
     const roleIds = await seedRoles(tx, report);
     const departmentIds = await seedDepartments(tx, report);
     const rp = await seedRolePermissions(tx, report, roleIds, permissionIds);
+
+    const c2 = {};
+    if (before.names.has('categories')) c2.categories = await seedCategories(tx, report);
+    if (before.names.has('sequences')) c2.sequences = await seedSequences(tx, report);
+    if (before.names.has('settings')) c2.settings = await seedSettings(tx, report);
+
     const admin = await seedAdmin(tx, report, roleIds, departmentIds, config.env);
 
     summary.rolePermissionsCreated = rp.created;
     summary.admin = admin;
+    summary.c2 = c2;
     for (const row of report) {
       if (row.accion === 'creado') summary.created += 1;
       else if (row.accion === 'ya-existe') summary.already += 1;

@@ -18,10 +18,17 @@
 //      roles              -> code
 //      role_permissions   -> (role_code, permission_code)  [FK por id, resuelta aquí]
 //      users              -> username
+//      categories         -> name            [C2, si existe la tabla]
+//      sequences          -> name            [C2, si existe la tabla]
+//      settings           -> key             [C2, si existe la tabla]
 //
 // Los ids los pone SQL Server con su IDENTITY. `role_permissions` es la única
 // tabla sin IDENTITY, y sus dos columnas son FK, así que se insertan con los ids
 // que el propio seed acaba de leer: los de ESTA base, no los de SQLite.
+//
+// categories/sequences/settings son C2: se siembran SOLO cuando su tabla ya
+// existe (tras el DDL de C1). Si no existe, el ejecutor las reporta como
+// pendientes de DDL y sigue, igual que con las demás catálogos.
 
 /**
  * Permisos. Se copian de `src/seed.js` sin cambios: la equivalencia funcional
@@ -162,6 +169,28 @@ export const KB_CATEGORIES = [
 ].map(([name, description, color]) => ({ name, description, color }));
 
 /**
+ * Secuencias funcionales. La única requerida por el código es `ticket_number`,
+ * que C3 consume de forma atómica: `UPDATE ... WITH (UPDLOCK, HOLDLOCK)
+ * SET value = value + 1 OUTPUT INSERTED.value`. Empezar en 0 hace que el primer
+ * ticket sea TCK-000001, igual que SQLite. Si una secuencia YA existe, el seed
+ * nunca la reinicia: la numeración en curso no debe retroceder.
+ */
+export const SEQUENCES = [
+  { name: 'ticket_number', value: 0 },
+];
+
+/**
+ * Configuración mínima. Se copian los valores por defecto que `src/routes/settings.js`
+ * y `src/utils/sla.js` ya asumen en código: sin estas filas el sistema funciona
+ * (hay fallbacks), pero la pantalla de Configuración mostraría vacíos los campos
+ * de SLA y numeración. Nada se sobrescribe: si una clave ya existe, se deja como
+ * la haya dejado un administrador.
+ */
+export const SETTINGS = [
+  { key: 'ticket_prefix', value: 'TCK' },
+];
+
+/**
  * Orden de resolución por FK. Cada paso solo depende de los anteriores, y el
  * ejecutor los recorre en este orden exacto.
  *
@@ -186,6 +215,12 @@ export const REQUIRED_UNIQUE_KEYS = {
   // eso un segundo seed no puede duplicar filas ni aunque quiera.
   role_permissions: { table: 'role_permissions', columns: ['role_id', 'permission_id'] },
   users: { table: 'users', column: 'username' },
+  // Tablas C2. La comprobación solo se aplica cuando la tabla YA existe: si
+  // todavía no hay DDL, es la lista de pendientes la que lo dice, no un error
+  // de seed.
+  categories: { table: 'categories', column: 'name' },
+  sequences: { table: 'sequences', column: 'name' },
+  settings: { table: 'settings', column: 'key' },
 };
 
 /** Tablas que el seed necesita pero que hoy no existen en DEV. */
@@ -229,6 +264,8 @@ export function findPlanProblems({
   departments = DEPARTMENTS,
   categories = CATEGORIES,
   kbCategories = KB_CATEGORIES,
+  settings = SETTINGS,
+  sequences = SEQUENCES,
   admin = ADMIN_DEFAULTS,
 } = {}) {
   const problems = [];
@@ -245,6 +282,8 @@ export function findPlanProblems({
   dup('departments.name', departments.map((d) => d.name));
   dup('categories.name', categories.map((c) => c.name));
   dup('kb_categories.name', kbCategories.map((c) => c.name));
+  dup('settings.key', settings.map((s) => s.key));
+  dup('sequences.name', sequences.map((s) => s.name));
 
   const permissionCodes = new Set(permissions.map((p) => p.code));
   for (const role of roles) {
@@ -262,6 +301,18 @@ export function findPlanProblems({
   }
   if (!departments.some((d) => d.name === admin.departmentName)) {
     problems.push(`no está el departamento "${admin.departmentName}" del administrador`);
+  }
+
+  // C3 consume la secuencia ticket_number de forma atómica: sin ella la
+  // numeración no puede arrancar aunque el resto del seed esté completo.
+  if (!sequences.some((s) => s.name === 'ticket_number')) {
+    problems.push(`falta la secuencia "ticket_number" que C3 necesita para numerar`);
+  }
+  // El prefijo por defecto vive en settings. Sin la clave el código usa 'TCK'
+  // como fallback (ticketNumber.js y settings.js), pero un plan que la pida
+  // explícitamente no debería dejar el sistema sin la fila esencial.
+  if (!settings.some((s) => s.key === 'ticket_prefix')) {
+    problems.push(`falta la clave de settings "ticket_prefix" que la numeración espera`);
   }
 
   return problems;
@@ -288,6 +339,8 @@ export function describePlan() {
     departments: DEPARTMENTS.length,
     categories: CATEGORIES.length,
     kbCategories: KB_CATEGORIES.length,
+    settings: SETTINGS.length,
+    sequences: SEQUENCES.length,
     pendingDdl: Object.keys(TABLES_REQUIRING_DDL),
     order: RESOLUTION_ORDER.slice(),
   };

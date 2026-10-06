@@ -90,7 +90,7 @@ export function createMssqlContract(config, {
         const result = await (await transactionRequest(params)).query(statement);
         const id = result.recordset?.[0]?.id;
         if (!Number.isSafeInteger(Number(id))) {
-          throw new Error('insertAndGetId requiere `OUTPUT INSERTED.id AS id` y un id numÃ©rico seguro.');
+          throw new Error('insertAndGetId requiere `OUTPUT INSERTED.id AS id` y un id numérico seguro.');
         }
         return { id: Number(id), rowsAffected: affected(result) };
       },
@@ -102,7 +102,7 @@ export function createMssqlContract(config, {
     if (transactionContext.getStore()) {
       throw new Error('No se permiten transacciones anidadas; reutilice el tx recibido.');
     }
-    if (closingPromise) throw new Error('El pool MSSQL se estÃ¡ cerrando; no se puede iniciar una transacciÃ³n.');
+    if (closingPromise) throw new Error('El pool MSSQL se está cerrando; no se puede iniciar una transacción.');
 
     activeTransactions += 1;
     let transaction;

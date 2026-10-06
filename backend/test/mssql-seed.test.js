@@ -21,6 +21,8 @@ import {
   PERMISSIONS,
   RESOLUTION_ORDER,
   ROLES,
+  SEQUENCES,
+  SETTINGS,
   assertPlanIsConsistent,
   describePlan,
   findPlanProblems,
@@ -78,11 +80,15 @@ function createFakeMssql({
     roles: [],
     users: [],
     sessions: [],
+    categories: [],
+    sequences: [],
+    settings: [],
     counters: {
       departments: counters.departments ?? 44,
       permissions: counters.permissions ?? 5,
       roles: counters.roles ?? 4,
       users: counters.users ?? 3,
+      categories: counters.categories ?? 0,
     },
     present,
     journal: [],
@@ -93,6 +99,9 @@ function createFakeMssql({
     permissions: (r) => r.code.toLowerCase(),
     roles: (r) => r.code.toLowerCase(),
     users: (r) => r.username.toLowerCase(),
+    categories: (r) => r.name.toLowerCase(),
+    sequences: (r) => r.name.toLowerCase(),
+    settings: (r) => r.key.toLowerCase(),
   };
 
   function nextId(table) {
@@ -145,6 +154,15 @@ function createFakeMssql({
     }
     if (/SELECT id, name FROM departments/.test(sql)) {
       return state.departments.map((r) => ({ id: r.id, name: r.name }));
+    }
+    if (/SELECT id, name FROM categories/.test(sql)) {
+      return state.categories.map((r) => ({ id: r.id, name: r.name }));
+    }
+    if (/SELECT name, value FROM sequences/.test(sql)) {
+      return state.sequences.map((r) => ({ name: r.name, value: r.value }));
+    }
+    if (/SELECT \[key\] FROM settings/.test(sql)) {
+      return state.settings.map((r) => ({ key: r.key }));
     }
     if (/FROM users\s+WHERE LOWER\(username\)/.test(sql)) {
       const u = String(params.username).toLowerCase();
@@ -208,6 +226,26 @@ function createFakeMssql({
       return { inserted: [], rowsAffected: [row ? 1 : 0] };
     }
 
+    // --- C2: catálogos que dependen del DDL de C1 -------------------------
+    if (/INSERT INTO categories/.test(sql)) {
+      const row = { id: nextId('categories'), name: params.name, description: params.description, color: params.color };
+      enforceUnique('categories', row);
+      state.categories.push(row);
+      return { inserted: [row], rowsAffected: [1] };
+    }
+    if (/INSERT INTO sequences/.test(sql)) {
+      const row = { name: params.name, value: params.value };
+      enforceUnique('sequences', row);
+      state.sequences.push(row);
+      return { inserted: [row], rowsAffected: [1] };
+    }
+    if (/INSERT INTO settings/.test(sql)) {
+      const row = { key: params.key, value: params.value };
+      enforceUnique('settings', row);
+      state.settings.push(row);
+      return { inserted: [row], rowsAffected: [1] };
+    }
+
     throw new Error(`El contrato falso no sabe responder a:\n${sql}`);
   }
 
@@ -235,6 +273,9 @@ function createFakeMssql({
     role_permissions: state.role_permissions,
     roles: state.roles,
     users: state.users,
+    categories: state.categories,
+    sequences: state.sequences,
+    settings: state.settings,
     counters: state.counters,
   }));
   const restore = () => Object.assign(state, JSON.parse(JSON.stringify(snapshot)));
@@ -445,11 +486,18 @@ test('b13-c · no crea el administrador si la cuenta ya existe', async () => {
   const { contract, state } = await seedWith();
   const { runSeed } = await import('../src/scripts/seed-mssql.mjs');
   const hashAntes = state.users[0].password_hash;
-  const resultado = await runSeed({ contract, execute: true, log: () => {} });
-  assert.equal(state.users.length, 1);
-  assert.equal(state.users[0].password_hash, hashAntes, 'no le toca la contraseña sin SEED_ADMIN_FORCE_PASSWORD');
-  assert.equal(resultado.admin.created, false);
-  assert.equal(resultado.admin.reason, 'ya-existe');
+  const previous = process.env[ADMIN_DEFAULTS.passwordEnv];
+  process.env[ADMIN_DEFAULTS.passwordEnv] = 'otra-contrasena-larga';
+  try {
+    const resultado = await runSeed({ contract, execute: true, log: () => {} });
+    assert.equal(state.users.length, 1);
+    assert.equal(state.users[0].password_hash, hashAntes, 'no le toca la contraseña sin SEED_ADMIN_FORCE_PASSWORD');
+    assert.equal(resultado.admin.created, false);
+    assert.equal(resultado.admin.reason, 'ya-existe');
+  } finally {
+    if (previous === undefined) delete process.env[ADMIN_DEFAULTS.passwordEnv];
+    else process.env[ADMIN_DEFAULTS.passwordEnv] = previous;
+  }
 });
 
 test('b13-c · sin SEED_ADMIN_PASSWORD no crea ningún usuario', async () => {
@@ -519,7 +567,9 @@ test('b13-c · todo dato viaja como parámetro @nombre, ninguno interpolado', as
 
   // Los nombres de tabla vienen del código, no de datos: solo los cinco del plan.
   const tablas = [...SEED_SOURCE.matchAll(/INSERT INTO (\w+)/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(tablas)].sort(), ['departments', 'permissions', 'role_permissions', 'roles', 'users']);
+  assert.deepEqual([...new Set(tablas)].sort(), [
+    'categories', 'departments', 'permissions', 'role_permissions', 'roles', 'sequences', 'settings', 'users',
+  ]);
 });
 
 test('b13-c · el seed no depende de ningún id histórico', async () => {
@@ -617,13 +667,71 @@ test('b13-c · el plan declara qué tablas quedan pendientes de DDL, y por qué'
 });
 
 test('b13-c · los catálogos sin tabla no se intentan sembrar', async () => {
-  const { state } = await seedWith();
+  const { state, result } = await seedWith();
   // categories y kb_categories no existen en DEV: no se inventan ni se saltan.
-  assert.equal(state.categories, undefined);
-  assert.equal(state.kbCategories, undefined);
+  assert.equal(state.categories.length, 0);
+  assert.equal(state.sequences.length, 0);
+  assert.equal(state.settings.length, 0);
+  assert.deepEqual(result.c2, {});
+  assert.equal(state.journal.some((j) => /\b(categories|sequences|settings)\b/i.test(j.sql) && /INSERT/i.test(j.sql)), false);
   // Pero sus datos están listos para cuando haya DDL.
   assert.equal(CATEGORIES.length, 11);
   assert.equal(KB_CATEGORIES.length, 7);
+});
+
+test('b13-c · C2 siembra categorías, ticket_number y ticket_prefix solo cuando existen sus tablas', async () => {
+  const tables = ['departments', 'permissions', 'role_permissions', 'roles', 'sessions', 'users',
+    'categories', 'sequences', 'settings'];
+  const { contract, state, result } = await seedWith({ tables });
+
+  assert.equal(state.categories.length, CATEGORIES.length);
+  assert.equal(state.sequences.length, 1);
+  assert.deepEqual(state.sequences[0], { name: 'ticket_number', value: 0 });
+  assert.equal(state.settings.length, 1);
+  assert.deepEqual(state.settings[0], { key: 'ticket_prefix', value: 'TCK' });
+  assert.deepEqual(result.c2, {
+    categories: { created: CATEGORIES.length, already: 0 },
+    sequences: { created: SEQUENCES.length, already: 0 },
+    settings: { created: SETTINGS.length, already: 0 },
+  });
+
+  const { runSeed } = await import('../src/scripts/seed-mssql.mjs');
+  const second = await runSeed({ contract, execute: true, log: () => {} });
+  assert.deepEqual(second.c2, {
+    categories: { created: 0, already: CATEGORIES.length },
+    sequences: { created: 0, already: SEQUENCES.length },
+    settings: { created: 0, already: SETTINGS.length },
+  });
+  assert.equal(state.categories.length, CATEGORIES.length);
+  assert.equal(state.sequences.length, 1);
+  assert.equal(state.settings.length, 1);
+
+  const c2Writes = state.journal.filter((j) => /INSERT INTO (categories|sequences|settings)/.test(j.sql));
+  assert.equal(c2Writes.length, CATEGORIES.length + SEQUENCES.length + SETTINGS.length);
+  for (const { sql, params } of c2Writes) {
+    assert.match(sql, /@\w+/);
+    assert.ok(Object.keys(params).length > 0);
+  }
+  assert.ok(c2Writes.some((j) => /INSERT INTO sequences/.test(j.sql)));
+  assert.ok(c2Writes.some((j) => /INSERT INTO settings/.test(j.sql)));
+});
+
+test('b13-c · un fallo C2 revierte también los catálogos nuevos', async () => {
+  const tables = ['departments', 'permissions', 'role_permissions', 'roles', 'sessions', 'users',
+    'categories', 'sequences', 'settings'];
+  const contract = createFakeMssql({ tables, failOn: /INSERT INTO sequences/ });
+  const previous = process.env[ADMIN_DEFAULTS.passwordEnv];
+  process.env[ADMIN_DEFAULTS.passwordEnv] = 'una-contrasena-larga';
+  const { runSeed } = await import('../src/scripts/seed-mssql.mjs');
+  try {
+    await assert.rejects(() => runSeed({ contract, execute: true, log: () => {} }), /se cayó la conexión/);
+  } finally {
+    if (previous === undefined) delete process.env[ADMIN_DEFAULTS.passwordEnv];
+    else process.env[ADMIN_DEFAULTS.passwordEnv] = previous;
+  }
+  assert.equal(contract.state.categories.length, 0);
+  assert.equal(contract.state.sequences.length, 0);
+  assert.equal(contract.state.settings.length, 0);
 });
 
 test('b13-c · no siembra usuarios de SQLite ni tickets', async () => {
