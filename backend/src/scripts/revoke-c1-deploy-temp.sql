@@ -51,6 +51,7 @@ END;
 IF OBJECT_ID(N'dbo.sessions', N'U') IS NOT NULL
   REVOKE SELECT ON OBJECT::dbo.[sessions] FROM [c1_deploy_temp];
 
+REVOKE REFERENCES ON SCHEMA::[dbo] FROM [c1_deploy_temp];
 REVOKE ALTER ON SCHEMA::[dbo] FROM [c1_deploy_temp];
 REVOKE CREATE TABLE FROM [c1_deploy_temp];
 

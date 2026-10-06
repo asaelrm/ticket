@@ -35,6 +35,14 @@ PRINT N'[C1-GRANT] Concediendo permisos temporales C1.';
 GRANT CREATE TABLE TO [c1_deploy_temp];
 GRANT ALTER ON SCHEMA::[dbo] TO [c1_deploy_temp];
 
+-- REFERENCES es un permiso distinto de ALTER y no lo implica: SQL Server lo
+-- exige sobre la TABLA REFERENCIADA al declarar una FK (error 229). Las tablas
+-- nuevas de C1 (teams, categories, tickets, ticket_comments) todavia no existen
+-- en este punto, asi que el alcance sobre el esquema dbo es el unico que cubre
+-- tambien las referencias entre tablas creadas por el propio C1. No concede
+-- SELECT/INSERT/UPDATE/ALTER sobre nada.
+GRANT REFERENCES ON SCHEMA::[dbo] TO [c1_deploy_temp];
+
 GRANT SELECT ON OBJECT::dbo.[users] TO [c1_deploy_temp];
 GRANT SELECT ON OBJECT::dbo.[roles] TO [c1_deploy_temp];
 GRANT SELECT ON OBJECT::dbo.[permissions] TO [c1_deploy_temp];

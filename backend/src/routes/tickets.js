@@ -1,15 +1,22 @@
 import express from 'express';
-import db, { nowIso } from '../db.js';
+import fs from 'node:fs';
+import db, { contract as defaultContract, nowIso } from '../db.js';
 import config from '../config.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { visibleTemplateFor } from './cannedResponses.js';
 import { visibleArticlesForTicket } from './kbArticles.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { uploadMiddleware, uploadSizeError } from '../middleware/upload.js';
-import { validateFile, persistUpload } from '../utils/fileType.js';
+import { validateFile, persistUpload, attachmentPath } from '../utils/fileType.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { nextTicketNumber } from '../utils/ticketNumber.js';
-import { computeSlaDue, OPEN_STATUSES, slaAtRiskUntilIso } from '../utils/sla.js';
+import { nextTicketNumber, nextTicketNumberAsync } from '../utils/ticketNumber.js';
+import {
+  computeSlaDue,
+  computeSlaDueWithHours,
+  getSlaHoursAsync,
+  OPEN_STATUSES,
+  slaAtRiskUntilIso,
+} from '../utils/sla.js';
 import { getWorkflowOptions, requireResolutionToClose, isCsatEnabled } from '../utils/options.js';
 import { emitTicketEvent, onTicketEvent } from '../utils/ticketBus.js';
 import { notifyAssigned, notifyComment, notifyResolved, notifyCancelled } from '../utils/mailer.js';
@@ -19,6 +26,7 @@ import {
   notifyTicketParticipants,
   notifyAdmins,
   notifyStaff,
+  notifyStaffAsync,
 } from '../utils/notifications.js';
 
 const router = express.Router();
@@ -483,6 +491,496 @@ function listQuery(req, viewOnlyOwn) {
 }
 
 // ---------------------------------------------------------------------------
+// C4 · Rama MSSQL de los tres endpoints de tickets
+//
+// Cubre POST /api/tickets, GET /api/tickets y GET /api/tickets/:id con el
+// contrato async. Con DB_CLIENT=mssql la fachada `db` es un Proxy que lanza
+// ante cualquier acceso, así que TODO lo de este bloque se escribe con
+// `@nombre`, CONCAT y sin LIMIT/OFFSET de SQLite. El camino SQLite de arriba no
+// se toca: la rama se elige en el handler, antes de la primera consulta.
+//
+// Se mantiene un solo código de verdad para lo que es agnóstico al motor
+// (validación, visibilidad, permisos, orden de columnas) y se duplica solo el
+// SQL, que por definición no puede ser el mismo.
+// ---------------------------------------------------------------------------
+
+function httpError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+// `t.*` trae `resolution_notified` (BIT) y `tc.*` trae `is_internal` (BIT):
+// tedious los entrega como boolean mientras SQLite devuelve 1/0. El JSON de
+// respuesta sólo es idéntico en los dos motores si se normalizan a entero aquí.
+function bitsToInt(row, ...keys) {
+  if (!row) return row;
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null) row[key] = row[key] ? 1 : 0;
+  }
+  return row;
+}
+
+// Toda fecha ISO con `Z` se compara contra DATETIME2 con estilo 127: el literal
+// o el parámetro nvarchar con sufijo de zona no se convierte de forma implícita
+// en SQL Server y revienta. Estilo 127 es ISO 8601 con zona, el mismo que ya
+// usa la integración de C1. Los `YYYY-MM-DD` viajan como date (CAST 23).
+const asDateTime = (placeholder) => `CONVERT(datetime2(3), ${placeholder}, 127)`;
+const asDate = (placeholder) => `CAST(${placeholder} AS date)`;
+
+const TICKET_SQL_MSSQL = `
+  SELECT t.*,
+    CONCAT(r.name, ' ', r.last_name) AS reporter_name,
+    r.email AS reporter_email,
+    COALESCE(CONCAT(au.name, ' ', au.last_name), '') AS assigned_name,
+    COALESCE(CONCAT(ru.name, ' ', ru.last_name), '') AS resolved_by_name,
+    COALESCE(CONCAT(cu.name, ' ', cu.last_name), '') AS closed_by_name,
+    COALESCE(CONCAT(ou.name, ' ', ou.last_name), '') AS reopened_by_name,
+    COALESCE(te.name, '') AS team_name,
+    c.name AS category_name, c.color AS category_color,
+    d.name AS department_name,
+    CASE WHEN t.sla_due_at IS NOT NULL
+              AND t.status IN ('OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING')
+              AND t.sla_due_at < SYSUTCDATETIME()
+         THEN 1 ELSE 0 END AS is_overdue,
+    (SELECT COUNT(*) FROM ticket_comments tc WHERE tc.ticket_id = t.id) AS comment_count,
+    (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.ticket_id = t.id) AS attachment_count
+  FROM tickets t
+  JOIN users r ON r.id = t.reporter_id
+  LEFT JOIN users au ON au.id = t.assigned_to_id
+  LEFT JOIN users ru ON ru.id = t.resolved_by
+  LEFT JOIN users cu ON cu.id = t.closed_by
+  LEFT JOIN users ou ON ou.id = t.reopened_by
+  LEFT JOIN teams te ON te.id = t.assigned_team_id
+  LEFT JOIN categories c ON c.id = t.category_id
+  LEFT JOIN departments d ON d.id = t.department_id
+  WHERE t.id = @id
+`;
+
+export async function getTicketMssql(id, dataContract = defaultContract) {
+  const row = await dataContract.queryOne(TICKET_SQL_MSSQL, { id });
+  return row ? bitsToInt(row, 'resolution_notified') : null;
+}
+
+async function myTeamIdsMssql(userId, dataContract = defaultContract) {
+  const rows = await dataContract.queryMany(
+    'SELECT team_id FROM team_members WHERE user_id = @userId',
+    { userId },
+  );
+  return rows.map((r) => r.team_id);
+}
+
+/**
+ * Mismos filtros que `buildConditions` (SQLite), emitidos con `@nombre`.
+ *
+ * `p()` genera el parámetro y devuelve su marca; por eso cada condición se
+ * escribe a mano en vez de reutilizar las de arriba: allí el marcador es `?`
+ * posicional y el orden de los parámetros importa, mientras que aquí el nombre
+ * se decide en el momento de construir cada condición.
+ */
+async function buildConditionsMssql(req, viewOnlyOwn, dataContract = defaultContract) {
+  const conds = [];
+  const params = {};
+  let seq = 0;
+  const p = (value) => {
+    const name = `p${seq++}`;
+    params[name] = value === undefined ? null : value;
+    return `@${name}`;
+  };
+  const dt = (value) => asDateTime(p(value));
+  const day = (value) => asDate(p(value));
+  const statusList = () => `(${OPEN_STATUSES.map((status) => p(status)).join(', ')})`;
+  const q = req.query;
+
+  if (viewOnlyOwn) {
+    conds.push(`t.reporter_id = ${p(req.user.id)}`);
+  }
+
+  const view = String(q.view || '');
+  if (view === 'open') {
+    conds.push(`t.status IN ${statusList()}`);
+  } else if (view === 'pending') {
+    conds.push(`t.status IN ('OPEN', 'PENDING')`);
+  } else if (view === 'attended') {
+    conds.push(`t.status IN ('ASSIGNED', 'IN_PROGRESS')`);
+  } else if (view === 'overdue') {
+    conds.push(`t.status IN ${statusList()} AND t.sla_due_at IS NOT NULL AND t.sla_due_at < ${dt(nowIso())}`);
+  } else if (view === 'mine') {
+    conds.push(`t.assigned_to_id = ${p(req.user.id)}`);
+  } else if (view === 'my-teams') {
+    const teams = await myTeamIdsMssql(req.user.id, dataContract);
+    if (teams.length) {
+      conds.push(`t.assigned_team_id IN (${teams.map((teamId) => p(teamId)).join(', ')})`);
+    } else {
+      conds.push('1 = 0');
+    }
+  } else if (view === 'closed') {
+    const closedCol = 'COALESCE(t.resolved_at, t.closed_at)';
+    conds.push(`${closedCol} IS NOT NULL`);
+    const period = String(q.closed_period || '');
+    if (['today', 'yesterday', 'week', 'month', 'quarter', 'year'].includes(period)) {
+      const range = closedRange(period);
+      conds.push(`${closedCol} >= ${dt(range.start)} AND ${closedCol} < ${dt(range.end)}`);
+    }
+  }
+
+  if (isTruthyFlag(q.active)) {
+    conds.push(`t.status IN ${statusList()}`);
+  }
+
+  const sla = String(q.sla || '');
+  if (SLA_FILTERS.includes(sla)) {
+    conds.push(`t.status IN ${statusList()}`);
+    conds.push('t.sla_due_at IS NOT NULL');
+    if (sla === 'overdue') {
+      conds.push(`t.sla_due_at < ${dt(nowIso())}`);
+    } else {
+      conds.push(`t.sla_due_at >= ${dt(nowIso())} AND t.sla_due_at < ${dt(slaAtRiskUntilIso())}`);
+    }
+  }
+
+  if (q.search) {
+    const like = `%${escapeLike(q.search)}%`;
+    const searchFields = [
+      't.title',
+      't.description',
+      't.ticket_number',
+      'r.name',
+      'r.last_name',
+      "CONCAT(r.name, ' ', r.last_name)",
+      'r.email',
+      'r.username',
+      'au.name',
+      'au.last_name',
+      "CONCAT(au.name, ' ', au.last_name)",
+      'd.name',
+      'te.name',
+    ];
+    conds.push(`(${searchFields.map((field) => `${field} LIKE ${p(like)}`).join(' OR ')} ${SEARCH_LIKE})`);
+  }
+
+  for (const [key, allowed] of Object.entries(ENUM_LIST)) {
+    const raw = q[key];
+    if (raw === undefined || raw === '') continue;
+    const values = String(raw).split(',').filter((v) => allowed.includes(v));
+    if (values.length) {
+      conds.push(`t.${key} IN (${values.map((v) => p(v)).join(', ')})`);
+    }
+  }
+
+  for (const [key, col] of [['category', 't.category_id'], ['department', 't.department_id'], ['user', 't.reporter_id']]) {
+    const raw = q[key];
+    if (raw === undefined || raw === '') continue;
+    const values = String(raw).split(',');
+    if (values.every((v) => ID_LIST_RE.test(v))) {
+      conds.push(`${col} IN (${values.map((v) => p(parseInt(v, 10))).join(', ')})`);
+    }
+  }
+
+  if (q.team && ID_LIST_RE.test(String(q.team))) {
+    const teamIds = String(q.team).split(',').map((v) => parseInt(v, 10));
+    conds.push(`t.assigned_team_id IN (${teamIds.map((v) => p(v)).join(', ')})`);
+  }
+
+  if (q.assigned === 'none') {
+    conds.push('t.assigned_to_id IS NULL');
+  } else if (q.assigned && ID_LIST_RE.test(String(q.assigned))) {
+    const ids = String(q.assigned).split(',').map((v) => parseInt(v, 10));
+    conds.push(`t.assigned_to_id IN (${ids.map((v) => p(v)).join(', ')})`);
+  }
+
+  // `date(t.created_at) = ?` no existe en SQL Server: se compara la parte de
+  // fecha con CONVERT(date, …) a ambos lados, con el día como parámetro date.
+  if (q.date && DATE_RE.test(String(q.date))) {
+    conds.push(`CONVERT(date, t.created_at) = ${day(String(q.date))}`);
+  }
+  if (q.from && DATE_RE.test(String(q.from))) {
+    conds.push(`t.created_at >= ${dt(`${String(q.from)}T00:00:00.000Z`)}`);
+  }
+  if (q.to && DATE_RE.test(String(q.to))) {
+    conds.push(`t.created_at <= ${dt(`${String(q.to)}T23:59:59.999Z`)}`);
+  }
+  if (q.period && ['today', 'week', 'month', 'year'].includes(q.period)) {
+    const start = startOfPeriod(q.period);
+    if (start) conds.push(`t.created_at >= ${dt(start.toISOString())}`);
+  }
+
+  if (q.closed_from && DATE_RE.test(String(q.closed_from))) {
+    conds.push(`COALESCE(t.resolved_at, t.closed_at) >= ${dt(`${String(q.closed_from)}T00:00:00.000Z`)}`);
+  }
+  if (q.closed_to && DATE_RE.test(String(q.closed_to))) {
+    conds.push(`COALESCE(t.resolved_at, t.closed_at) <= ${dt(`${String(q.closed_to)}T23:59:59.999Z`)}`);
+  }
+
+  return { conds, params };
+}
+
+const LIST_SQL_MSSQL = `
+  SELECT t.*,
+    CONCAT(r.name, ' ', r.last_name) AS reporter_name,
+    r.email AS reporter_email,
+    COALESCE(CONCAT(au.name, ' ', au.last_name), '') AS assigned_name,
+    COALESCE(te.name, '') AS team_name,
+    c.name AS category_name, c.color AS category_color,
+    d.name AS department_name,
+    CASE WHEN t.sla_due_at IS NOT NULL
+              AND t.status IN ('OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING')
+              AND t.sla_due_at < SYSUTCDATETIME()
+         THEN 1 ELSE 0 END AS is_overdue,
+    (SELECT COUNT(*) FROM ticket_comments tc WHERE tc.ticket_id = t.id) AS comment_count,
+    (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.ticket_id = t.id) AS attachment_count
+  ${FROM_JOINS}
+`;
+
+export async function listTicketsMssql(req, viewOnlyOwn, dataContract = defaultContract) {
+  const { conds, params } = await buildConditionsMssql(req, viewOnlyOwn, dataContract);
+  const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+  const page = Math.max(1, parseIntSafe(req.query.page) || 1);
+  const perPage = Math.min(100, Math.max(1, parseIntSafe(req.query.perPage) || 15));
+
+  const counted = await dataContract.queryOne(`SELECT COUNT(*) AS n ${FROM_JOINS} ${where}`, params);
+  const total = Number(counted?.n ?? 0);
+
+  // OFFSET/FETCH exige ORDER BY (lo aporta sortClause, el mismo del camino
+  // SQLite) y admite parámetros; no hay LIMIT ni `?` posicional.
+  const rows = await dataContract.queryMany(
+    `${LIST_SQL_MSSQL} ${where} ${sortClause(req)} OFFSET @offset ROWS FETCH NEXT @take ROWS ONLY`,
+    { ...params, offset: (page - 1) * perPage, take: perPage },
+  );
+
+  const data = rows.map((row) => bitsToInt(row, 'resolution_notified'));
+  return { data, total, page, perPage, pages: Math.ceil(total / perPage) };
+}
+
+export async function ticketDetailMssql(req, dataContract = defaultContract) {
+  const id = parseIntSafe(req.params.id);
+  const ticket = await getTicketMssql(id, dataContract);
+  if (!ticket || !canViewTicket(req.user, ticket)) return null;
+
+  const canSeeInternal = hasPerm(req.user, 'ticket.note');
+  const internalFilter = canSeeInternal ? '' : 'AND tc.is_internal = 0';
+  const historyFilter = canSeeInternal ? '' : `AND th.action NOT IN ('NOTE_ADDED','NOTE_ATTACHMENT_ADDED')`;
+
+  const attachments = await dataContract.queryMany(
+    `SELECT ta.*, CONCAT(u.name, ' ', u.last_name) AS uploader_name
+     FROM ticket_attachments ta
+     LEFT JOIN users u ON u.id = ta.uploader_id
+     LEFT JOIN ticket_comments tc ON tc.id = ta.comment_id
+     WHERE ta.ticket_id = @ticketId
+       AND (ta.comment_id IS NULL OR tc.is_internal = 0 OR @canSeeInternal = 1)
+     ORDER BY ta.created_at ASC, ta.id ASC`,
+    { ticketId: id, canSeeInternal: canSeeInternal ? 1 : 0 },
+  );
+
+  const commentRows = await dataContract.queryMany(
+    `SELECT tc.*, CONCAT(u.name, ' ', u.last_name) AS user_name,
+            (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.comment_id = tc.id) AS attachment_count
+     FROM ticket_comments tc LEFT JOIN users u ON u.id = tc.user_id
+     WHERE tc.ticket_id = @ticketId ${internalFilter}
+     ORDER BY tc.created_at ASC, tc.id ASC`,
+    { ticketId: id },
+  );
+  const comments = commentRows.map((row) => bitsToInt(row, 'is_internal'));
+
+  const history = await dataContract.queryMany(
+    `SELECT th.*, CONCAT(u.name, ' ', u.last_name) AS user_name
+     FROM ticket_history th LEFT JOIN users u ON u.id = th.user_id
+     WHERE th.ticket_id = @ticketId ${historyFilter}
+     ORDER BY th.created_at ASC, th.id ASC`,
+    { ticketId: id },
+  );
+
+  const can = {
+    resolve: hasPerm(req.user, 'ticket.resolve'),
+    close: hasPerm(req.user, 'ticket.close'),
+    reopen: hasPerm(req.user, 'ticket.reopen'),
+    note: canSeeInternal,
+    assign: hasPerm(req.user, 'ticket.assign'),
+    manage: hasPerm(req.user, 'ticket.update.any'),
+    cancel: hasPerm(req.user, 'ticket.update.any'),
+    comment: hasPerm(req.user, 'ticket.comment'),
+  };
+
+  return { ticket, attachments, comments, history, can };
+}
+
+function attachmentsFailure(cause) {
+  const error = new Error('Error al guardar los archivos adjuntos');
+  error.status = 500;
+  error.attachments = true;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+const HISTORY_SQL_MSSQL = `INSERT INTO ticket_history (ticket_id, user_id, action, description, old_value, new_value)
+  VALUES (@ticketId, @userId, @action, @description, @oldValue, @newValue)`;
+
+/**
+ * POST /api/tickets sobre SQL Server.
+ *
+ * La numeración, el INSERT del ticket, sus adjuntos y su historial viven
+ * DENTRO de `nextTicketNumberAsync`: un rollback revierte también el
+ * incremento de la secuencia, que es exactamente lo que C3 garantiza. Los
+ * ficheros se escriben a disco dentro de esa misma rama y, si la transacción
+ * falla, se borran aquí (el rollback no puede deshacer un `writeFileSync`).
+ */
+export async function createTicketMssql({ body = {}, user, files = [] }, dataContract = defaultContract) {
+  const title = safeStr(body.title);
+  const description = safeStr(body.description);
+  const categoryId = parseIntSafe(body.category_id);
+  const priority = body.priority || 'MEDIUM';
+  let departmentId = body.department_id == null || body.department_id === '' ? null : parseIntSafe(body.department_id);
+  if (departmentId === null && user.department_id) departmentId = user.department_id;
+
+  validate({
+    title: rules.required(title, 'Título') + rules.max(title, 200, 'Título'),
+    description: rules.required(description, 'Descripción') + rules.max(description, 10000, 'Descripción'),
+    category: rules.required(categoryId, 'Categoría'),
+    priority: rules.oneOf(priority, PRIORITIES, 'Prioridad'),
+  });
+
+  const category = await dataContract.queryOne('SELECT id FROM categories WHERE id = @id', { id: categoryId });
+  if (!category) throw httpError(400, 'Categoría inválida');
+
+  // Mismo 400 que el camino SQLite: sin esta comprobación un department_id
+  // inexistente llegaría hasta el INSERT y fallaría por la clave foránea.
+  if (departmentId !== null) {
+    const department = await dataContract.queryOne('SELECT id FROM departments WHERE id = @id', { id: departmentId });
+    if (!department) throw httpError(400, 'Departamento inválido');
+  }
+
+  if (files.length > config.uploads.maxFilesPerTicket) {
+    throw httpError(400, `Máximo ${config.uploads.maxFilesPerTicket} archivos por ticket`);
+  }
+
+  const filesCheck = validateFiles(files);
+  if (!filesCheck.ok) throw httpError(400, filesCheck.reason);
+
+  // La fecha límite se resuelve por el contrato: `getSlaHours()` es síncrona y
+  // toca `db.prepare`, que no existe con DB_CLIENT=mssql.
+  const slaHours = await getSlaHoursAsync(dataContract);
+  const slaDueAt = computeSlaDueWithHours(priority, slaHours[priority]);
+  const now = nowIso();
+  const writtenFiles = [];
+
+  let created;
+  try {
+    created = await nextTicketNumberAsync(dataContract, async ({ tx, ticketNumber }) => {
+      const { id } = await tx.insertAndGetId(
+        `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id,
+                              department_id, priority, sla_due_at, updated_at)
+         OUTPUT INSERTED.id AS id
+         VALUES (@ticketNumber, @title, @description, @reporterId, @categoryId,
+                 @departmentId, @priority, @slaDueAt, @now)`,
+        {
+          ticketNumber,
+          title,
+          description,
+          reporterId: user.id,
+          categoryId,
+          departmentId,
+          priority,
+          slaDueAt,
+          now,
+        },
+      );
+
+      const attachments = [];
+      for (const { buffer, info } of filesCheck.validated) {
+        let saved;
+        try {
+          saved = persistUpload(buffer, info);
+        } catch (err) {
+          throw attachmentsFailure(err);
+        }
+        writtenFiles.push(saved.storedName);
+
+        let row;
+        try {
+          row = await tx.insertAndGetId(
+            `INSERT INTO ticket_attachments (ticket_id, comment_id, original_name, stored_name,
+                                             mime_type, size_bytes, uploader_id)
+             OUTPUT INSERTED.id AS id
+             VALUES (@ticketId, @commentId, @originalName, @storedName, @mimeType, @sizeBytes, @uploaderId)`,
+            {
+              ticketId: id,
+              commentId: null,
+              originalName: saved.originalName,
+              storedName: saved.storedName,
+              mimeType: saved.mime,
+              sizeBytes: saved.size,
+              uploaderId: user.id,
+            },
+          );
+        } catch (err) {
+          throw attachmentsFailure(err);
+        }
+
+        attachments.push({
+          id: row.id,
+          original_name: saved.originalName,
+          stored_name: saved.storedName,
+          mime_type: saved.mime,
+          size_bytes: saved.size,
+          comment_id: null,
+          created_at: nowIso(),
+        });
+
+        await tx.execute(HISTORY_SQL_MSSQL, {
+          ticketId: id,
+          userId: user.id,
+          action: 'ATTACHMENT_ADDED',
+          description: `Se adjuntó ${saved.originalName}`,
+          oldValue: null,
+          newValue: null,
+        });
+      }
+
+      await tx.execute(HISTORY_SQL_MSSQL, {
+        ticketId: id,
+        userId: user.id,
+        action: 'CREATED',
+        description: `Ticket creado por ${user.name} ${user.last_name}`,
+        oldValue: null,
+        newValue: null,
+      });
+      await tx.execute('UPDATE tickets SET updated_at = @now WHERE id = @id', { now, id });
+
+      return { id, ticketNumber, attachments };
+    });
+  } catch (err) {
+    // El rollback no puede deshacer la escritura en disco: se compensa aquí,
+    // solo con los ficheros que escribió ESTE intento.
+    for (const storedName of writtenFiles) {
+      const absPath = attachmentPath(storedName);
+      if (!absPath) continue;
+      try {
+        fs.unlinkSync(absPath);
+      } catch {
+        // Ya borrado o nunca llegó a existir: no hay nada que compensar.
+      }
+    }
+    throw err;
+  }
+
+  const ticket = await getTicketMssql(created.id, dataContract);
+
+  await notifyStaffAsync(
+    {
+      type: 'NEW_TICKET',
+      title: `Nuevo ticket: ${ticket.ticket_number}`,
+      body: `${PRIORITY_LABEL[ticket.priority] || ticket.priority} · ${ticket.title}`,
+      ticketId: ticket.id,
+      excludeUserId: user.id,
+      link: `/app/tickets/${ticket.id}`,
+    },
+    dataContract,
+  );
+
+  return { ticket, attachments: created.attachments };
+}
+
+// ---------------------------------------------------------------------------
 // Contadores dinámicos (filtros rápidos) — calculados en BD, con scope por rol
 // ---------------------------------------------------------------------------
 
@@ -561,7 +1059,25 @@ router.post(
   requirePermission('ticket.create'),
   uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
-  (req, res) => {
+  asyncHandler(async (req, res) => {
+    if (config.dbClient === 'mssql') {
+      let mssqlResult;
+      try {
+        mssqlResult = await createTicketMssql(
+          { body: req.body || {}, user: req.user, files: req.files || [] },
+          defaultContract,
+        );
+      } catch (err) {
+        // El mensaje de adjuntos se responde aquí y no por errorHandler: a
+        // un 500 el middleware sustituye el texto por "Error interno", y el
+        // camino SQLite devuelve este mismo detalle.
+        if (err && err.attachments) return res.status(500).json({ error: err.message });
+        throw err;
+      }
+      emitTicketEvent(mssqlResult.ticket.id, 'refresh');
+      return res.status(201).json(mssqlResult);
+    }
+
     const body = req.body || {};
     const title = safeStr(body.title);
     const description = safeStr(body.description);
@@ -627,16 +1143,19 @@ router.post(
 
     emitTicketEvent(ticketId, 'refresh');
     return res.status(201).json({ ticket: created, attachments });
-  }
+  })
 );
 
-router.get('/', (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   // "Mis tickets" (frontend) pasa own=1 para forzar el scope al reportante,
   // incluso para usuarios con permiso ticket.view.all (admin/técnicos).
   const forceOwn = String(req.query.own) === '1';
   const viewOnlyOwn = forceOwn || !hasPerm(req.user, 'ticket.view.all');
+  if (config.dbClient === 'mssql') {
+    return res.json(await listTicketsMssql(req, viewOnlyOwn, defaultContract));
+  }
   res.json(listQuery(req, viewOnlyOwn));
-});
+}));
 
 router.get('/export', requirePermission('ticket.export'), asyncHandler(async (req, res) => {
   const { conds, params } = buildConditions(req, false);
@@ -786,7 +1305,13 @@ router.get('/export', requirePermission('ticket.export'), asyncHandler(async (re
   res.send('\uFEFF' + lines.join('\n'));
 }));
 
-router.get('/:id', (req, res) => {
+router.get('/:id', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') {
+    const detail = await ticketDetailMssql(req, defaultContract);
+    if (!detail) return res.status(404).json({ error: 'Ticket no encontrado' });
+    return res.json(detail);
+  }
+
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) {
@@ -832,7 +1357,7 @@ router.get('/:id', (req, res) => {
   };
 
   res.json({ ticket, attachments, comments, history, can });
-});
+}));
 
 /**
  * Artículos de la base de conocimiento enlazados a este ticket.
@@ -1143,8 +1668,14 @@ function processComment(req, res, attachOnly) {
     try {
       attachments = persistAndInsertAttachments(filesCheck.validated, ticket.id, commentId, req.user.id, isInternal);
     } catch (err) {
-      db.prepare('DELETE FROM ticket_comments WHERE id = ?').run(commentId);
+      // El ORDEN importa: ticket_attachments.comment_id apunta a
+      // ticket_comments(id) y en SQL Server esa FK es ON DELETE NO ACTION, así
+      // que borrar el comentario primero deja adjuntos huérfanos referenciados y
+      // el propio borrado revienta dentro del catch, devolviendo un 500 genérico
+      // y dejando el comentario en la base. Primero los adjuntos, después el
+      // comentario. (En SQLite la FK es CASCADE y lo tapaba.)
       db.prepare('DELETE FROM ticket_attachments WHERE comment_id = ?').run(commentId);
+      db.prepare('DELETE FROM ticket_comments WHERE id = ?').run(commentId);
       return res.status(500).json({ error: 'Error al guardar los archivos adjuntos' });
     }
   }

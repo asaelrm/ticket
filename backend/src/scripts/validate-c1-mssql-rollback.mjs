@@ -44,6 +44,31 @@ export function sanitizeMessage(message, env = process.env) {
   return value.replace(/\$2[aby]\$[^\s;,]*/g, '[REDACTED]');
 }
 
+const PREVIOUS_FIELDS = ['number', 'state', 'class', 'lineNumber', 'procName'];
+
+// SQL Server emite primero el error real y después un 1750 genérico
+// ("Could not create constraint or index."). El CATCH de C1 re-lanza solo el
+// último, así que la causa real vive en precedingErrors/originalError.errors.
+function previousFacts(item) {
+  const facts = {};
+  for (const source of [item, item?.info, item?.originalError, item?.originalError?.info]) {
+    if (!source || typeof source !== 'object') continue;
+    for (const field of PREVIOUS_FIELDS) {
+      if (facts[field] === undefined && source[field] !== undefined && source[field] !== null && source[field] !== '') {
+        facts[field] = source[field];
+      }
+    }
+    if (!facts.message && typeof source.message === 'string' && source.message) facts.message = source.message;
+  }
+  return facts;
+}
+
+function previousErrors(error) {
+  const list = [...(error?.precedingErrors || [])];
+  if (Array.isArray(error?.originalError?.errors)) list.push(...error.originalError.errors);
+  return list;
+}
+
 export function logDiagnostic({ stage, error, env = process.env, log = console.error }) {
   log(`[C1-VALIDATE] etapa: ${stage}`);
   for (const field of ['name', 'code', 'number', 'state', 'class', 'lineNumber', 'procName']) {
@@ -52,6 +77,22 @@ export function logDiagnostic({ stage, error, env = process.env, log = console.e
     }
   }
   log(`[C1-VALIDATE] mensaje: ${sanitizeMessage(error?.message, env)}`);
+
+  const seen = new Set();
+  const pending = previousErrors(error);
+  let count = 0;
+  while (pending.length) {
+    const facts = previousFacts(pending.shift());
+    const key = `${facts.number}|${facts.lineNumber}|${facts.message}`;
+    if (seen.has(key) || (facts.number === undefined && !facts.message)) continue;
+    seen.add(key);
+    count += 1;
+    for (const field of PREVIOUS_FIELDS) {
+      if (facts[field] !== undefined) log(`[C1-VALIDATE] previo.${count}.${field}: ${sanitizeMessage(facts[field], env)}`);
+    }
+    log(`[C1-VALIDATE] previo.${count}.mensaje: ${sanitizeMessage(facts.message, env)}`);
+  }
+  log(`[C1-VALIDATE] errores-previos: ${count}`);
 }
 
 export function configurationFromEnv(env = process.env) {

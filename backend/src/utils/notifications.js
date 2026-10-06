@@ -1,4 +1,4 @@
-import db from '../db.js';
+import db, { contract as defaultContract } from '../db.js';
 import { EventEmitter } from 'node:events';
 
 export const notificationEvents = new EventEmitter();
@@ -16,6 +16,31 @@ export function createNotification({ userId, ticketId = null, type, title, body 
   const notificationId = info.lastInsertRowid;
   notificationEvents.emit('new_notification', { id: notificationId, userId, ticketId, type, title, body, link });
   return notificationId;
+}
+
+// Variante por el contrato async (camino MSSQL). Mismo orden de columnas,
+// mismo recorte de longitudes y el MISMO evento: la campana no distingue
+// motor, así que el id emitido tiene que ser el que generó la base.
+export async function createNotificationAsync(
+  { userId, ticketId = null, type, title, body = null, link = null },
+  dataContract = defaultContract,
+) {
+  if (!userId) return null;
+  const { id } = await dataContract.insertAndGetId(
+    `INSERT INTO notifications (user_id, ticket_id, type, title, body, link)
+     OUTPUT INSERTED.id AS id
+     VALUES (@userId, @ticketId, @type, @title, @body, @link)`,
+    {
+      userId,
+      ticketId,
+      type: String(type).toUpperCase(),
+      title: String(title).slice(0, 200),
+      body: body ? String(body).slice(0, 500) : null,
+      link: link || null,
+    },
+  );
+  notificationEvents.emit('new_notification', { id, userId, ticketId, type, title, body, link });
+  return id;
 }
 
 export function createNotifications({ userIds = [], ...rest }) {
@@ -43,16 +68,15 @@ export function notifyAdmins({ type, title, body = null, ticketId = null, link =
 }
 
 // Notifica a técnicos/soporte (quienes pueden ver todos los tickets).
+const STAFF_SQL = `
+  SELECT u.id FROM users u
+  JOIN roles r ON r.id = u.role_id
+  JOIN role_permissions rp ON rp.role_id = r.id
+  JOIN permissions p ON p.id = rp.permission_id
+  WHERE u.active = 1 AND p.code = 'ticket.view.all'`;
+
 export function notifyStaff({ type, title, body = null, ticketId = null, excludeUserId = null, link = null }) {
-  const staff = db
-    .prepare(
-      `SELECT u.id FROM users u
-       JOIN roles r ON r.id = u.role_id
-       JOIN role_permissions rp ON rp.role_id = r.id
-       JOIN permissions p ON p.id = rp.permission_id
-       WHERE u.active = 1 AND p.code = 'ticket.view.all'`
-    )
-    .all();
+  const staff = db.prepare(STAFF_SQL).all();
   const exclude = Number(excludeUserId);
   return createNotifications({
     userIds: staff.map((s) => s.id).filter((id) => Number(id) !== exclude),
@@ -62,6 +86,26 @@ export function notifyStaff({ type, title, body = null, ticketId = null, exclude
     ticketId,
     link,
   });
+}
+
+/**
+ * Mismo aviso por el contrato async. Comparte STAFF_SQL con la variante
+ * síncrona para que el destinatario no pueda diferir entre motores; se usa en
+ * el POST /api/tickets de SQL Server, donde `db.prepare` no existe.
+ */
+export async function notifyStaffAsync(
+  { type, title, body = null, ticketId = null, excludeUserId = null, link = null },
+  dataContract = defaultContract,
+) {
+  const staff = await dataContract.queryMany(STAFF_SQL);
+  const exclude = Number(excludeUserId);
+  const userIds = staff.map((s) => s.id).filter((id) => Number(id) !== exclude);
+  const inserted = [];
+  for (const userId of [...new Set(userIds)]) {
+    const id = await createNotificationAsync({ userId, ticketId, type, title, body, link }, dataContract);
+    if (id) inserted.push(id);
+  }
+  return inserted;
 }
 
 // Notificación dirigida a los participantes naturales de un ticket

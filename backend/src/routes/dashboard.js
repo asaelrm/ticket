@@ -1,6 +1,8 @@
 import express from 'express';
-import db from '../db.js';
+import db, { contract as defaultContract } from '../db.js';
+import config from '../config.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 import { slaAtRiskUntilIso } from '../utils/sla.js';
 
 const router = express.Router();
@@ -21,7 +23,9 @@ function mondayOfCurrentWeek() {
   return d;
 }
 
-router.get('/summary', (req, res) => {
+router.get('/summary', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') return res.json(await summaryMssql(defaultContract));
+
   const counts = { OPEN: 0, ASSIGNED: 0, IN_PROGRESS: 0, PENDING: 0, RESOLVED: 0, CLOSED: 0, CANCELLED: 0 };
   const byStatus = db.prepare('SELECT status, COUNT(*) AS n FROM tickets GROUP BY status').all();
   for (const row of byStatus) counts[row.status] = row.n;
@@ -38,14 +42,17 @@ router.get('/summary', (req, res) => {
   const total = db.prepare('SELECT COUNT(*) AS n FROM tickets').get().n;
 
   res.json({ counts, openTotal, critical, createdMonth, resolvedMonth, total });
-});
+}));
 
-router.get('/by-status', (req, res) => {
+router.get('/by-status', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') return res.json(await byStatusMssql(defaultContract));
   res.json({ data: db.prepare('SELECT status, COUNT(*) AS n FROM tickets GROUP BY status ORDER BY n DESC').all() });
-});
+}));
 
 // Estado SLA de los turnos/tickets abiertos: vencidos, próximos a vencer y dentro de plazo.
-router.get('/sla', (req, res) => {
+router.get('/sla', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') return res.json(await slaMssql(defaultContract));
+
   const nowIso = new Date().toISOString();
   const in24Iso = slaAtRiskUntilIso();
   const ph = OPEN_STATUSES.map(() => '?').join(',');
@@ -72,15 +79,17 @@ router.get('/sla', (req, res) => {
     )
     .all(...OPEN_STATUSES, nowIso);
   res.json({ overdue, atRisk, healthy, top });
-});
+}));
 
-router.get('/by-priority', (req, res) => {
+router.get('/by-priority', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') return res.json(await byPriorityMssql(defaultContract));
+
   const data = db.prepare(
     `SELECT priority, COUNT(*) AS n FROM tickets WHERE status IN (${OPEN_STATUSES.map(() => '?').join(',')}) GROUP BY priority ORDER BY n DESC`
   ).all(...OPEN_STATUSES);
   const open = data.reduce((a, b) => a + b.n, 0);
   res.json({ data, open });
-});
+}));
 
 // `id` viaja en la respuesta porque el panel navega al listado ya filtrado con
 // `?category=<id>`: sin él la fila no tendría a qué enlace apuntar y el nombre
@@ -95,7 +104,9 @@ router.get('/by-priority', (req, res) => {
 // tickets abiertos y ofrece un "Ver todas", así que recortar el conjunto
 // dejaría esas filas inalcanzables y el interruptor mentiría. El orden por `n`
 // mantiene arriba lo que pesa y el desempate por nombre da una lista estable.
-router.get('/by-category', (req, res) => {
+router.get('/by-category', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') return res.json(await byCategoryMssql(defaultContract));
+
   const data = db.prepare(`
     SELECT c.id, c.name, c.color, COUNT(t.id) AS n,
       SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
@@ -105,12 +116,14 @@ router.get('/by-category', (req, res) => {
     GROUP BY c.id ORDER BY n DESC, c.name ASC
   `).all(...OPEN_STATUSES);
   res.json({ data });
-});
+}));
 
 // Mismo criterio y mismo `id` navegable que /by-category, con el filtro
 // `department` de buildConditions. Los departamentos no tienen columna `active`
 // en este esquema, así que no se filtra por ella.
-router.get('/by-department', (req, res) => {
+router.get('/by-department', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') return res.json(await byDepartmentMssql(defaultContract));
+
   const data = db.prepare(`
     SELECT d.id, d.name, COUNT(t.id) AS n,
       SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
@@ -119,7 +132,7 @@ router.get('/by-department', (req, res) => {
     GROUP BY d.id ORDER BY n DESC, d.name ASC
   `).all(...OPEN_STATUSES);
   res.json({ data });
-});
+}));
 
 // Reparto de la carga entre los técnicos.
 //
@@ -145,7 +158,9 @@ router.get('/by-department', (req, res) => {
 //
 // Se agrupa por `assigned_to_id` y no por rol para no dejar fuera a quien lleva
 // la carga aunque su rol no sea TECHNICIAN (p. ej. un administrador de apoyo).
-router.get('/by-technician', (req, res) => {
+router.get('/by-technician', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') return res.json(await byTechnicianMssql(defaultContract));
+
   const nowIso = new Date().toISOString();
   const openPh = OPEN_STATUSES.map(() => '?').join(',');
 
@@ -188,7 +203,7 @@ router.get('/by-technician', (req, res) => {
     .get(...OPEN_STATUSES).n;
 
   res.json({ data, unassigned, totals });
-});
+}));
 
 // Tickets que requieren intervención, para poder triarlos de un vistazo.
 //
@@ -242,7 +257,11 @@ function attentionFlaggedSql(openPh) {
 const ATTENTION_FILTER =
   'WHERE is_overdue OR is_critical OR is_due_soon OR is_unassigned';
 
-router.get('/needs-attention', (req, res) => {
+router.get('/needs-attention', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') {
+    return res.json(await needsAttentionMssql(defaultContract, req.query));
+  }
+
   const now = new Date().toISOString();
   const in24 = slaAtRiskUntilIso();
   const openPh = OPEN_STATUSES.map(() => '?').join(',');
@@ -318,9 +337,13 @@ router.get('/needs-attention', (req, res) => {
     .get(now, now, in24, ...OPEN_STATUSES);
 
   res.json({ data, totals });
-});
+}));
 
-router.get('/trend', (req, res) => {
+router.get('/trend', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') {
+    return res.json(await trendMssql(defaultContract, req.query));
+  }
+
   const range = ['day', 'week', 'month'].includes(req.query.range) ? req.query.range : 'day';
   const data = [];
   const countCreatedDay = db.prepare('SELECT COUNT(*) AS n FROM tickets WHERE date(created_at) = ?');
@@ -365,7 +388,7 @@ router.get('/trend', (req, res) => {
   }
 
   res.json({ data });
-});
+}));
 
 // Últimos tickets creados, para abrir su ficha desde el panel.
 //
@@ -378,7 +401,9 @@ router.get('/trend', (req, res) => {
 // mismo criterio de dueño que usa /by-technician, no el estado— para que la fila
 // muestre a quién se le asignó sin que la UI tenga que pedir un ticket por
 // persona. Son dos uniones en una consulta: no hay N+1 ni llamadas extra.
-router.get('/recent', (req, res) => {
+router.get('/recent', asyncHandler(async (req, res) => {
+  if (config.dbClient === 'mssql') return res.json(await recentMssql(defaultContract));
+
   const data = db.prepare(`
     SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.created_at,
       c.name AS category_name,
@@ -390,6 +415,412 @@ router.get('/recent', (req, res) => {
     LEFT JOIN users a ON a.id = t.assigned_to_id
     ORDER BY t.created_at DESC LIMIT 8`).all();
   res.json({ data });
-});
+}));
+
+// ---------------------------------------------------------------------------
+// C5 · Rama MSSQL del panel
+//
+// Los diez endpoints de arriba se sirven con el contrato async cuando
+// DB_CLIENT=mssql: la fachada `db` es un Proxy que lanza ante cualquier
+// acceso, así que aquí hay `@nombre`, CONCAT y TOP/OFFSET en lugar de `?`,
+// `||` y LIMIT. El SQL de SQLite no se toca y cada `*Mssql` devuelve
+// EXACTAMENTE el mismo JSON que su equivalente, incluidos los enteros 1/0 de
+// los indicadores (BIT viajaría como `true`/`false` y rompería la UI).
+//
+// Todas las fechas se resuelven en JS y se comparan con CONVERT(..., 127):
+// un parámetro nvarchar con sufijo `Z` no se convierte de forma implícita a
+// DATETIME2 en SQL Server.
+// ---------------------------------------------------------------------------
+
+function openStatusMarks(prefix = 's') {
+  const params = {};
+  const marks = OPEN_STATUSES.map((status, index) => {
+    params[`${prefix}${index}`] = status;
+    return `@${prefix}${index}`;
+  });
+  return { marks: marks.join(', '), params };
+}
+
+function num(value) {
+  return Number(value ?? 0);
+}
+
+async function countOne(dataContract, sql, params) {
+  const row = await dataContract.queryOne(sql, params);
+  return num(row?.n);
+}
+
+// Estilo 127 (ISO 8601 con zona) para TODA comparación contra datetime2: un
+// parámetro nvarchar terminado en `Z` no lleva la zona en el formato literal
+// de datetime2 (`yyyy-MM-ddTHH:mm:ss[.nnnnnnn]`), y la conversión implícita
+// puede fallar con "Conversion failed when converting date and/or time".
+// Mismo patrón que `asDateTime` de routes/tickets.js y que la integración C1.
+const asDateTime = (placeholder) => `CONVERT(datetime2(3), ${placeholder}, 127)`;
+
+export async function summaryMssql(dataContract = defaultContract) {
+  const counts = { OPEN: 0, ASSIGNED: 0, IN_PROGRESS: 0, PENDING: 0, RESOLVED: 0, CLOSED: 0, CANCELLED: 0 };
+  const byStatus = await dataContract.queryMany('SELECT status, COUNT(*) AS n FROM tickets GROUP BY status');
+  for (const row of byStatus) counts[row.status] = num(row.n);
+
+  const openTotal = OPEN_STATUSES.reduce((a, s) => a + counts[s], 0);
+  const { marks, params } = openStatusMarks();
+  const critical = await countOne(
+    dataContract,
+    `SELECT COUNT(*) AS n FROM tickets WHERE status IN (${marks}) AND priority = 'CRITICAL'`,
+    params,
+  );
+
+  // `strftime('%Y-%m', …) = ?` no existe aquí: se compara contra el rango
+  // [primer día del mes, primer día del siguiente) en UTC, que mide lo mismo.
+  const nowDate = new Date();
+  const start = `${nowDate.getUTCFullYear()}-${String(nowDate.getUTCMonth() + 1).padStart(2, '0')}-01T00:00:00.000Z`;
+  const end = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth() + 1, 1)).toISOString();
+  const createdMonth = await countOne(
+    dataContract,
+    `SELECT COUNT(*) AS n FROM tickets WHERE created_at >= ${asDateTime('@start')} AND created_at < ${asDateTime('@end')}`,
+    { start, end },
+  );
+  const resolvedMonth = await countOne(
+    dataContract,
+    `SELECT COUNT(*) AS n FROM tickets WHERE status = 'RESOLVED' AND resolved_at >= ${asDateTime('@start')} AND resolved_at < ${asDateTime('@end')}`,
+    { start, end },
+  );
+  const total = await countOne(dataContract, 'SELECT COUNT(*) AS n FROM tickets');
+
+  return { counts, openTotal, critical, createdMonth, resolvedMonth, total };
+}
+
+export async function byStatusMssql(dataContract = defaultContract) {
+  const data = await dataContract.queryMany(
+    'SELECT status, COUNT(*) AS n FROM tickets GROUP BY status ORDER BY n DESC',
+  );
+  for (const row of data) row.n = num(row.n);
+  return { data };
+}
+
+export async function byPriorityMssql(dataContract = defaultContract) {
+  const { marks, params } = openStatusMarks();
+  const data = await dataContract.queryMany(
+    `SELECT priority, COUNT(*) AS n FROM tickets WHERE status IN (${marks}) GROUP BY priority ORDER BY n DESC`,
+    params,
+  );
+  let open = 0;
+  for (const row of data) {
+    row.n = num(row.n);
+    open += row.n;
+  }
+  return { data, open };
+}
+
+export async function slaMssql(dataContract = defaultContract) {
+  const now = new Date().toISOString();
+  const in24 = slaAtRiskUntilIso();
+  const { marks, params } = openStatusMarks();
+  const inClause = `status IN (${marks}) AND sla_due_at IS NOT NULL`;
+
+  const overdue = await countOne(
+    dataContract,
+    `SELECT COUNT(*) AS n FROM tickets WHERE ${inClause} AND sla_due_at < ${asDateTime('@now')}`,
+    { ...params, now },
+  );
+  const atRisk = await countOne(
+    dataContract,
+    `SELECT COUNT(*) AS n FROM tickets WHERE ${inClause} AND sla_due_at >= ${asDateTime('@now')} AND sla_due_at < ${asDateTime('@in24')}`,
+    { ...params, now, in24 },
+  );
+  const healthy = await countOne(
+    dataContract,
+    `SELECT COUNT(*) AS n FROM tickets WHERE ${inClause} AND sla_due_at >= ${asDateTime('@in24')}`,
+    { ...params, in24 },
+  );
+
+  const top = await dataContract.queryMany(
+    `SELECT TOP (6) t.id, t.ticket_number, t.title, t.status, t.priority, t.sla_due_at,
+            CASE WHEN t.sla_due_at < ${asDateTime('@now')} THEN 1 ELSE 0 END AS is_overdue,
+            CONCAT(r.name, ' ', r.last_name) AS reporter_name
+     FROM tickets t
+     JOIN users r ON r.id = t.reporter_id
+     WHERE ${inClause}
+     ORDER BY is_overdue DESC, t.sla_due_at ASC`,
+    { ...params, now },
+  );
+  for (const row of top) row.is_overdue = num(row.is_overdue) ? 1 : 0;
+
+  return { overdue, atRisk, healthy, top };
+}
+
+export async function byCategoryMssql(dataContract = defaultContract) {
+  const { marks, params } = openStatusMarks('st');
+  const data = await dataContract.queryMany(`
+    SELECT c.id, c.name, c.color, COUNT(t.id) AS n,
+      SUM(CASE WHEN t.status IN (${marks}) THEN 1 ELSE 0 END) AS [open]
+    FROM categories c
+    LEFT JOIN tickets t ON t.category_id = c.id
+    WHERE c.active = 1
+    GROUP BY c.id, c.name, c.color
+    ORDER BY n DESC, c.name ASC
+  `, params);
+  for (const row of data) {
+    row.n = num(row.n);
+    row.open = num(row.open);
+  }
+  return { data };
+}
+
+export async function byDepartmentMssql(dataContract = defaultContract) {
+  const { marks, params } = openStatusMarks('st');
+  const data = await dataContract.queryMany(`
+    SELECT d.id, d.name, COUNT(t.id) AS n,
+      SUM(CASE WHEN t.status IN (${marks}) THEN 1 ELSE 0 END) AS [open]
+    FROM departments d
+    LEFT JOIN tickets t ON t.department_id = d.id
+    GROUP BY d.id, d.name
+    ORDER BY n DESC, d.name ASC
+  `, params);
+  for (const row of data) {
+    row.n = num(row.n);
+    row.open = num(row.open);
+  }
+  return { data };
+}
+
+export async function byTechnicianMssql(dataContract = defaultContract) {
+  const now = new Date().toISOString();
+  const { marks, params } = openStatusMarks();
+
+  const data = await dataContract.queryMany(
+    `SELECT TOP (10) u.id, u.name, u.last_name, u.position,
+            CONCAT(u.name, ' ', u.last_name) AS technician,
+            COUNT(*) AS active,
+            SUM(CASE WHEN t.status = 'OPEN' THEN 1 ELSE 0 END) AS [open],
+            SUM(CASE WHEN t.status = 'ASSIGNED' THEN 1 ELSE 0 END) AS assigned,
+            SUM(CASE WHEN t.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS in_progress,
+            SUM(CASE WHEN t.status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ${asDateTime('@now')} THEN 1 ELSE 0 END) AS overdue
+     FROM tickets t
+     JOIN users u ON u.id = t.assigned_to_id
+     WHERE t.status IN (${marks})
+     GROUP BY u.id, u.name, u.last_name, u.position
+     ORDER BY active DESC, overdue DESC, technician ASC`,
+    { ...params, now },
+  );
+  for (const row of data) {
+    row.active = num(row.active);
+    row.open = num(row.open);
+    row.assigned = num(row.assigned);
+    row.in_progress = num(row.in_progress);
+    row.pending = num(row.pending);
+    row.overdue = num(row.overdue);
+  }
+
+  const totalsRow = await dataContract.queryOne(
+    `SELECT COUNT(DISTINCT t.assigned_to_id) AS technicians,
+            COUNT(*) AS active,
+            COALESCE(SUM(CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ${asDateTime('@now')} THEN 1 ELSE 0 END), 0) AS overdue
+     FROM tickets t
+     WHERE t.status IN (${marks}) AND t.assigned_to_id IS NOT NULL`,
+    { ...params, now },
+  );
+  const totals = {
+    technicians: num(totalsRow?.technicians),
+    active: num(totalsRow?.active),
+    overdue: num(totalsRow?.overdue),
+  };
+
+  const unassigned = await countOne(
+    dataContract,
+    `SELECT COUNT(*) AS n FROM tickets WHERE status IN (${marks}) AND assigned_to_id IS NULL`,
+    params,
+  );
+
+  return { data, unassigned, totals };
+}
+
+// Los indicadores se calculan una vez en el CTE, igual que en SQLite. La
+// única traducción necesaria es `MIN(a, b, c, d)`: en T-SQL `MIN` es una
+// función de agregado y no admite cuatro argumentos, así que el nivel de
+// urgencia se expresa como un CASE encadenado, que es exactamente lo mismo
+// (primer motivo que cumpla, por orden de gravedad).
+function attentionFlaggedMssql(marks) {
+  return `WITH flagged AS (
+    SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.sla_due_at,
+           t.assigned_to_id, t.created_at, t.category_id,
+           CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ${asDateTime('@now')} THEN 1 ELSE 0 END AS is_overdue,
+           CASE WHEN t.priority = 'CRITICAL' THEN 1 ELSE 0 END AS is_critical,
+           CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at >= ${asDateTime('@now')} AND t.sla_due_at < ${asDateTime('@in24')} THEN 1 ELSE 0 END AS is_due_soon,
+           CASE WHEN t.assigned_to_id IS NULL THEN 1 ELSE 0 END AS is_unassigned
+    FROM tickets t
+    WHERE t.status IN (${marks})
+  )`;
+}
+
+const ATTENTION_FILTER_MSSQL =
+  'WHERE f.is_overdue = 1 OR f.is_critical = 1 OR f.is_due_soon = 1 OR f.is_unassigned = 1';
+
+export async function needsAttentionMssql(dataContract = defaultContract, options = {}) {
+  const now = new Date().toISOString();
+  const in24 = slaAtRiskUntilIso();
+  const { marks, params } = openStatusMarks();
+  const baseParams = { ...params, now, in24 };
+
+  const parsed = parseInt(options.limit, 10);
+  const limit = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 1), 50) : 8;
+
+  const rows = await dataContract.queryMany(
+    `${attentionFlaggedMssql(marks)}
+     SELECT f.id, f.ticket_number, f.title, f.status, f.priority, f.sla_due_at,
+            f.assigned_to_id, f.created_at,
+            f.is_overdue, f.is_critical, f.is_due_soon, f.is_unassigned,
+            CASE WHEN f.is_overdue = 1 THEN 0
+                 WHEN f.is_critical = 1 THEN 1
+                 WHEN f.is_due_soon = 1 THEN 2
+                 WHEN f.is_unassigned = 1 THEN 3
+                 ELSE 9 END AS urgency,
+            CONCAT(u.name, ' ', u.last_name) AS technician_name,
+            c.name AS category_name
+     FROM flagged f
+     LEFT JOIN users u ON u.id = f.assigned_to_id
+     LEFT JOIN categories c ON c.id = f.category_id
+     ${ATTENTION_FILTER_MSSQL}
+     ORDER BY urgency ASC,
+              CASE WHEN f.sla_due_at IS NULL THEN 1 ELSE 0 END ASC,
+              f.sla_due_at ASC,
+              f.created_at ASC,
+              f.id ASC
+     OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY`,
+    { ...baseParams, limit },
+  );
+
+  const data = rows.map((r) => ({
+    id: r.id,
+    ticket_number: r.ticket_number,
+    title: r.title,
+    status: r.status,
+    priority: r.priority,
+    sla_due_at: r.sla_due_at,
+    assigned_to_id: r.assigned_to_id,
+    technician_name: r.technician_name,
+    category_name: r.category_name,
+    created_at: r.created_at,
+    urgency: num(r.urgency),
+    reasons: ATTENTION_REASONS.filter((x) => r[x.flag]).map((x) => x.key),
+  }));
+
+  const totalsRow = await dataContract.queryOne(
+    `${attentionFlaggedMssql(marks)}
+     SELECT COUNT(*) AS total,
+            COALESCE(SUM(is_overdue), 0) AS overdue,
+            COALESCE(SUM(is_critical), 0) AS critical,
+            COALESCE(SUM(is_due_soon), 0) AS dueSoon,
+            COALESCE(SUM(is_unassigned), 0) AS unassigned
+     FROM flagged
+     ${ATTENTION_FILTER_MSSQL}`,
+    baseParams,
+  );
+  const totals = {
+    total: num(totalsRow?.total),
+    overdue: num(totalsRow?.overdue),
+    critical: num(totalsRow?.critical),
+    dueSoon: num(totalsRow?.dueSoon),
+    unassigned: num(totalsRow?.unassigned),
+  };
+
+  return { data, totals };
+}
+
+// `date(col) = ?` y `strftime('%Y-%m', col) = ?` no existen: se agrupa por la
+// parte de fecha convertida a texto (`char(10)` = día, `char(7)` = mes) sobre
+// la ventana que se pide, y JS reparte esos totales en los cubos que muestra
+// el gráfico. La columna sólo puede venir de esta whitelist: se interpolan.
+async function trendBuckets(dataContract, column, startIso, endIso, digits) {
+  const rows = await dataContract.queryMany(
+    `SELECT CONVERT(char(${digits}), ${column}, 126) AS bucket, COUNT(*) AS n
+     FROM tickets
+     WHERE ${column} >= ${asDateTime('@start')} AND ${column} < ${asDateTime('@end')}
+     GROUP BY CONVERT(char(${digits}), ${column}, 126)`,
+    { start: startIso, end: endIso },
+  );
+  const counts = new Map();
+  for (const row of rows) counts.set(String(row.bucket), num(row.n));
+  return counts;
+}
+
+function sumRange(counts, start, end) {
+  const from = start.toISOString().slice(0, 10);
+  const to = end.toISOString().slice(0, 10);
+  let total = 0;
+  for (const [day, n] of counts) {
+    if (day >= from && day < to) total += n;
+  }
+  return total;
+}
+
+export async function trendMssql(dataContract = defaultContract, options = {}) {
+  const range = ['day', 'week', 'month'].includes(options.range) ? options.range : 'day';
+  const data = [];
+
+  if (range === 'day') {
+    const labels = [];
+    for (let i = 13; i >= 0; i--) labels.push(isoDate(-i));
+    const start = `${labels[0]}T00:00:00.000Z`;
+    const end = `${isoDate(1)}T00:00:00.000Z`;
+    const created = await trendBuckets(dataContract, 'created_at', start, end, 10);
+    const resolved = await trendBuckets(dataContract, 'resolved_at', start, end, 10);
+    for (const label of labels) {
+      data.push({ label, created: created.get(label) || 0, resolved: resolved.get(label) || 0 });
+    }
+  } else if (range === 'week') {
+    const base = mondayOfCurrentWeek();
+    const starts = [];
+    for (let i = 7; i >= 0; i--) {
+      const d = new Date(base);
+      d.setUTCDate(d.getUTCDate() - i * 7);
+      starts.push(d);
+    }
+    const lastEnd = new Date(starts[starts.length - 1]);
+    lastEnd.setUTCDate(lastEnd.getUTCDate() + 7);
+    const created = await trendBuckets(dataContract, 'created_at', starts[0].toISOString(), lastEnd.toISOString(), 10);
+    const resolved = await trendBuckets(dataContract, 'resolved_at', starts[0].toISOString(), lastEnd.toISOString(), 10);
+    for (const start of starts) {
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 7);
+      data.push({
+        label: start.toISOString().slice(0, 10),
+        created: sumRange(created, start, end),
+        resolved: sumRange(resolved, start, end),
+      });
+    }
+  } else {
+    const now = new Date();
+    const starts = [];
+    for (let i = 11; i >= 0; i--) {
+      starts.push(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1)));
+    }
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+    const created = await trendBuckets(dataContract, 'created_at', starts[0].toISOString(), end, 7);
+    const resolved = await trendBuckets(dataContract, 'resolved_at', starts[0].toISOString(), end, 7);
+    for (const start of starts) {
+      const label = `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
+      data.push({ label, created: created.get(label) || 0, resolved: resolved.get(label) || 0 });
+    }
+  }
+
+  return { data };
+}
+
+export async function recentMssql(dataContract = defaultContract) {
+  const data = await dataContract.queryMany(`
+    SELECT TOP (8) t.id, t.ticket_number, t.title, t.status, t.priority, t.created_at,
+      c.name AS category_name,
+      CONCAT(r.name, ' ', r.last_name) AS reporter_name,
+      CONCAT(a.name, ' ', a.last_name) AS assigned_name
+    FROM tickets t
+    JOIN users r ON r.id = t.reporter_id
+    LEFT JOIN categories c ON c.id = t.category_id
+    LEFT JOIN users a ON a.id = t.assigned_to_id
+    ORDER BY t.created_at DESC
+  `);
+  return { data };
+}
 
 export default router;
