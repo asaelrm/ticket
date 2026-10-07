@@ -1,9 +1,25 @@
 import express from 'express';
 import db from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { currentOrgId } from '../middleware/org.js';
 
 const router = express.Router();
 router.use(requireAuth, requirePermission('report.view'));
+
+// ETAPA 4B: contexto organizacional obligatorio y exclusivamente server-side.
+// La organización sale SIEMPRE de currentOrgId(req.user), nunca de query/body/
+// headers. Un SUPERADMIN global (organization_id NULL) no obtiene reportes
+// globales: NULL se traduce en `1 = 0` para que todos los reportes salgan
+// vacíos/ceros, exactamente igual que el Dashboard (ETAPA 4A).
+function reportOrgScope(req, alias = 't') {
+  const org = currentOrgId(req.user);
+  const col = alias ? `${alias}.organization_id` : 'organization_id';
+  return {
+    org,
+    sql: org ? `${col} = ?` : '1 = 0',
+    params: org ? [org] : [],
+  };
+}
 
 const OPEN_STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING'];
 const OPEN_IN = `t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`;
@@ -17,9 +33,15 @@ const EXPORT_SECTIONS = new Set(['summary', 'status', 'priority', 'category', 'd
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Filtros compartidos por todas las métricas y el detalle del reporte.
+// ETAPA 4B: el scope organizacional es la primera condición SIEMPRE. Se deriva
+// de la sesión (reportOrgScope) y es obligatorio: con org -> `t.organization_id
+// = ?`; sin org (SUPERADMIN) -> `1 = 0`. Nunca se omite ni se acepta del cliente.
 function ticketFilter(req) {
   const conds = [];
   const params = [];
+  const scope = reportOrgScope(req);
+  conds.push(scope.sql);
+  params.push(...scope.params);
   if (req.query.from && DATE_RE.test(String(req.query.from))) {
     conds.push('t.created_at >= ?');
     params.push(`${req.query.from}T00:00:00.000Z`);
@@ -43,7 +65,7 @@ function ticketFilter(req) {
       params.push(value);
     }
   }
-  return { conds, params };
+  return { conds, params, scope };
 }
 
 function whereFrom(conds) {
@@ -112,27 +134,38 @@ function byPriorityData(req) {
 }
 
 function byCategoryData(req) {
-  const { combine } = ctx(req);
-  const w = combine(['c.active = 1']);
+  // ETAPA 4B: el reporte enumera categorías, así que hace falta doble scope.
+  // Las categorías visibles (WHERE sobre `c`) pertenecen a la organización
+  // actual —una categoría de otra org no aparece ni con n = 0— y los tickets
+  // contados (ON del LEFT JOIN) también. El scope del ticket ya llega primero
+  // en df.conds (vía ticketFilter); los placeholders del ON aparecen antes que
+  // los del WHERE, y por eso df.params precede a categoryScope.params.
+  const df = ticketFilter(req);
+  const categoryScope = reportOrgScope(req, 'c');
   return db
     .prepare(
       `SELECT c.name, c.color, COUNT(t.id) AS n,
          SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
        FROM categories c
-       LEFT JOIN tickets t ON t.category_id = c.id ${w.sql.replace(/^WHERE /, 'AND ')}
+       LEFT JOIN tickets t ON t.category_id = c.id AND ${df.conds.join(' AND ')}
+       WHERE ${categoryScope.sql} AND c.active = 1
        GROUP BY c.id ORDER BY n DESC LIMIT 10`
     )
-    .all(...OPEN_STATUSES, ...w.params);
+    .all(...OPEN_STATUSES, ...df.params, ...categoryScope.params);
 }
 
 function byDepartmentData(req) {
   const { df, base } = ctx(req);
+  // ETAPA 4B: el JOIN a departamentos se refuerza a la misma org del ticket
+  // (`d.organization_id = t.organization_id`), así una referencia legacy
+  // cross-org no revela el nombre/id del departamento de otra org: se agrupa
+  // bajo 'Sin departamento'. Los tickets ya se acotan con el scope de ticket.
   return db
     .prepare(
       `SELECT COALESCE(d.name, 'Sin departamento') AS name, COUNT(t.id) AS n,
          SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
        FROM tickets t
-       LEFT JOIN departments d ON d.id = t.department_id ${base}
+       LEFT JOIN departments d ON d.id = t.department_id AND d.organization_id = t.organization_id ${base}
        GROUP BY d.id ORDER BY n DESC LIMIT 10`
     )
     .all(...OPEN_STATUSES, ...df.params);
@@ -152,11 +185,15 @@ function byDayData(req) {
 function byUserData(req) {
   const { combine } = ctx(req);
   const w = combine([]);
+  // ETAPA 4B: LEFT JOIN reforzado a la misma org del ticket. Un reporter
+  // legacy cross-org no puede filtrar identidad ajena: su ticket se conserva
+  // en el reporte agrupado bajo 'Sin reportero' (no se oculta un ticket de la
+  // org por miedo a un JOIN incorrecto).
   return db
     .prepare(
-      `SELECT r.name || ' ' || r.last_name AS reporter, COUNT(*) AS total,
+      `SELECT COALESCE(r.name || ' ' || r.last_name, 'Sin reportero') AS reporter, COUNT(*) AS total,
          SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
-       FROM tickets t JOIN users r ON r.id = t.reporter_id ${w.sql}
+       FROM tickets t LEFT JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id ${w.sql}
        GROUP BY t.reporter_id ORDER BY total DESC LIMIT 10`
     )
     .all(...OPEN_STATUSES, ...w.params);
@@ -215,15 +252,15 @@ function csatData(req) {
     average: totals.average == null ? null : round2(totals.average),
     has_data: responses > 0,
     distribution: [1, 2, 3, 4, 5].map((rating) => ({ rating, n: byRating.get(rating) || 0 })),
-    by_technician: csatBy(req, 'users u ON u.id = t.resolved_by', {
+    by_technician: csatBy(req, 'users u ON u.id = t.resolved_by AND u.organization_id = t.organization_id', {
       label: "COALESCE(u.name || ' ' || u.last_name, 'Sin técnico')",
       group: 't.resolved_by',
     }),
-    by_department: csatBy(req, 'departments d ON d.id = t.department_id', {
+    by_department: csatBy(req, 'departments d ON d.id = t.department_id AND d.organization_id = t.organization_id', {
       label: "COALESCE(d.name, 'Sin departamento')",
       group: 'd.id',
     }),
-    by_category: csatBy(req, 'categories c ON c.id = t.category_id', {
+    by_category: csatBy(req, 'categories c ON c.id = t.category_id AND c.organization_id = t.organization_id', {
       label: "COALESCE(c.name, 'Sin categoría')",
       group: 'c.id',
     }),
@@ -232,6 +269,10 @@ function csatData(req) {
 }
 
 // Promedio y número de respuestas de la misma tabla para cada desglose.
+// ETAPA 4B: el JOIN que recibe ya está reforzado a la misma org del ticket
+// (ver llamadas en csatData), de modo que una identidad legacy cross-org cae
+// en el bucket COALESCE 'Sin...' sin filtrar nombre/id ajeno y sin mezclar
+// encuestas de otra organización (los tickets ya van acotados por ticketFilter).
 function csatBy(req, join, { label, group }) {
   const { combine } = ctx(req);
   const w = combine(['t.csat_rating IS NOT NULL']);
@@ -264,6 +305,13 @@ function csatByMonth(req) {
 
 // --- Rendimiento por técnico y por equipo ---------------------------------
 
+// ETAPA 4B: el JOIN a usuarios valida en CADA brazo la organización del ticket
+// (user.organization_id = ticket.organization_id). La semántica del reporte
+// exige un técnico válido para atribuir métricas: un ticket con referencia
+// legacy cross-org no genera fila ajena ni métricas atribuidas a otra org. El
+// ticket no se pierde: sigue en /summary, /full y el detalle (misma decisión
+// que /by-technician en ETAPA 4A: la asignación inválida se trata como sin
+// dueño allí y queda fuera de la atribución aquí).
 function technicianData(req) {
   const { combine } = ctx(req);
   const w = combine([]);
@@ -281,7 +329,9 @@ function technicianData(req) {
          SUM(CASE WHEN ${SLA_COMPUTABLE} THEN 1 ELSE 0 END) AS sla_comparable,
          SUM(CASE WHEN ${SLA_COMPUTABLE} AND ${DONE_AT} <= t.sla_due_at THEN 1 ELSE 0 END) AS sla_within
        FROM tickets t
-       JOIN users u ON u.id = t.assigned_to_id OR u.id = t.resolved_by OR u.id = t.closed_by
+       JOIN users u ON (u.id = t.assigned_to_id AND u.organization_id = t.organization_id)
+                    OR (u.id = t.resolved_by AND u.organization_id = t.organization_id)
+                    OR (u.id = t.closed_by AND u.organization_id = t.organization_id)
        ${w.sql}
        GROUP BY u.id
        ORDER BY resolved DESC, closed DESC, assigned DESC`
@@ -314,7 +364,7 @@ function teamData(req) {
              THEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 END) AS avg_resolution_hours,
          SUM(CASE WHEN t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL THEN 1 ELSE 0 END) AS sla_comparable,
          SUM(CASE WHEN t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL AND ${DONE_AT} <= t.sla_due_at THEN 1 ELSE 0 END) AS sla_within
-       FROM tickets t JOIN teams tm ON tm.id = t.assigned_team_id
+       FROM tickets t JOIN teams tm ON tm.id = t.assigned_team_id AND tm.organization_id = t.organization_id
        ${w.sql}
        GROUP BY tm.id
        ORDER BY open DESC, completed DESC`
@@ -333,19 +383,23 @@ function teamData(req) {
 }
 
 function ticketDetailsData(req) {
-
+  // ETAPA 4B: detalle CRÍTICO (/full y /export). Todos los JOIN de identidad
+  // (reporter, asignado, departamento, categoría) se refuerzan a la misma org
+  // del ticket con LEFT JOIN: una identidad legacy cross-org aparece con la
+  // etiqueta segura ('Sin reportero'/'Sin asignar'/'Sin...') y el ticket se
+  // conserva — nunca se cae una fila legítima de A por esconder un JOIN.
   const { df, base } = ctx(req);
   return db.prepare(`
     SELECT t.ticket_number, t.title, t.status, t.priority, t.created_at, t.resolved_at, t.closed_at,
            COALESCE(d.name, 'Sin departamento') AS department,
            COALESCE(c.name, 'Sin categoría') AS category,
-           r.name || ' ' || r.last_name AS reporter,
+           COALESCE(r.name || ' ' || r.last_name, 'Sin reportero') AS reporter,
            COALESCE(a.name || ' ' || a.last_name, 'Sin asignar') AS assigned_to
     FROM tickets t
-    JOIN users r ON r.id = t.reporter_id
-    LEFT JOIN users a ON a.id = t.assigned_to_id
-    LEFT JOIN departments d ON d.id = t.department_id
-    LEFT JOIN categories c ON c.id = t.category_id
+    LEFT JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id
+    LEFT JOIN users a ON a.id = t.assigned_to_id AND a.organization_id = t.organization_id
+    LEFT JOIN departments d ON d.id = t.department_id AND d.organization_id = t.organization_id
+    LEFT JOIN categories c ON c.id = t.category_id AND c.organization_id = t.organization_id
     ${base}
     ORDER BY t.created_at DESC, t.id DESC
     LIMIT 500
