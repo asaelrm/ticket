@@ -55,6 +55,9 @@ export default function Settings() {
         notify_on_assign: form.notify_on_assign ? '1' : '0',
         notify_on_comment: form.notify_on_comment ? '1' : '0',
         notify_on_resolve: form.notify_on_resolve ? '1' : '0',
+        notify_on_create: form.notify_on_create ? '1' : '0',
+        notify_on_status: form.notify_on_status ? '1' : '0',
+        notify_on_close: form.notify_on_close ? '1' : '0',
         enable_csat: form.enable_csat ? '1' : '0',
       };
       return api.patch('/api/settings', payload).then((d) => normalize(d.data));
@@ -214,6 +217,24 @@ export default function Settings() {
                 value={form.notify_on_resolve}
                 onChange={(v) => set('notify_on_resolve', v)}
               />
+              <CheckToggle
+                label="Al crear un ticket"
+                hint="Enviar confirmación al usuario cuando su requerimiento sea registrado."
+                value={form.notify_on_create}
+                onChange={(v) => set('notify_on_create', v)}
+              />
+              <CheckToggle
+                label="Al cambiar el estado"
+                hint="Notificar al usuario cuando su ticket cambie de estado."
+                value={form.notify_on_status}
+                onChange={(v) => set('notify_on_status', v)}
+              />
+              <CheckToggle
+                label="Al cerrar un ticket"
+                hint="Notificar al usuario cuando su ticket sea cerrado."
+                value={form.notify_on_close}
+                onChange={(v) => set('notify_on_close', v)}
+              />
             </div>
             <MailStatus mail={mail} pending={mailPending} error={mailError} />
             <EmailLog emails={emails} pending={emailsPending} error={emailsError} />
@@ -352,6 +373,9 @@ function normalize(data) {
     notify_on_assign: flag(data.notify_on_assign),
     notify_on_comment: flag(data.notify_on_comment),
     notify_on_resolve: flag(data.notify_on_resolve),
+    notify_on_create: flag(data.notify_on_create),
+    notify_on_status: flag(data.notify_on_status),
+    notify_on_close: flag(data.notify_on_close),
     enable_csat: flag(data.enable_csat),
   };
 }

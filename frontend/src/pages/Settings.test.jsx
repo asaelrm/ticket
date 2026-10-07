@@ -39,6 +39,9 @@ const SETTINGS = {
   notify_on_assign: '1',
   notify_on_comment: '0',
   notify_on_resolve: '1',
+  notify_on_create: '1',
+  notify_on_status: '0',
+  notify_on_close: '1',
   enable_csat: '0',
   rule_unassigned_hours: '8',
   rule_unassigned_priority: 'HIGH',
@@ -119,6 +122,9 @@ describe('Settings', () => {
     expect(screen.getByRole('checkbox', { name: /Al asignar un ticket/ })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Cuando hay un comentario nuevo/ })).not.toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Al resolver un ticket/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Al crear un ticket/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Al cambiar el estado/ })).not.toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /^Al cerrar un ticket/ })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Activar encuesta de satisfacción/ })).not.toBeChecked();
   });
 
@@ -162,6 +168,29 @@ describe('Settings', () => {
           notify_on_assign: '1',
           notify_on_comment: '0',
           notify_on_resolve: '1',
+          notify_on_create: '1',
+          notify_on_status: '0',
+          notify_on_close: '1',
+        })
+      )
+    );
+  });
+
+  it('guarda los nuevos avisos de crear, cambiar estado y cerrar', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Settings />, { route: '/app/settings' });
+    await screen.findByText('Configuración del sistema');
+
+    await user.click(screen.getByRole('checkbox', { name: /Al cambiar el estado/ }));
+    await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
+
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        '/api/settings',
+        expect.objectContaining({
+          notify_on_create: '1',
+          notify_on_status: '1',
+          notify_on_close: '1',
         })
       )
     );
@@ -451,6 +480,6 @@ describe('Settings', () => {
 
     const form = screen.getByRole('button', { name: 'Guardar configuración' }).closest('form');
     expect(within(form).getAllByRole('spinbutton').length).toBe(6);
-    expect(within(form).getAllByRole('checkbox').length).toBe(5);
+    expect(within(form).getAllByRole('checkbox').length).toBe(8);
   });
 });
