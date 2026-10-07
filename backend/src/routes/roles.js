@@ -31,6 +31,12 @@ router.patch('/:id/permissions', requirePermission('role.manage'), (req, res) =>
   const id = parseInt(req.params.id, 10);
   const role = db.prepare('SELECT id, code FROM roles WHERE id = ?').get(id);
   if (!role) return res.status(404).json({ error: 'Rol no encontrado' });
+  // El rol SUPERADMIN es intocable para un administrador normal: solo otro
+  // SUPERADMIN puede alterar sus permisos. Sin esta barrera, un admin con
+  // role.manage podría recortar o ampliar el rol global y escalar.
+  if (role.code === 'SUPERADMIN' && !req.user.is_superadmin) {
+    return res.status(403).json({ error: 'Solo un superadministrador puede modificar el rol SUPERADMIN' });
+  }
   if (role.code === 'ADMIN') {
     return res.status(400).json({ error: 'El rol Administrador siempre conserva todos los permisos' });
   }

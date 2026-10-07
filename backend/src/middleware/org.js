@@ -29,3 +29,14 @@ export function orgScope(alias) {
 export function currentOrgId(user) {
   return user && user.organization_id ? user.organization_id : null;
 }
+
+// Restringe una ruta al SUPERADMIN global. Las cuentas y el rol SUPERADMIN
+// solo los administra otro SUPERADMIN; ningún permiso de un rol de
+// organización puede abrir este canal.
+export function requireSuperadmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'No autenticado' });
+  if (!req.user.is_superadmin) {
+    return res.status(403).json({ error: 'Solo un superadministrador puede realizar esta acción' });
+  }
+  next();
+}

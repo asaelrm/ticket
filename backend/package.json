@@ -8,6 +8,8 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "db:migrate": "node --env-file-if-exists=.env src/scripts/migrate.js",
     "db:seed": "node --env-file-if-exists=.env src/scripts/seed.js",
+    "db:bootstrap": "node --env-file-if-exists=.env src/scripts/bootstrap-superadmin.js",
+    "db:audit-orgs": "node --env-file-if-exists=.env src/scripts/audit-orgs.js",
     "test": "node --test --import ./test/setup.js --env-file-if-exists=.env \"test/*.test.js\""
   },
   "dependencies": {

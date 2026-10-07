@@ -6,6 +6,7 @@ import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission, requireAnyPermission, publicUser } from '../middleware/auth.js';
 import { saveDirectorySnapshot } from '../directorySync.js';
 import { destroyUserSessions } from '../utils/sessionStore.js';
+import { SUPERADMIN_ROLE_CODE, isSuperadminRoleCode, orgStateError } from '../orgPolicy.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -32,14 +33,6 @@ function rejectClientOrg(body) {
     return 'El contexto de organización lo decide el servidor, no la petición';
   }
   return null;
-}
-
-// La asignación del rol SUPERADMIN (y la gestión de cuentas SUPERADMIN) es
-// privilegio exclusivo de otro SUPERADMIN. Sin esta barrera, un administrador
-// normal con user.manage podría ascender a un tercero (o a sí mismo, la ruta lo
-// impide por otra vía) simplemente editando una petición.
-function isSuperadminRole(roleCode) {
-  return roleCode === 'SUPERADMIN';
 }
 
 function userWhere() {
@@ -130,16 +123,17 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
   // (sesión), nunca en una indicada por el cliente. Solo un SUPERADMIN puede
   // crear otro SUPERADMIN, y esos nacen globales (organization_id null).
   let organizationId = req.user.organization_id;
-  if (isSuperadminRole(role.code)) {
+  if (isSuperadminRoleCode(role.code)) {
     if (!req.user.is_superadmin) {
       return res.status(403).json({ error: 'Solo un superadministrador puede asignar el rol SUPERADMIN' });
     }
     organizationId = null;
-  } else if (!organizationId) {
-    return res.status(400).json({
-      error: 'Este rol requiere pertenecer a una organización; el contexto se resuelve desde la sesión',
-    });
   }
+
+  // Regla de consistencia: usuario normal exige organización válida y activa;
+  // SUPERADMIN exige organization_id NULL. El contexto sale de la sesión.
+  const stateError = orgStateError({ roleCode: role.code, organizationId });
+  if (stateError) return res.status(400).json({ error: stateError });
 
   if (departmentId) {
     const dept = db.prepare('SELECT id FROM departments WHERE id = ?').get(departmentId);
@@ -253,14 +247,12 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const rejected = rejectClientOrg(req.body || {});
   if (rejected) return res.status(400).json({ error: rejected });
   const existing = db
-    .prepare('SELECT id, name, last_name, department_id, position, username, email, role_id FROM users WHERE id = ?')
+    .prepare('SELECT id, name, last_name, department_id, position, username, email, role_id, organization_id FROM users WHERE id = ?')
     .get(id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-  const existingRole = db
-    .prepare('SELECT code FROM roles WHERE id = ?')
-    .get(existing.role_id);
-  if (isSuperadminRole(existingRole?.code) && !req.user.is_superadmin) {
+  const existingRole = db.prepare('SELECT code FROM roles WHERE id = ?').get(existing.role_id);
+  if (isSuperadminRoleCode(existingRole?.code) && !req.user.is_superadmin) {
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
   }
 
@@ -297,18 +289,35 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const role = db.prepare('SELECT id, code FROM roles WHERE id = ? AND active = 1').get(roleId);
   if (!role) return res.status(400).json({ error: 'Rol inválido' });
 
-  // Cambiar a (o desde) SUPERADMIN solo puede hacerlo otro SUPERADMIN. La
-  // organización nunca cambia aquí: sigue siendo la que tiene en la base.
-  const changingRole = roleId !== existing.role_id;
-  if (changingRole && (isSuperadminRole(role.code) || isSuperadminRole(existingRole?.code))) {
-    if (!req.user.is_superadmin) {
-      return res.status(403).json({ error: 'Solo un superadministrador puede asignar o quitar el rol SUPERADMIN' });
+  // Cambio de rol con consistencia de organización:
+  //   - Ascenso a SUPERADMIN: solo otro SUPERADMIN, y el promovido queda global
+  //     (organization_id NULL). No se confía en un role_id "amigable" del
+  //     cliente: el rol real se vuelve a leer de la base.
+  //   - Descenso de SUPERADMIN a rol normal: requiere una organización segura
+  //     que aún no se puede proveer desde el servidor, así que hoy se rechaza.
+  //   - Rol normal → rol normal: se conserva la organización que ya tiene.
+  let nextOrg = existing.organization_id;
+  if (isSuperadminRoleCode(role.code)) {
+    if (isSuperadminRoleCode(existingRole?.code)) {
+      // Sin cambio de rol: se mantiene global.
+    } else if (!req.user.is_superadmin) {
+      return res.status(403).json({ error: 'Solo un superadministrador puede asignar el rol SUPERADMIN' });
+    } else {
+      nextOrg = null;
     }
+  } else if (isSuperadminRoleCode(existingRole?.code)) {
+    return res.status(400).json({
+      error: 'Convertir un SUPERADMIN a un rol de organización requiere aprovisionar una organización; no disponible todavía',
+    });
+  } else {
+    const stateError = orgStateError({ roleCode: role.code, organizationId: existing.organization_id });
+    if (stateError) return res.status(400).json({ error: stateError });
   }
 
   db.prepare(
-    `UPDATE users SET name = ?, last_name = ?, username = ?, email = ?, department_id = ?, position = ?, role_id = ?, updated_at = ? WHERE id = ?`
-  ).run(name, lastName, username, email, departmentId, position, roleId, nowIso(), id);
+    `UPDATE users SET name = ?, last_name = ?, username = ?, email = ?, department_id = ?, position = ?, role_id = ?,
+     organization_id = ?, updated_at = ? WHERE id = ?`
+  ).run(name, lastName, username, email, departmentId, position, roleId, nextOrg, nowIso(), id);
 
   saveDirectorySnapshot();
   const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(id);
@@ -329,7 +338,7 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
   const targetRole = db
     .prepare('SELECT r.code FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?')
     .get(id);
-  if (isSuperadminRole(targetRole?.code) && !req.user.is_superadmin) {
+  if (isSuperadminRoleCode(targetRole?.code) && !req.user.is_superadmin) {
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
   }
 
@@ -351,7 +360,7 @@ router.post('/:id/reset-password', requirePermission('user.manage'), (req, res) 
   const targetRole = db
     .prepare('SELECT r.code FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?')
     .get(id);
-  if (targetRole && isSuperadminRole(targetRole.code) && !req.user.is_superadmin) {
+  if (targetRole && isSuperadminRoleCode(targetRole.code) && !req.user.is_superadmin) {
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
   }
   const existing = db.prepare('SELECT id, name, username FROM users WHERE id = ? AND active = 1').get(id);
