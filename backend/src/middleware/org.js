@@ -1,9 +1,9 @@
-// Helpers de organización (ETAPA 1A).
+// Helpers de organización (ETAPA 1A y 2).
 //
-// Esta etapa crea la base (tabla organizations, users.organization_id, rol
-// SUPERADMIN) pero TODAVÍA NO aísla endpoints por organización: eso llega en
-// etapas posteriores. Estos helpers existen para que todas las rutas usen el
-// mismo criterio cuando llegue el momento.
+// La etapa 1A creó la base (tabla organizations, users.organization_id, rol
+// SUPERADMIN). La etapa 2 aísla departamentos y usuarios por organización
+// usando estos helpers. La organización SIEMPRE la decide el servidor: el
+// cliente nunca la propone.
 
 // Fuerza que la petición tenga contexto de organización. El valor nunca sale de
 // la petición del cliente: lo decide el servidor (req.user.organization_id,
@@ -28,6 +28,17 @@ export function orgScope(alias) {
 // Organización del usuario autenticado (null para un SUPERADMIN global).
 export function currentOrgId(user) {
   return user && user.organization_id ? user.organization_id : null;
+}
+
+// ETAPA 2: si el cliente intenta fijar la organización en el cuerpo, se
+// rechaza. Devuelve el mensaje de error o null si el cuerpo no lleva campo
+// `organization_id` (o lo lleva vacío). El valor de la organización sale
+// SIEMPRE del contexto de sesión, jamás del cliente.
+export function rejectClientOrg(body) {
+  if (!body || typeof body !== 'object') return null;
+  const org = body.organization_id;
+  if (org === undefined || org === null || org === '') return null;
+  return 'La organización no puede ser establecida desde el cliente';
 }
 
 // Restringe una ruta al SUPERADMIN global. Las cuentas y el rol SUPERADMIN

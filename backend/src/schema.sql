@@ -46,9 +46,15 @@ CREATE TABLE IF NOT EXISTS departments (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   name       TEXT NOT NULL UNIQUE,
   description TEXT,
+  -- ETAPA 2 (aislamiento por organización): el departamento pertenece a una
+  -- organización. La columna es nullable en SQLite (la restricción fuerte se
+  -- diseña en MSSQL); el backfill la asigna a UCE y la capa de aplicación
+  -- exige que un departamento nuevo nazca siempre con contexto de sesión.
+  organization_id INTEGER REFERENCES organizations(id),
   active     INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+CREATE INDEX IF NOT EXISTS idx_departments_organization ON departments(organization_id);
 
 CREATE TABLE IF NOT EXISTS categories (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

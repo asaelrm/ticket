@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { currentOrgId } from '../middleware/org.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -14,11 +15,19 @@ router.get('/', requirePermission('role.manage'), (req, res) => {
   for (const rp of rolePerms) {
     (map[rp.role_id] = map[rp.role_id] || []).push(rp.code);
   }
+  // ETAPA 2: los roles son plantillas globales, pero el conteo de cuántos
+  // usuarios tiene cada rol es dato de la organización del solicitante. Un
+  // admin de ORG_A no debe conocer la masa de usuarios de ORG_B. El SUPERADMIN
+  // (org NULL) sí ve el conteo global, que es su responsabilidad.
+  const org = currentOrgId(req.user);
+  const countUsers = org
+    ? db.prepare('SELECT COUNT(*) AS n FROM users WHERE role_id = ? AND organization_id = ?')
+    : db.prepare('SELECT COUNT(*) AS n FROM users WHERE role_id = ?');
   res.json({
     roles: roles.map((r) => ({
       ...r,
       permissions: map[r.id] || [],
-      users: db.prepare('SELECT COUNT(*) AS n FROM users WHERE role_id = ?').get(r.id).n,
+      users: org ? countUsers.get(r.id, org).n : countUsers.get(r.id).n,
     })),
   });
 });

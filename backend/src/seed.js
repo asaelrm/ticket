@@ -159,16 +159,18 @@ function seedPermissionsAndRoles() {
   }
 }
 
-function seedBaseData() {
+function seedBaseData(organizationId) {
   const insertCat = db.prepare(
     'INSERT INTO categories (name, description, color) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
   );
   for (const [name, desc, color] of INITIAL_CATEGORIES) insertCat.run(name, desc, color);
 
+  // ETAPA 2: los departamentos iniciales nacen ya asociados a la organización
+  // inicial (UCE). Mismo criterio que las cuentas demo.
   const insertDept = db.prepare(
-    'INSERT INTO departments (name) VALUES (?) ON CONFLICT(name) DO NOTHING'
+    'INSERT INTO departments (name, organization_id) VALUES (?, ?) ON CONFLICT(name) DO NOTHING'
   );
-  for (const name of INITIAL_DEPARTMENTS) insertDept.run(name);
+  for (const name of INITIAL_DEPARTMENTS) insertDept.run(name, organizationId);
 
   // Mismo criterio que `categories`: el nombre no se sobrescribe al reiniciar
   // para no revertir lo que un administrador haya renombrado desde la UI.
@@ -183,6 +185,9 @@ function seedBaseData() {
 // tengan una. El UPDATE excluye explícitamente al rol SUPERADMIN: una cuenta
 // global (organization_id NULL) nunca debe ser arrastrada a una organización
 // por una reejecución del seed.
+// ETAPA 2: el mismo backfill alcanza a los departamentos huérfanos: los
+// registros pre-multiempresa pertenecen a la organización inicial (se crearon
+// antes de que existiera el concepto de organización).
 function ensureOrganizations() {
   db.prepare(
     'INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1) ON CONFLICT(code) DO NOTHING'
@@ -195,6 +200,11 @@ function ensureOrganizations() {
     UPDATE users SET organization_id = ?
     WHERE organization_id IS NULL
       AND role_id NOT IN (SELECT id FROM roles WHERE code = 'SUPERADMIN')
+  `).run(uce.id);
+
+  db.prepare(`
+    UPDATE departments SET organization_id = ?
+    WHERE organization_id IS NULL
   `).run(uce.id);
 
   return uce.id;
@@ -343,10 +353,12 @@ function ensureUsers(options = {}, organizationId = null) {
 export function seed(options = {}) {
   return transaction(() => {
     seedPermissionsAndRoles();
-    seedBaseData();
-    // La organización inicial debe existir ANTES que las cuentas para que las
-    // cuentas nuevas nazcan ya asociadas a UCE.
+    // La organización inicial debe existir ANTES que categorías, departamentos
+    // y cuentas para que los registros nuevos nazcan ya asociados a UCE (ETAPA
+    // 1A + 2). El orden correcto es: permisos/roles → organizaciones → datos
+    // base → cuentas.
     const organizationId = ensureOrganizations();
+    seedBaseData(organizationId);
     // ensureUsers decide internamente qué cuentas crear según el entorno.
     ensureUsers(options, organizationId);
     return {

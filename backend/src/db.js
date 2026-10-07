@@ -85,6 +85,12 @@ export function runMigrations() {
       ensureColumn('users', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
     }
 
+    // ETAPA 2 (aislamiento por organización): departamento organizado. Mismo
+    // patrón aditivo e idempotente que users.organization_id.
+    if (tableExists('departments')) {
+      ensureColumn('departments', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
+    }
+
     db.exec(schema);
 
     // Índices de columnas aditivas (idempotentes).

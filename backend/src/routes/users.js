@@ -6,6 +6,7 @@ import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission, requireAnyPermission, publicUser } from '../middleware/auth.js';
 import { saveDirectorySnapshot } from '../directorySync.js';
 import { destroyUserSessions } from '../utils/sessionStore.js';
+import { currentOrgId, rejectClientOrg } from '../middleware/org.js';
 import { SUPERADMIN_ROLE_CODE, isSuperadminRoleCode, orgStateError } from '../orgPolicy.js';
 
 const router = express.Router();
@@ -25,15 +26,9 @@ const LIST_SQL = `
 `;
 
 // El contexto de organización lo decide exclusivamente el servidor a partir de
-// la sesión. Un organization_id enviado por el cliente es un intento de
-// escalada o un error del frontend, nunca una instrucción válida.
-function rejectClientOrg(body) {
-  const org = body && body.organization_id;
-  if (org !== undefined && org !== null && org !== '') {
-    return 'El contexto de organización lo decide el servidor, no la petición';
-  }
-  return null;
-}
+// la sesión (rejectClientOrg viene de middleware/org.js). Un organization_id
+// enviado por el cliente es un intento de escalada o un error del frontend,
+// nunca una instrucción válida.
 
 function userWhere() {
   const conditions = [];
@@ -43,6 +38,18 @@ function userWhere() {
 
 function buildListQuery(req) {
   const { conditions, params } = userWhere();
+  // ETAPA 2 (aislamiento por organización): el listado se restringe SIEMPRE a
+  // la organización del contexto de sesión. Un SUPERADMIN sin contexto obtiene
+  // una lista vacía: las rutas normales no exponen de golpe los datos de todas
+  // las organizaciones; eso llega con operaciones multiempresa explícitas en
+  // etapas posteriores.
+  const org = currentOrgId(req.user);
+  if (org) {
+    conditions.push('u.organization_id = ?');
+    params.push(org);
+  } else {
+    conditions.push('1 = 0');
+  }
   if (req.query.search) {
     conditions.push('(u.name LIKE ? OR u.last_name LIKE ? OR u.username LIKE ? OR u.email LIKE ?)');
     const like = `%${req.query.search}%`;
@@ -135,9 +142,16 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
   const stateError = orgStateError({ roleCode: role.code, organizationId });
   if (stateError) return res.status(400).json({ error: stateError });
 
+  // ETAPA 2: el departamento debe pertenecer a la organización del usuario.
+  // Como organizationId sale de la sesión (null solo para SUPERADMIN), exigir
+  // coincidencia también impide que un SUPERADMIN se asocie a un departamento:
+  // un departamento siempre pertenece a una organización.
   if (departmentId) {
-    const dept = db.prepare('SELECT id FROM departments WHERE id = ?').get(departmentId);
+    const dept = db.prepare('SELECT id, organization_id FROM departments WHERE id = ?').get(departmentId);
     if (!dept) return res.status(400).json({ error: 'Departamento inválido' });
+    if (dept.organization_id !== organizationId) {
+      return res.status(400).json({ error: 'El departamento debe pertenecer a la organización del usuario' });
+    }
   }
   if (db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)').get(username)) {
     return res.status(409).json({ error: 'El nombre de usuario ya existe' });
@@ -165,18 +179,25 @@ router.get(
   '/assignable',
   requireAnyPermission(['ticket.assign', 'ticket.view.all', 'team.manage']),
   (req, res) => {
+    // ETAPA 2: solo los usuarios ACTIVOS de la organización del solicitante son
+    // asignables. Un SUPERADMIN sin contexto no obtiene el directorio completo.
     const rows = db
       .prepare(`SELECT u.id, u.name, u.last_name, u.position, d.name AS department_name FROM users u
               LEFT JOIN departments d ON d.id = u.department_id
-              WHERE u.active = 1 ORDER BY u.name, u.last_name`)
-      .all();
+              WHERE u.active = 1 AND u.organization_id = ? ORDER BY u.name, u.last_name`)
+      .all(currentOrgId(req.user));
     res.json({ data: rows });
   }
 );
 
 router.get('/:id/tickets', (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const target = db.prepare('SELECT id, name, last_name FROM users WHERE id = ?').get(id);
+  // ETAPA 2: el objetivo debe pertenecer a la organización del solicitante
+  // (404 para otra organización). COALESCE con NULL permite a un SUPERADMIN
+  // consultar cualquier usuario por id explícito.
+  const target = db
+    .prepare('SELECT id, name, last_name FROM users WHERE id = ? AND organization_id = COALESCE(?, organization_id)')
+    .get(id, currentOrgId(req.user));
   if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
 
   const isSelf = req.user.id === id;
@@ -237,7 +258,10 @@ router.get('/:id/tickets', (req, res) => {
 
 router.get('/:id', requirePermission('user.view'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(id);
+  // ETAPA 2: un usuario de otra organización responde 404 (no se revela su
+  // existencia). El SUPERADMIN puede consultar cualquier usuario por id.
+  const row = db.prepare(`${LIST_SQL} AND u.id = ? AND u.organization_id = COALESCE(?, u.organization_id)`)
+    .get(id, currentOrgId(req.user));
   if (!row) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json({ user: publicUser(row) });
 });
@@ -246,6 +270,10 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
   const rejected = rejectClientOrg(req.body || {});
   if (rejected) return res.status(400).json({ error: rejected });
+  // La búsqueda NO va scoped por organización porque antes hace falta detectar
+  // si el objetivo es un SUPERADMIN global (que merece 403, no 404; ver
+  // test/organizations.test.js). La restricción de organización se aplica
+  // justo después y devuelve 404 para recursos ajenos.
   const existing = db
     .prepare('SELECT id, name, last_name, department_id, position, username, email, role_id, organization_id FROM users WHERE id = ?')
     .get(id);
@@ -254,6 +282,12 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const existingRole = db.prepare('SELECT code FROM roles WHERE id = ?').get(existing.role_id);
   if (isSuperadminRoleCode(existingRole?.code) && !req.user.is_superadmin) {
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
+  }
+
+  // ETAPA 2: un usuario de otra organización no es gestionable (404).
+  const org = currentOrgId(req.user);
+  if (org && existing.organization_id !== org) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
   }
 
   const body = req.body || {};
@@ -314,10 +348,28 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
     if (stateError) return res.status(400).json({ error: stateError });
   }
 
+  // ETAPA 2: consistencia usuario → departamento → organización. El rol global
+  // no pertenece a ningún departamento: si el cliente lo intenta fijar
+  // explícitamente se rechaza (400); si no se menciona (p. ej. en un ascenso
+  // desde un rol que sí tenía departamento) se limpia al quedar global.
+  let departmentIdFinal = departmentId;
+  if (isSuperadminRoleCode(role.code)) {
+    if (has('department_id') && departmentId) {
+      return res.status(400).json({ error: 'El rol SUPERADMIN no pertenece a ningún departamento' });
+    }
+    departmentIdFinal = null;
+  } else if (departmentIdFinal) {
+    const dept = db.prepare('SELECT id, organization_id FROM departments WHERE id = ?').get(departmentIdFinal);
+    if (!dept) return res.status(400).json({ error: 'Departamento inválido' });
+    if (dept.organization_id !== nextOrg) {
+      return res.status(400).json({ error: 'El departamento debe pertenecer a la organización del usuario' });
+    }
+  }
+
   db.prepare(
     `UPDATE users SET name = ?, last_name = ?, username = ?, email = ?, department_id = ?, position = ?, role_id = ?,
      organization_id = ?, updated_at = ? WHERE id = ?`
-  ).run(name, lastName, username, email, departmentId, position, roleId, nextOrg, nowIso(), id);
+  ).run(name, lastName, username, email, departmentIdFinal, position, roleId, nextOrg, nowIso(), id);
 
   saveDirectorySnapshot();
   const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(id);
@@ -332,9 +384,11 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
     return res.status(400).json({ error: 'No puede desactivar su propia cuenta' });
   }
 
-  const existing = db.prepare('SELECT id, active FROM users WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT id, active, organization_id FROM users WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
 
+  // El SUPERADMIN merece 403 (no 404) para un admin de organización: es un
+  // canal protegido heredado de ETAPA 1B (ver test/organizations.test.js).
   const targetRole = db
     .prepare('SELECT r.code FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?')
     .get(id);
@@ -342,11 +396,26 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
   }
 
-  if (!active && (
-    db.prepare('SELECT COUNT(*) AS n FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = ? AND u.active = 1').get('ADMIN').n <= 1 &&
-    db.prepare('SELECT role_id FROM users WHERE id = ?').get(id).role_id === db.prepare('SELECT id FROM roles WHERE code = ?').get('ADMIN').id
-  )) {
-    return res.status(400).json({ error: 'Debe existir al menos un administrador activo' });
+  // ETAPA 2: un usuario de otra organización no es gestionable (404).
+  const org = currentOrgId(req.user);
+  if (org && existing.organization_id !== org) {
+    return res.status(404).json({ error: 'Usuario no encontrado' });
+  }
+
+  // ETAPA 2: la guardia "al menos un administrador activo" es POR organización
+  // (no global): cada organización debe conservar su propia administración.
+  if (!active && existing.active) {
+    const esAdmin = db.prepare(
+      'SELECT id FROM users WHERE id = ? AND role_id = (SELECT id FROM roles WHERE code = ?)'
+    ).get(id, 'ADMIN');
+    const adminsEnOrg = db.prepare(`
+      SELECT COUNT(*) AS n FROM users u
+      JOIN roles r ON r.id = u.role_id
+      WHERE r.code = 'ADMIN' AND u.active = 1 AND u.organization_id = ?
+    `).get(existing.organization_id).n;
+    if (esAdmin && adminsEnOrg <= 1) {
+      return res.status(400).json({ error: 'Debe existir al menos un administrador activo en la organización' });
+    }
   }
 
   db.prepare('UPDATE users SET active = ?, updated_at = ? WHERE id = ?').run(active ? 1 : 0, nowIso(), id);
@@ -358,11 +427,18 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
 router.post('/:id/reset-password', requirePermission('user.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
   const targetRole = db
-    .prepare('SELECT r.code FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?')
+    .prepare('SELECT r.code, u.organization_id FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?')
     .get(id);
   if (targetRole && isSuperadminRoleCode(targetRole.code) && !req.user.is_superadmin) {
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
   }
+
+  // ETAPA 2: un usuario de otra organización no es gestionable (404).
+  const org = currentOrgId(req.user);
+  if (org && targetRole && targetRole.organization_id !== org) {
+    return res.status(404).json({ error: 'Usuario no encontrado o inactivo' });
+  }
+
   const existing = db.prepare('SELECT id, name, username FROM users WHERE id = ? AND active = 1').get(id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado o inactivo' });
 

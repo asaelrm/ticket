@@ -46,7 +46,9 @@ describe('el directorio no transporta contraseñas', () => {
     assert.equal(/"password_hash"/.test(crudo), false);
 
     const snapshot = JSON.parse(crudo);
-    assert.equal(snapshot.version, 2);
+    // La versión 3 es de ETAPA 2 (aislamiento por organización): el snapshot
+    // transporta organization_code en departamentos y usuarios.
+    assert.equal(snapshot.version, 3);
     assert.ok(snapshot.users.length >= 3, 'debe exportar las cuentas existentes');
     for (const user of snapshot.users) {
       assert.equal('password_hash' in user, false, `el usuario ${user.username} lleva hash`);
