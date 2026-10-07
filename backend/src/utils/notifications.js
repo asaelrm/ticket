@@ -3,10 +3,28 @@ import { EventEmitter } from 'node:events';
 
 export const notificationEvents = new EventEmitter();
 
+// ETAPA 3 (defensa central): antes de crear una notificación ligada a un
+// ticket, el destinatario debe pertenecer a la MISMA organización del ticket.
+// Es la red de seguridad que cubre cualquier flujo (normal, jobs o datos
+// legacy corruptos): si el usuario no existe, no tiene org o la org no
+// coincide, la notificación no se crea. Las notificaciones de sistema o no
+// ligadas a tickets (password reset, avisos globales) pasan ticketId = null.
+function recipientInTicketOrg(userId, ticketId) {
+  const row = db
+    .prepare(
+      `SELECT u.organization_id AS user_org, t.organization_id AS ticket_org
+       FROM users u, tickets t WHERE u.id = ? AND t.id = ?`
+    )
+    .get(userId, ticketId);
+  if (!row || row.user_org == null || row.ticket_org == null) return false;
+  return Number(row.user_org) === Number(row.ticket_org);
+}
+
 // Notificaciones in-app: se muestran en la campana del header. No son correos,
 // solo eventos internos del sistema (asignación, comentarios, cierre, etc.).
 export function createNotification({ userId, ticketId = null, type, title, body = null, link = null }) {
   if (!userId) return null;
+  if (ticketId != null && !recipientInTicketOrg(userId, ticketId)) return null;
   const info = db
     .prepare(
       'INSERT INTO notifications (user_id, ticket_id, type, title, body, link) VALUES (?, ?, ?, ?, ?, ?)'
@@ -29,30 +47,43 @@ export function createNotifications({ userIds = [], ...rest }) {
 }
 
 // Notifica a todos los administradores activos (para alertas del sistema).
-export function notifyAdmins({ type, title, body = null, ticketId = null, link = null }) {
-  const admins = db
-    .prepare(
-      `SELECT u.id FROM users u
-       JOIN roles r ON r.id = u.role_id
-       JOIN role_permissions rp ON rp.role_id = r.id
-       JOIN permissions p ON p.id = rp.permission_id
-       WHERE u.active = 1 AND p.code = 'settings.manage'`
-    )
-    .all();
+// ETAPA 3: cuando `organizationId` viene dado (p. ej. la org del ticket que
+// disparó la alerta), el aviso solo alcanza a administradores de ESA
+// organización. Sin `organizationId` (alertas globales del sistema, sin
+// contexto de ticket) se conserva el comportamiento original: todos los
+// administradores activos.
+export function notifyAdmins({ type, title, body = null, ticketId = null, link = null, organizationId = null }) {
+  let sql = `SELECT u.id FROM users u
+     JOIN roles r ON r.id = u.role_id
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+     WHERE u.active = 1 AND p.code = 'settings.manage'`;
+  const params = [];
+  if (organizationId != null) {
+    sql += ` AND u.organization_id = ?`;
+    params.push(organizationId);
+  }
+  const admins = db.prepare(sql).all(...params);
   return createNotifications({ userIds: admins.map((a) => a.id), type, title, body, ticketId, link });
 }
 
 // Notifica a técnicos/soporte (quienes pueden ver todos los tickets).
-export function notifyStaff({ type, title, body = null, ticketId = null, excludeUserId = null, link = null }) {
-  const staff = db
-    .prepare(
-      `SELECT u.id FROM users u
-       JOIN roles r ON r.id = u.role_id
-       JOIN role_permissions rp ON rp.role_id = r.id
-       JOIN permissions p ON p.id = rp.permission_id
-       WHERE u.active = 1 AND p.code = 'ticket.view.all'`
-    )
-    .all();
+// ETAPA 3: mismo criterio que notifyAdmins. Los avisos de ticket (NEW_TICKET,
+// SLAs, etc.) pasan `organizationId: ticket.organization_id` y solo llegan a
+// personal de la MISMA org; una alerta global sin contexto conserva todos los
+// técnicos activos.
+export function notifyStaff({ type, title, body = null, ticketId = null, excludeUserId = null, link = null, organizationId = null }) {
+  let sql = `SELECT u.id FROM users u
+     JOIN roles r ON r.id = u.role_id
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+     WHERE u.active = 1 AND p.code = 'ticket.view.all'`;
+  const params = [];
+  if (organizationId != null) {
+    sql += ` AND u.organization_id = ?`;
+    params.push(organizationId);
+  }
+  const staff = db.prepare(sql).all(...params);
   const exclude = Number(excludeUserId);
   return createNotifications({
     userIds: staff.map((s) => s.id).filter((id) => Number(id) !== exclude),

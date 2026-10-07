@@ -35,10 +35,161 @@ export function ensureColumn(table, column, ddl) {
   }
 }
 
+// ETAPA 3: ¿la tabla conserva un UNIQUE de COLUMNA sobre `column`? Una
+// constraint UNIQUE (columna o tabla) materializa un autoindex
+// (sqlite_autoindex_%). El autoindex de la PRIMARY KEY tiene origin 'pk'; el
+// de una UNIQUE, origin 'u'. Se comprueba además `PRAGMA index_info` para
+// distinguir UNIQUE(ticket_number) de UNIQUE(otra columna), de modo que una
+// tabla con cualquier otro UNIQUE no dispare un rebuild innecesario.
+function legacyColumnUniqueIndex(table, column) {
+  const indexes = db.prepare(`PRAGMA index_list(${JSON.stringify(table)})`).all();
+  for (const idx of indexes) {
+    if (idx.origin !== 'u' || !idx.unique) continue;
+    const cols = db.prepare(`PRAGMA index_info(${JSON.stringify(idx.name)})`).all();
+    if (cols.length === 1 && cols[0].name === column) return idx.name;
+  }
+  return null;
+}
+
+// Índices estándar que schema.sql/db.js recrean con IF NOT EXISTS al migrar:
+// no se restauran manualmente (sería redundante y rompería la idempotencia).
+const STANDARD_TICKET_INDEXES = new Set([
+  'idx_tickets_number_org',
+  'idx_tickets_number',
+  'idx_tickets_reporter',
+  'idx_tickets_assigned',
+  'idx_tickets_assigned_team',
+  'idx_tickets_category',
+  'idx_tickets_department',
+  'idx_tickets_priority',
+  'idx_tickets_status',
+  'idx_tickets_created',
+  'idx_tickets_updated',
+  'idx_tickets_resolved',
+  'idx_tickets_closed',
+  'idx_tickets_sla_due',
+  'idx_tickets_resolved_by',
+  'idx_tickets_closed_by',
+  'idx_tickets_cancelled_by',
+  'idx_tickets_cancelled_at',
+  'idx_tickets_organization',
+]);
+
+// Extrae del schema.sql el CREATE TABLE de `tickets` (la definición canónica:
+// sin UNIQUE de columna sobre ticket_number y con organization_id) y lo
+// reescribe como `CREATE TABLE tickets_rebuild`.
+function ticketsRebuildDdl(schema) {
+  const marker = 'CREATE TABLE IF NOT EXISTS tickets (';
+  const start = schema.indexOf(marker);
+  if (start < 0) {
+    throw new Error('Migración de tickets: no se encontró la definición de tickets en schema.sql');
+  }
+  const open = start + marker.length - 1;
+  let depth = 0;
+  let end = open;
+  for (let i = open; i < schema.length; i++) {
+    if (schema[i] === '(') depth++;
+    else if (schema[i] === ')') {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+  if (end === open) {
+    throw new Error('Migración de tickets: CREATE TABLE tickets mal formado en schema.sql');
+  }
+  const semicolon = schema.indexOf(';', end);
+  if (semicolon < 0) {
+    throw new Error('Migración de tickets: CREATE TABLE tickets sin terminador en schema.sql');
+  }
+  return schema.slice(start, semicolon + 1).replace(marker, 'CREATE TABLE tickets_rebuild (');
+}
+
+/**
+ * ETAPA 3: sustituye la tabla `tickets` legacy (UNIQUE de columna sobre
+ * ticket_number) por la definición canónica. El procedimiento preserva los ids
+ * y TODA la referencia de las tablas hijas (ticket_comments, ticket_history,
+ * ...) porque sus constraints apuntan al NOMBRE `tickets`:
+ *
+ *   1. Se crea `tickets_rebuild` con el esquema nuevo.
+ *   2. Se copian las filas conservando los ids (organization_id y las columnas
+ *      nuevas quedan NULL y los rellena el backfill del seed, igual que con el
+ *      resto de dominios).
+ *   3. Se DROPEA la tabla vieja con foreign_keys OFF (no toca las filas hijas)
+ *      y se renombra `tickets_rebuild` a `tickets`: las FKs hijas, que por
+ *      nombre referencian `tickets`, vuelven a apuntar a la tabla reconstruida
+ *      sin mover ni perder ningún dato.
+ *   4. Se restauran los índices explícitos y triggers personalizados (no los
+ *      estándar que schema.sql/db.js ya recrean). Si algo no se puede
+ *      restaurar, se aborta la migración con un error claro.
+ *   5. foreign_key_check debe quedar limpio; si no, rollback (el DDL es
+ *      transaccional, la tabla vieja se restaura intacta).
+ */
+function rebuildTicketsTable(schema) {
+  const customIndexes = db
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='tickets' AND sql IS NOT NULL")
+    .all()
+    .filter((r) => !STANDARD_TICKET_INDEXES.has(r.name));
+  const customTriggers = db
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name='tickets' AND sql IS NOT NULL")
+    .all();
+
+  db.exec(ticketsRebuildDdl(schema));
+
+  const cols = db.prepare('PRAGMA table_info(tickets)').all().map((c) => c.name);
+  const list = cols.map((c) => JSON.stringify(c)).join(', ');
+  db.exec(`INSERT INTO tickets_rebuild (${list}) SELECT ${list} FROM tickets`);
+
+  db.exec('DROP TABLE tickets');
+  db.exec('ALTER TABLE tickets_rebuild RENAME TO tickets');
+
+  // AUTOINCREMENT: DROP borra la entrada de sqlite_sequence de `tickets`; se
+  // restaura explícitamente al último id para que los tickets nuevos nunca
+  // reutilicen un id.
+  db.exec("DELETE FROM sqlite_sequence WHERE name = 'tickets'");
+  db.exec("INSERT INTO sqlite_sequence (name, seq) SELECT 'tickets', MAX(id) FROM tickets");
+
+  for (const idx of customIndexes) {
+    if (!idx.sql) {
+      throw new Error(`Migración de tickets: el índice "${idx.name}" no tiene definición restaurable`);
+    }
+    db.exec(idx.sql);
+  }
+  for (const trg of customTriggers) {
+    if (!trg.sql) {
+      throw new Error(`Migración de tickets: el trigger "${trg.name}" no tiene definición restaurable`);
+    }
+    db.exec(trg.sql);
+  }
+
+  const violations = db.prepare('PRAGMA foreign_key_check').all();
+  if (violations.length) {
+    throw new Error(
+      `Migración de tickets: foreign_key_check detectó ${violations.length} violación(es) tras el rebuild`
+    );
+  }
+}
+
 export function runMigrations() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+
+  // ETAPA 3: bases anteriores declaraban `ticket_number TEXT NOT NULL UNIQUE`
+  // como constraint de COLUMNA. Con la numeración por organización (cada org
+  // arranca en 000001) dos organizaciones producen legítimamente el mismo
+  // número, así que la unicidad debe ser COMPUESTA
+  // (organization_id, ticket_number). SQLite no puede quitar un UNIQUE de
+  // columna in situ, así que la tabla se RECONSTRUYE (rebuildTicketsTable).
+  // `PRAGMA foreign_keys` debe cambiarse FUERA de la transacción: dentro de
+  // una transacción el cambio se difiere hasta el COMMIT y no afecta al DDL.
+  const rebuildTickets = legacyColumnUniqueIndex('tickets', 'ticket_number') != null;
+  if (rebuildTickets) db.exec('PRAGMA foreign_keys = OFF');
+
   db.exec('BEGIN');
   try {
+    if (rebuildTickets) rebuildTicketsTable(schema);
+
     // En bases existentes con esquema antiguo, las columnas aditivas deben crearse
     // ANTES de schema.sql, cuyos CREATE INDEX ya las referencian (idempotente).
     if (tableExists('tickets')) {
@@ -91,6 +242,30 @@ export function runMigrations() {
       ensureColumn('departments', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
     }
 
+    // ETAPA 3 (aislamiento completo por organización): tickets y dominios que
+    // cuelgan de la organización. Las tablas hijas (ticket_comments,
+    // ticket_attachments, ticket_history, kb_article_history, team_members,
+    // kb_ticket_articles) NO llevan columna propia: se aíslan a través de su
+    // padre (tickets, kb_articles, teams), igual que schema.sql las referencia.
+    if (tableExists('tickets')) {
+      ensureColumn('tickets', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
+    }
+    if (tableExists('categories')) {
+      ensureColumn('categories', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
+    }
+    if (tableExists('teams')) {
+      ensureColumn('teams', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
+    }
+    if (tableExists('canned_responses')) {
+      ensureColumn('canned_responses', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
+    }
+    if (tableExists('kb_categories')) {
+      ensureColumn('kb_categories', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
+    }
+    if (tableExists('kb_articles')) {
+      ensureColumn('kb_articles', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
+    }
+
     db.exec(schema);
 
     // Índices de columnas aditivas (idempotentes).
@@ -101,6 +276,12 @@ export function runMigrations() {
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_by ON tickets(cancelled_by)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_at ON tickets(cancelled_at)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_comments_internal ON ticket_comments(ticket_id, is_internal)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_organization ON tickets(organization_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_categories_organization ON categories(organization_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_teams_organization ON teams(organization_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_canned_organization ON canned_responses(organization_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_kb_categories_organization ON kb_categories(organization_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_kb_articles_organization ON kb_articles(organization_id)');
 
     // Notificaciones in-app.
     db.exec(`
@@ -135,10 +316,17 @@ export function runMigrations() {
         AND status IN ('OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING')
     `);
 
+    // Reactivar foreign_keys DESPUÉS del COMMIT: es la única posición segura.
+    // Dentro de una transacción la pragma es un no-op diferido y, si se fija
+    // OFF desde fuera, SQLite deja la conexión en OFF al cerrar la transacción.
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
     throw err;
+  } finally {
+    // Tanto en éxito como en error la conexión vuelve a FK ON antes de seguir
+    // (el seed posterior y las rutas dependen de la integridad referencial).
+    if (rebuildTickets) db.exec('PRAGMA foreign_keys = ON');
   }
   const { user_version } = db.prepare('PRAGMA user_version').get();
   return user_version;

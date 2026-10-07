@@ -2,6 +2,7 @@ import express from 'express';
 import db, { nowIso } from '../db.js';
 import { safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js';
+import { currentOrgId, rejectClientOrg, requireOrg } from '../middleware/org.js';
 import { canViewTicket } from './tickets.js';
 import {
   ARTICLE_STATUSES,
@@ -34,6 +35,12 @@ function canModerate(user) {
  */
 function canRead(user, article) {
   if (!article) return false;
+  // ETAPA 3: un artículo de otra organización no existe para el actor. La
+  // barrera principal es el fetch por :id (`organization_id = ?`); esta
+  // segunda comprobación cubre a quien importe un artículo por otra vía.
+  const org = currentOrgId(user);
+  if (!org || !article.organization_id) return false;
+  if (Number(article.organization_id) !== Number(org)) return false;
   if (article.status === 'PUBLISHED') return true;
   return article.author_id === user.id || canModerate(user);
 }
@@ -120,10 +127,13 @@ function pagination(req) {
 /**
  * Filtros compartidos por los tres listados (público, propio y de gestión).
  * Devuelve { clauses, params } o { error } si un valor no es válido.
+ *
+ * ETAPA 3: los artículos se listan SIEMPRE dentro de la organización del
+ * contexto de sesión. Un SUPERADMIN global (org null) obtiene listas vacías.
  */
 function filterClauses(req) {
-  const clauses = [];
-  const params = [];
+  const clauses = ['a.organization_id = ?'];
+  const params = [currentOrgId(req.user)];
 
   const q = safeStr(req.query.q);
   if (q) {
@@ -214,15 +224,17 @@ function duplicateExists({ title, authorId, excludeId = null }) {
 
 /**
  * Resuelve la categoría. Acepta null (sin categoría) y rechaza con 400 una
- * categoría inexistente o desactivada, para no dejar artículos apuntando a un
- * catálogo que el usuario no ve en los filtros.
+ * categoría inexistente o desactivada —o de otra organización—, para no dejar
+ * artículos apuntando a un catálogo que el usuario no ve en los filtros.
+ * ETAPA 3: la categoría debe pertenecer a la organización (del actor al crear,
+ * del artículo al editar).
  */
-function resolveCategoryId(value) {
+function resolveCategoryId(value, organizationId) {
   if (value === null) return { ok: true, categoryId: null };
   const id = parseIntSafe(value);
   if (!id) return { ok: false, error: 'Categoría de conocimiento no válida' };
-  const row = db.prepare('SELECT id FROM kb_categories WHERE id = ? AND active = 1').get(id);
-  if (!row) return { ok: false, error: 'La categoría de conocimiento no existe o está desactivada' };
+  const row = db.prepare('SELECT id FROM kb_categories WHERE id = ? AND active = 1 AND organization_id = ?').get(id, organizationId);
+  if (!row) return { ok: false, error: 'La categoría de conocimiento no existe, está desactivada o no pertenece a su organización' };
   return { ok: true, categoryId: id };
 }
 
@@ -230,7 +242,7 @@ function resolveCategoryId(value) {
 
 /** Carga un artículo legible por el usuario, o null (el llamante responde 404). */
 function readableArticle(user, id) {
-  const row = db.prepare(`${DETAIL_SELECT} WHERE a.id = ?`).get(id);
+  const row = db.prepare(`${DETAIL_SELECT} WHERE a.id = ? AND a.organization_id = ?`).get(id, currentOrgId(user));
   return canRead(user, row) ? row : null;
 }
 
@@ -274,7 +286,8 @@ router.get('/from-ticket/:ticketId', requirePermission('kb.create'), (req, res) 
         .prepare(
           `SELECT t.id, t.ticket_number, t.title, t.description, t.resolution,
                   t.resolution_category, t.root_cause, t.category_id,
-                  t.status, t.resolved_at, t.closed_at, t.reporter_id
+                  t.status, t.resolved_at, t.closed_at, t.reporter_id,
+                  t.organization_id
            FROM tickets t WHERE t.id = ?`
         )
         .get(ticketId)
@@ -349,8 +362,11 @@ router.get('/:id', requirePermission('kb.view'), (req, res) => {
  * cuerpo se IGNORAN: el autor sale de la sesión y el estado solo cambia por los
  * endpoints de transición. No hay ninguna publicación automática.
  */
-router.post('/', requirePermission('kb.create'), (req, res) => {
+router.post('/', requirePermission('kb.create'), requireOrg, (req, res) => {
   const body = req.body || {};
+  const rejected = rejectClientOrg(body);
+  if (rejected) return res.status(400).json({ error: rejected });
+  const organizationId = currentOrgId(req.user);
   const title = safeStr(body.title);
   const summary = safeStr(body.summary);
   const description = typeof body.description === 'string' ? body.description.trim() : '';
@@ -360,7 +376,7 @@ router.post('/', requirePermission('kb.create'), (req, res) => {
   const check = validateArticleFields({ title, summary, description, solution });
   if (!check.ok) return res.status(400).json({ error: 'Datos inválidos', fields: check.fields });
 
-  const category = resolveCategoryId(body.category_id === undefined ? null : body.category_id);
+  const category = resolveCategoryId(body.category_id === undefined ? null : body.category_id, organizationId);
   if (!category.ok) return res.status(400).json({ error: category.error });
 
   if (duplicateExists({ title, authorId: req.user.id })) {
@@ -369,11 +385,11 @@ router.post('/', requirePermission('kb.create'), (req, res) => {
 
   const info = db
     .prepare(
-      `INSERT INTO kb_articles (title, summary, description, solution, keywords, category_id, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO kb_articles (title, summary, description, solution, keywords, category_id, author_id, organization_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    // author_id SIEMPRE de la sesión; status queda en su DEFAULT 'DRAFT'.
-    .run(title, summary, description, solution, keywords, category.categoryId, req.user.id);
+    // author_id y organization_id SIEMPRE de la sesión; status queda en su DEFAULT 'DRAFT'.
+    .run(title, summary, description, solution, keywords, category.categoryId, req.user.id, organizationId);
 
   recordHistory(info.lastInsertRowid, req.user.id, 'CREATED', null, null, title);
   res.status(201).json({ article: db.prepare(`${DETAIL_SELECT} WHERE a.id = ?`).get(info.lastInsertRowid) });
@@ -399,13 +415,15 @@ const FIELD_LABELS = {
  */
 router.patch('/:id', requirePermission('kb.create'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT * FROM kb_articles WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM kb_articles WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
   // 404 en lugar de 403: no revelamos que existe un artículo ajeno.
   if (!existing || !canEdit(req.user, existing)) {
     return res.status(404).json({ error: 'Artículo no encontrado' });
   }
 
   const body = req.body || {};
+  const rejected = rejectClientOrg(body);
+  if (rejected) return res.status(400).json({ error: rejected });
   const next = {
     title: body.title === undefined ? existing.title : safeStr(body.title),
     summary: body.summary === undefined ? existing.summary : safeStr(body.summary),
@@ -418,7 +436,7 @@ router.patch('/:id', requirePermission('kb.create'), (req, res) => {
   if (!check.ok) return res.status(400).json({ error: 'Datos inválidos', fields: check.fields });
 
   if (body.category_id !== undefined) {
-    const category = resolveCategoryId(body.category_id);
+    const category = resolveCategoryId(body.category_id, existing.organization_id);
     if (!category.ok) return res.status(400).json({ error: category.error });
     next.category_id = category.categoryId;
   } else {
@@ -450,7 +468,8 @@ router.patch('/:id', requirePermission('kb.create'), (req, res) => {
 function transition(fromStatuses, action, apply) {
   return (req, res) => {
     const id = parseIntSafe(req.params.id);
-    const existing = db.prepare('SELECT * FROM kb_articles WHERE id = ?').get(id);
+    const existing = db.prepare('SELECT * FROM kb_articles WHERE id = ? AND organization_id = ?')
+      .get(id, currentOrgId(req.user));
     if (!existing || !canTransition(req.user, existing)) {
       return res.status(404).json({ error: 'Artículo no encontrado' });
     }
@@ -512,7 +531,7 @@ router.post(
 
 router.get('/:id/history', requireAnyPermission(['kb.create', 'kb.manage']), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT id, author_id FROM kb_articles WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT id, author_id FROM kb_articles WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
   if (!existing || !canEdit(req.user, existing)) {
     return res.status(404).json({ error: 'Artículo no encontrado' });
   }
@@ -542,7 +561,7 @@ router.get('/:id/tickets', requirePermission('kb.view'), (req, res) => {
   const rows = db
     .prepare(
       `SELECT t.id, t.ticket_number, t.title, t.status, t.created_at, t.reporter_id,
-              kba.created_at AS linked_at
+              t.organization_id, kba.created_at AS linked_at
        FROM kb_ticket_articles kba
        JOIN tickets t ON t.id = kba.ticket_id
        WHERE kba.article_id = ?
@@ -565,7 +584,7 @@ router.post('/:id/tickets/:ticketId', requirePermission('kb.create'), (req, res)
   const ticketId = parseIntSafe(req.params.ticketId);
   if (!readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
 
-  const ticket = ticketId ? db.prepare('SELECT id, reporter_id FROM tickets WHERE id = ?').get(ticketId) : null;
+  const ticket = ticketId ? db.prepare('SELECT id, reporter_id, organization_id FROM tickets WHERE id = ?').get(ticketId) : null;
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
@@ -584,7 +603,7 @@ router.delete('/:id/tickets/:ticketId', requirePermission('kb.create'), (req, re
   const ticketId = parseIntSafe(req.params.ticketId);
   if (!readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
 
-  const ticket = ticketId ? db.prepare('SELECT id, reporter_id FROM tickets WHERE id = ?').get(ticketId) : null;
+  const ticket = ticketId ? db.prepare('SELECT id, reporter_id, organization_id FROM tickets WHERE id = ?').get(ticketId) : null;
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
@@ -610,9 +629,10 @@ export function visibleArticlesForTicket(user, ticketId) {
        JOIN kb_articles a ON a.id = kba.article_id
        LEFT JOIN users u ON u.id = a.author_id
        LEFT JOIN kb_categories c ON c.id = a.category_id
-       WHERE kba.ticket_id = ? AND a.status = 'PUBLISHED'`
+       WHERE kba.ticket_id = ? AND a.status = 'PUBLISHED'
+         AND a.organization_id = ?`
     )
-    .all(ticketId);
+    .all(ticketId, currentOrgId(user));
 }
 
 // No existe DELETE /:id: archivar es la baja, para no destruir view_count ni el

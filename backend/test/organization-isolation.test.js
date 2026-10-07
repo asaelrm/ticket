@@ -314,14 +314,15 @@ describe('SUPERADMIN sin bypass accidental (ETAPA 2)', () => {
     assert.equal(assignable.body.data.length, 0);
   });
 
-  it('un recurso concreto sí es gestionable por id explícito', async () => {
-    assert.equal((await c.get(`/api/users/${userA}`)).status, 200);
-    assert.equal((await c.get(`/api/users/${userB}`)).status, 200);
+  it('un recurso concreto de otra organización es 404 para el SUPERADMIN sin contexto', async () => {
+    assert.equal((await c.get(`/api/users/${userA}`)).status, 404);
+    assert.equal((await c.get(`/api/users/${userB}`)).status, 404);
   });
 
-  it('sin contexto no hay enumeración por listado: un id no trivial no expone la existencia', async () => {
-    // El SUPERADMIN tiene acceso por id explícito, pero el LISTADO vuelve vacío:
-    // no existe vector de enumeración masiva. Un id inexistente responde 404.
+  it('sin contexto no hay enumeración ni acceso: el SUPERADMIN solo ve 404', async () => {
+    // ETAPA 3: sin organización el SUPERADMIN no gestiona nada por id y el
+    // LISTADO vuelve vacío: no existe vector de enumeración masiva ni acceso
+    // individual. Un id inexistente responde 404 igual que uno real.
     const inexistente = db.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS n FROM users').get().n;
     const res = await c.get(`/api/users/${inexistente}`);
     assert.equal(res.status, 404);

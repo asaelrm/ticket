@@ -1,6 +1,7 @@
 import express from 'express';
 import db from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { currentOrgId } from '../middleware/org.js';
 import { parseIntSafe } from '../utils/validation.js';
 
 const router = express.Router();
@@ -12,6 +13,13 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 router.get('/', (req, res) => {
   const conds = [];
   const params = [];
+
+  // ETAPA 3: la auditoría es el historial de TICKETS, así que se acota a la
+  // organización del actor. Un SUPERADMIN global (org null) obtiene un listado
+  // vacío, coherente con su listado de tickets vacío.
+  const org = currentOrgId(req.user);
+  conds.push(org ? 't.organization_id = ?' : '1 = 0');
+  if (org) params.push(org);
 
   if (req.query.search) {
     const like = `%${String(req.query.search).toLowerCase()}%`;

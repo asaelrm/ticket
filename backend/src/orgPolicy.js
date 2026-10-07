@@ -96,5 +96,62 @@ export function auditOrganizationConsistency() {
       });
     }
   }
+
+  // ETAPA 3: auditoría de TICKETS con los mismos criterios. Un ticket debe
+  // compartir organización con su reportante y, cuando los tenga, con su
+  // asignado, departamento, categoría y equipo. Un ticket sin organización es
+  // un huérfano (el backfill no corrió o llegó corrupto); una referencia con
+  // organization_id NULL es un campo sin backfillear.
+  const ticketRows = db
+    .prepare(
+      `SELECT t.id AS ticket_id, t.ticket_number, t.organization_id AS ticket_org,
+              t.reporter_id, t.assigned_to_id, t.department_id, t.category_id, t.assigned_team_id,
+              r.organization_id AS reporter_org,
+              a.organization_id AS assignee_org,
+              d.organization_id AS dept_org,
+              c.organization_id AS cat_org,
+              te.organization_id AS team_org
+       FROM tickets t
+       JOIN users r ON r.id = t.reporter_id
+       LEFT JOIN users a ON a.id = t.assigned_to_id
+       LEFT JOIN departments d ON d.id = t.department_id
+       LEFT JOIN categories c ON c.id = t.category_id
+       LEFT JOIN teams te ON te.id = t.assigned_team_id`
+    )
+    .all();
+
+  for (const t of ticketRows) {
+    if (t.ticket_org == null) {
+      issues.push({
+        type: 'TICKET_SIN_ORGANIZACION',
+        ticket_id: t.ticket_id,
+        detail: `El ticket "${t.ticket_number}" no tiene organización (organization_id NULL).`,
+      });
+      continue;
+    }
+    const ticketOrg = Number(t.ticket_org);
+    const relationship = (type, label, refOrg, refId) => {
+      if (refId == null) return;
+      if (refOrg == null) {
+        issues.push({
+          type: 'TICKET_CAMPO_SIN_ORGANIZACION',
+          ticket_id: t.ticket_id,
+          detail: `El ${label} (id ${refId}) del ticket "${t.ticket_number}" no tiene organización (organization_id NULL).`,
+        });
+      } else if (Number(refOrg) !== ticketOrg) {
+        issues.push({
+          type,
+          ticket_id: t.ticket_id,
+          detail: `El ${label} (id ${refId}) del ticket "${t.ticket_number}" pertenece a la organización ${refOrg}, no a ${ticketOrg}.`,
+        });
+      }
+    };
+    relationship('TICKET_REPORTANTE_OTRA_ORG', 'reportante', t.reporter_org, t.reporter_id);
+    relationship('TICKET_ASIGNADO_OTRA_ORG', 'asignado', t.assignee_org, t.assigned_to_id);
+    relationship('TICKET_DEPARTAMENTO_OTRA_ORG', 'departamento', t.dept_org, t.department_id);
+    relationship('TICKET_CATEGORIA_OTRA_ORG', 'categoría', t.cat_org, t.category_id);
+    relationship('TICKET_EQUIPO_OTRA_ORG', 'equipo', t.team_org, t.assigned_team_id);
+  }
+
   return issues;
 }

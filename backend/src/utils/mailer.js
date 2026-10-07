@@ -39,6 +39,19 @@ function getSetting(key) {
   return row ? row.value : null;
 }
 
+// ETAPA 3 (defensa central de correo): el destinatario de un correo de ticket
+// debe pertenecer a la MISMA organización del ticket. Un ticket legacy
+// corrupto (org A con reportante/asignado de org B) no puede filtrar correo
+// hacia otra organización. Los correos no ligados a tickets (password reset)
+// no pasan por aquí: cada función de este módulo solo lo usa con contexto de
+// ticket.
+function recipientInTicketOrg(userId, ticket) {
+  if (!ticket || ticket.organization_id == null) return false;
+  if (!userId) return false;
+  const row = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(userId);
+  return !!row && row.organization_id != null && Number(row.organization_id) === Number(ticket.organization_id);
+}
+
 export function isNotifyEnabled(kind) {
   const key = NOTIFY_KEYS[kind];
   if (!key) return true;
@@ -199,6 +212,7 @@ export function notifyAssigned(ticket, actorName) {
   if (!isNotifyEnabled('assign')) return;
   if (!ticket.assigned_to_id) return;
   if (ticket.assigned_to_id === ticket.reporter_id) return;
+  if (!recipientInTicketOrg(ticket.assigned_to_id, ticket)) return;
   const assignee = db
     .prepare('SELECT id, name, last_name, email FROM users WHERE id = ? AND active = 1')
     .get(ticket.assigned_to_id);
@@ -232,8 +246,10 @@ export function notifyAssigned(ticket, actorName) {
 export function notifyComment(ticket, comment, actorName) {
   if (!isNotifyEnabled('comment')) return;
   const recipients = [];
-  if (ticket.reporter_id !== comment.user_id) recipients.push(ticket.reporter_email);
-  if (ticket.assigned_to_id && ticket.assigned_to_id !== comment.user_id) {
+  if (ticket.reporter_id !== comment.user_id && recipientInTicketOrg(ticket.reporter_id, ticket)) {
+    recipients.push(ticket.reporter_email);
+  }
+  if (ticket.assigned_to_id && ticket.assigned_to_id !== comment.user_id && recipientInTicketOrg(ticket.assigned_to_id, ticket)) {
     const assignee = db
       .prepare('SELECT email FROM users WHERE id = ? AND active = 1')
       .get(ticket.assigned_to_id);
@@ -264,6 +280,7 @@ export function notifyResolved(ticket, resolverName, resolution) {
   if (!isNotifyEnabled('resolve')) return;
   if (!ticket.reporter_email) return;
   if (ticket.reporter_id === null) return;
+  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
 
   const subject = `[${ticket.ticket_number}] Su ticket fue resuelto: ${ticket.title}`;
   const text = [
@@ -289,6 +306,7 @@ export function notifyCancelled(ticket, actorName, reason) {
   if (!isNotifyEnabled('resolve')) return;
   if (!ticket.reporter_email) return;
   if (ticket.reporter_id === null) return;
+  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
 
   const subject = `[${ticket.ticket_number}] Su ticket fue cancelado: ${ticket.title}`;
   const text = [
@@ -338,6 +356,7 @@ export function notifyCreated(ticket) {
   if (!isNotifyEnabled('create')) return;
   if (!ticket?.reporter_email) return;
   if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
+  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
 
   const greeting = ticket.reporter_name ? `Hola ${ticket.reporter_name}:` : 'Hola:';
   const subject = `[${ticket.ticket_number}] Hemos recibido su ticket: ${ticket.title}`;
@@ -369,6 +388,7 @@ export function notifyStatusChanged(ticket, oldStatus, actor) {
   if (!isNotifyEnabled('status')) return;
   if (!ticket?.reporter_email) return;
   if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
+  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
 
   const oldLabel = statusText(oldStatus);
   const newLabel = statusText(ticket.status);
@@ -399,6 +419,7 @@ export function notifyClosed(ticket) {
   if (!isNotifyEnabled('close')) return;
   if (!ticket?.reporter_email) return;
   if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
+  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
 
   const subject = `[${ticket.ticket_number}] Su ticket fue cerrado: ${ticket.title}`;
   const text = [

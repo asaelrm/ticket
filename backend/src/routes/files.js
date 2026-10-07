@@ -13,7 +13,7 @@ const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp']);
 router.get('/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const row = db.prepare(`
-    SELECT ta.*, t.reporter_id, tc.is_internal
+    SELECT ta.*, t.reporter_id, t.organization_id, tc.is_internal
     FROM ticket_attachments ta
     JOIN tickets t ON t.id = ta.ticket_id
     LEFT JOIN ticket_comments tc ON tc.id = ta.comment_id

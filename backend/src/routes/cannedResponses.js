@@ -2,6 +2,7 @@ import express from 'express';
 import db, { nowIso } from '../db.js';
 import { safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requireAnyPermission, requirePermission } from '../middleware/auth.js';
+import { currentOrgId, rejectClientOrg, requireOrg } from '../middleware/org.js';
 import { MAX_TEMPLATE_TITLE, validateTemplateBody } from '../utils/templateVars.js';
 
 const router = express.Router();
@@ -42,10 +43,15 @@ const LIST_SELECT = `
  *               actual: al salir del equipo se pierde el acceso de inmediato).
  *
  * El filtro se aplica siempre antes de contar y paginar, de modo que una
- * plantilla de otro equipo nunca aparece en la respuesta ni en el total.
+ * plantilla de otro equipo o de otra organización nunca aparece en la respuesta
+ * ni en el total.
+ *
+ * ETAPA 3: `c.organization_id = ?` fija la organización; el ámbito GLOBAL pasa
+ * a ser "GLOBAL de mi organización". Un SUPERADMIN global (org null) no tiene
+ * plantillas: su listado queda vacío, coherente con su falta de contexto.
  */
 const VISIBLE_SQL = `
-  c.is_active = 1 AND (
+  c.is_active = 1 AND c.organization_id = ? AND (
     c.scope = 'GLOBAL'
     OR (c.scope = 'PERSONAL' AND c.owner_id = ?)
     OR (c.scope = 'TEAM' AND c.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?))
@@ -95,7 +101,7 @@ function likePattern(term) {
 export function visibleTemplateFor(user, id) {
   const templateId = parseIntSafe(id);
   if (!templateId || !canUseTemplates(user)) return null;
-  return db.prepare(`${LIST_SELECT} WHERE c.id = ? AND ${VISIBLE_SQL}`).get(templateId, user.id, user.id);
+  return db.prepare(`${LIST_SELECT} WHERE c.id = ? AND ${VISIBLE_SQL}`).get(templateId, currentOrgId(user), user.id, user.id);
 }
 
 /** Plantilla propia (incluye inactivas) para la gestión del perfil. */
@@ -104,8 +110,8 @@ router.get('/mine', (req, res) => {
     return res.status(403).json({ error: 'No tiene permiso para usar respuestas rápidas' });
   }
   const rows = db
-    .prepare(`${LIST_SELECT} WHERE c.scope = 'PERSONAL' AND c.owner_id = ? ORDER BY c.title ASC`)
-    .all(req.user.id);
+    .prepare(`${LIST_SELECT} WHERE c.scope = 'PERSONAL' AND c.owner_id = ? AND c.organization_id = ? ORDER BY c.title ASC`)
+    .all(req.user.id, currentOrgId(req.user));
   res.json({ data: rows });
 });
 
@@ -116,8 +122,8 @@ router.get('/manage', requireAnyPermission(['settings.manage', 'team.manage']), 
   // excluidas siempre, no solo cuando se pasa ?scope=: sin esta cláusula un
   // usuario con team.manage (sin settings.manage) recibía el cuerpo de las
   // personales de todos los usuarios.
-  const clauses = ["c.scope IN ('GLOBAL','TEAM')"];
-  const params = [];
+  const clauses = ["c.scope IN ('GLOBAL','TEAM')", 'c.organization_id = ?'];
+  const params = [currentOrgId(req.user)];
 
   const scope = req.query.scope ? String(req.query.scope).toUpperCase() : '';
   if (scope) {
@@ -158,7 +164,7 @@ router.get('/', (req, res) => {
   }
 
   const clauses = [VISIBLE_SQL];
-  const params = [req.user.id, req.user.id];
+  const params = [currentOrgId(req.user), req.user.id, req.user.id];
 
   const scope = req.query.scope ? String(req.query.scope).toUpperCase() : '';
   if (scope) {
@@ -195,7 +201,7 @@ router.get('/', (req, res) => {
 
 router.get('/:id', (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const row = db.prepare(`${LIST_SELECT} WHERE c.id = ?`).get(id);
+  const row = db.prepare(`${LIST_SELECT} WHERE c.id = ? AND c.organization_id = ?`).get(id, currentOrgId(req.user));
   // 404 (no 403) para no confirmar la existencia de plantillas ajenas.
   if (!row || (!row.is_active && !canEdit(req.user, row)) || (row.is_active && !canUseTemplates(req.user))) {
     return res.status(404).json({ error: 'Plantilla no encontrada' });
@@ -206,8 +212,11 @@ router.get('/:id', (req, res) => {
   res.json({ template: row });
 });
 
-router.post('/', requireAnyPermission(['ticket.comment', 'ticket.note']), (req, res) => {
+router.post('/', requireAnyPermission(['ticket.comment', 'ticket.note']), requireOrg, (req, res) => {
   const body = req.body || {};
+  const rejected = rejectClientOrg(body);
+  if (rejected) return res.status(400).json({ error: rejected });
+  const organizationId = currentOrgId(req.user);
   const title = safeStr(body.title);
   const scope = String(body.scope || 'PERSONAL').toUpperCase();
   const templateBody = typeof body.body === 'string' ? body.body.trim() : '';
@@ -233,31 +242,34 @@ router.post('/', requireAnyPermission(['ticket.comment', 'ticket.note']), (req, 
     ownerId = req.user.id;
   } else if (scope === 'TEAM') {
     if (!teamId) return res.status(400).json({ error: 'Debe indicar el equipo de la plantilla' });
-    const team = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1').get(teamId);
-    if (!team) return res.status(400).json({ error: 'El equipo no existe o está desactivado' });
+    const team = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?').get(teamId, organizationId);
+    if (!team) return res.status(400).json({ error: 'El equipo no existe, está desactivado o no pertenece a su organización' });
     resolvedTeamId = teamId;
   } else if (body.team_id) {
     return res.status(400).json({ error: 'Las plantillas globales no pertenecen a un equipo' });
   }
 
-  if (isActive && duplicateExists({ title, scope, ownerId, teamId: resolvedTeamId })) {
+  if (isActive && duplicateExists({ title, scope, ownerId, teamId: resolvedTeamId, organizationId })) {
     return res.status(409).json({ error: 'Ya existe una plantilla activa con ese título en este ámbito' });
   }
 
   const info = db
-    .prepare('INSERT INTO canned_responses (title, body, scope, owner_id, team_id, is_active) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(title, templateBody, scope, ownerId, resolvedTeamId, isActive);
+    .prepare('INSERT INTO canned_responses (title, body, scope, owner_id, team_id, is_active, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(title, templateBody, scope, ownerId, resolvedTeamId, isActive, organizationId);
   res.status(201).json({ template: db.prepare(`${LIST_SELECT} WHERE c.id = ?`).get(info.lastInsertRowid) });
 });
 
 router.patch('/:id', (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT * FROM canned_responses WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM canned_responses WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
   if (!existing || !canEdit(req.user, existing)) {
     return res.status(404).json({ error: 'Plantilla no encontrada' });
   }
 
   const body = req.body || {};
+  const rejected = rejectClientOrg(body);
+  if (rejected) return res.status(400).json({ error: rejected });
+  const organizationId = existing.organization_id;
   const title = body.title === undefined ? existing.title : safeStr(body.title);
   const templateBody = body.body === undefined ? existing.body : String(body.body).trim();
   const isActive = body.is_active === undefined ? existing.is_active : body.is_active ? 1 : 0;
@@ -286,7 +298,7 @@ router.patch('/:id', (req, res) => {
     teamId = null;
   } else if (scope === 'TEAM') {
     if (!requestedTeamId) return res.status(400).json({ error: 'Debe indicar el equipo de la plantilla' });
-    const team = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1').get(requestedTeamId);
+    const team = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?').get(requestedTeamId, organizationId);
     if (!team) return res.status(400).json({ error: 'El equipo no existe o está desactivado' });
     ownerId = null;
     teamId = requestedTeamId;
@@ -297,7 +309,7 @@ router.patch('/:id', (req, res) => {
 
   if (
     isActive &&
-    duplicateExists({ title, scope, ownerId, teamId, excludeId: id })
+    duplicateExists({ title, scope, ownerId, teamId, excludeId: id, organizationId })
   ) {
     return res.status(409).json({ error: 'Ya existe una plantilla activa con ese título en este ámbito' });
   }
@@ -316,8 +328,8 @@ router.patch('/:id', (req, res) => {
 
 export default router;
 
-/** Unicidad de título por ámbito, solo entre plantillas activas. */
-function duplicateExists({ title, scope, ownerId, teamId, excludeId = null }) {
+/** Unicidad de título por ámbito y organización, solo entre plantillas activas. */
+function duplicateExists({ title, scope, ownerId, teamId, excludeId = null, organizationId = null }) {
   const clause =
     scope === 'PERSONAL'
       ? "c.scope = 'PERSONAL' AND c.owner_id = ?"
@@ -325,11 +337,14 @@ function duplicateExists({ title, scope, ownerId, teamId, excludeId = null }) {
         ? "c.scope = 'TEAM' AND c.team_id = ?"
         : "c.scope = 'GLOBAL'";
   const key = scope === 'PERSONAL' ? ownerId : scope === 'TEAM' ? teamId : null;
+  const params = key === null
+    ? [organizationId, title, excludeId ?? 0]
+    : [organizationId, key, title, excludeId ?? 0];
   const row = db
     .prepare(
       `SELECT c.id FROM canned_responses c
-       WHERE ${clause} AND c.is_active = 1 AND LOWER(c.title) = LOWER(?) AND c.id != ?`
+       WHERE c.organization_id = ? AND ${clause} AND c.is_active = 1 AND LOWER(c.title) = LOWER(?) AND c.id != ?`
     )
-    .get(...(key === null ? [title, excludeId ?? 0] : [key, title, excludeId ?? 0]));
+    .get(...params);
   return Boolean(row);
 }

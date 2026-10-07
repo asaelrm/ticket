@@ -1,6 +1,7 @@
 import express from 'express';
 import db, { nowIso } from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { currentOrgId } from '../middleware/org.js';
 import {
   getResolutionCategories,
   getRootCauses,
@@ -78,15 +79,21 @@ router.get('/', (req, res) => {
 });
 
 // Bitácora de correos enviados/intentados (últimas 50 entradas).
+// ETAPA 3: los registros se acotan DURAMENTE a la organización del
+// administrador que consulta (la cola con ticket debe pertenecer a su org).
+// Un SUPERADMIN sin contexto (org NULL) obtiene una lista vacía: ningún
+// `? IS NULL OR ...` que destape correos de otras organizaciones.
 router.get('/emails', (req, res) => {
+  const org = currentOrgId(req.user);
   const rows = db
     .prepare(
       `SELECT el.*, t.ticket_number
        FROM email_logs el
        LEFT JOIN tickets t ON t.id = el.ticket_id
+       WHERE t.organization_id = ?
        ORDER BY el.id DESC LIMIT 50`
     )
-    .all();
+    .all(org);
   res.json({ data: rows });
 });
 

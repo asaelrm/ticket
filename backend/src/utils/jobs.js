@@ -22,15 +22,20 @@ function targetUsersFor(ticket) {
       .map((r) => r.user_id);
     if (members.length) return members;
   }
+  // ETAPA 3: el fallback recae en los administradores de la MISMA organización
+  // del ticket. Sin este filtro, un SLA vencido acabaría en la bandeja de
+  // administradores de organizaciones no relacionadas.
+  const params = ticket.organization_id != null ? [ticket.organization_id] : [];
+  const orgCond = ticket.organization_id != null ? ' AND u.organization_id = ?' : '';
   const admins = db
     .prepare(
       `SELECT u.id FROM users u
        JOIN roles r ON r.id = u.role_id
        JOIN role_permissions rp ON rp.role_id = r.id
        JOIN permissions p ON p.id = rp.permission_id
-       WHERE u.active = 1 AND p.code = 'settings.manage'`
+       WHERE u.active = 1 AND p.code = 'settings.manage'${orgCond}`
     )
-    .all();
+    .all(...params);
   return admins.map((a) => a.id);
 }
 
@@ -112,6 +117,7 @@ function escalateUnassigned() {
       title: `Ticket sin asignar escalado: ${ticket.ticket_number}`,
       body: `"${ticket.title}" subió a prioridad ${PRIORITY_LABEL[newPriority]} por falta de asignación.`,
       link: `/app/tickets/${ticket.id}`,
+      organizationId: ticket.organization_id,
     });
     count += 1;
   }
@@ -144,6 +150,7 @@ function alertCriticalLongOpen() {
       title: `Crítico sin resolver: ${ticket.ticket_number}`,
       body: `"${ticket.title}" lleva más de ${hours} h con prioridad crítica.`,
       link: `/app/tickets/${ticket.id}`,
+      organizationId: ticket.organization_id,
     });
     count += ids.length;
   }

@@ -161,9 +161,9 @@ function seedPermissionsAndRoles() {
 
 function seedBaseData(organizationId) {
   const insertCat = db.prepare(
-    'INSERT INTO categories (name, description, color) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
+    'INSERT INTO categories (name, description, color, organization_id) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
   );
-  for (const [name, desc, color] of INITIAL_CATEGORIES) insertCat.run(name, desc, color);
+  for (const [name, desc, color] of INITIAL_CATEGORIES) insertCat.run(name, desc, color, organizationId);
 
   // ETAPA 2: los departamentos iniciales nacen ya asociados a la organización
   // inicial (UCE). Mismo criterio que las cuentas demo.
@@ -172,12 +172,12 @@ function seedBaseData(organizationId) {
   );
   for (const name of INITIAL_DEPARTMENTS) insertDept.run(name, organizationId);
 
-  // Mismo criterio que `categories`: el nombre no se sobrescribe al reiniciar
-  // para no revertir lo que un administrador haya renombrado desde la UI.
+  // ETAPA 3: la taxonomía de la base de conocimiento también nace asociada a la
+  // organización inicial (mismo criterio que categories).
   const insertKbCat = db.prepare(
-    'INSERT INTO kb_categories (name, description, color) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
+    'INSERT INTO kb_categories (name, description, color, organization_id) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
   );
-  for (const [name, desc, color] of INITIAL_KB_CATEGORIES) insertKbCat.run(name, desc, color);
+  for (const [name, desc, color] of INITIAL_KB_CATEGORIES) insertKbCat.run(name, desc, color, organizationId);
 }
 
 // Organización inicial (ETAPA 1A): crea UCE si no existe y asocia a UCE los
@@ -206,6 +206,31 @@ function ensureOrganizations() {
     UPDATE departments SET organization_id = ?
     WHERE organization_id IS NULL
   `).run(uce.id);
+
+  // ETAPA 3: mismo criterio que departments/users. Todos los registros
+  // pre-multiempresa de tickets y de los dominios que cuelgan de la
+  // organización (categorías, equipos, respuestas rápidas, KB) se asocian a la
+  // organización inicial (UCE). Los registros nuevos nacen ya con org desde las
+  // rutas. Las tablas hijas (ticket_comments, ticket_attachments,
+  // ticket_history, team_members, kb_ticket_articles, kb_article_history) se
+  // aíslan a través de su padre y no necesitan columna propia.
+  db.prepare('UPDATE tickets SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
+  db.prepare('UPDATE categories SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
+  db.prepare('UPDATE teams SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
+  db.prepare('UPDATE canned_responses SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
+  db.prepare('UPDATE kb_categories SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
+  db.prepare('UPDATE kb_articles SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
+
+  // Continuidad de numeración tras la migración: si existía la secuencia global
+  // legacy `ticket_number` y la clave por organización de UCE aún no, la clave
+  // por organización "hereda" el valor convergente a lo alto de ambos (la nueva
+  // numeración UCE continúa desde el máximo para no repetir números ni saltar
+  // hacia atrás). La clave legacy se conserva intacta.
+  db.prepare(`
+    INSERT INTO sequences (name, value)
+    SELECT ?, value FROM sequences WHERE name = 'ticket_number'
+    ON CONFLICT(name) DO UPDATE SET value = MAX(value, excluded.value)
+  `).run(`ticket_number:${uce.id}`);
 
   return uce.id;
 }

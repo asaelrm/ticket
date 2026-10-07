@@ -61,10 +61,15 @@ CREATE TABLE IF NOT EXISTS categories (
   name        TEXT NOT NULL UNIQUE,
   description TEXT,
   color       TEXT NOT NULL DEFAULT '#64748b',
+  -- ETAPA 3 (aislamiento por organización): el catálogo de incidencias
+  -- pertenece a una organización. Mismo criterio que departments: nullable en
+  -- SQLite, backfill a UCE y la capa de aplicación exige contexto de sesión.
+  organization_id INTEGER REFERENCES organizations(id),
   active      INTEGER NOT NULL DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at  TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_categories_organization ON categories(organization_id);
 
 -- 3. Usuarios
 CREATE TABLE IF NOT EXISTS users (
@@ -94,7 +99,13 @@ CREATE INDEX IF NOT EXISTS idx_users_active ON users(active);
 -- 4. Tickets
 CREATE TABLE IF NOT EXISTS tickets (
   id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-  ticket_number           TEXT NOT NULL UNIQUE,
+  -- La numeración es POR ORGANIZACIÓN (utils/ticketNumber.js): cada org arranca
+  -- en 000001. La unicidad es por tanto compuesta en el índice
+  -- idx_tickets_number_org (organization_id, ticket_number); no puede ser una
+  -- constraint de columna global, porque dos organizaciones legítimamente
+  -- tienen cada una su TCK-000001. Las bases anteriores a ETAPA 3 conservaban
+  -- el UNIQUE de columna; db.js lo sustituye por el índice compuesto al migrar.
+  ticket_number           TEXT NOT NULL,
   title                   TEXT NOT NULL,
   description             TEXT NOT NULL,
   reporter_id             INTEGER NOT NULL REFERENCES users(id),
@@ -102,6 +113,11 @@ CREATE TABLE IF NOT EXISTS tickets (
   assigned_team_id        INTEGER REFERENCES teams(id) ON DELETE SET NULL,
   category_id             INTEGER REFERENCES categories(id) ON DELETE SET NULL,
   department_id           INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+  -- ETAPA 3 (aislamiento por organización): el ticket pertenece a la
+  -- organización del reportante en el momento de crearse (sesión). La
+  -- numeración (utils/ticketNumber.js) es por organización: cada org arranca
+  -- su propia secuencia.
+  organization_id         INTEGER REFERENCES organizations(id),
   priority                TEXT NOT NULL DEFAULT 'MEDIUM' CHECK (priority IN ('LOW','MEDIUM','HIGH','CRITICAL')),
   status                  TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','ASSIGNED','IN_PROGRESS','PENDING','RESOLVED','CLOSED','CANCELLED')),
   sla_due_at              TEXT,
@@ -127,6 +143,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at              TEXT
 );
+-- Unicidad del número DENTRO de cada organización (ver nota de ticket_number).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_number_org ON tickets(organization_id, ticket_number);
 CREATE INDEX IF NOT EXISTS idx_tickets_number ON tickets(ticket_number);
 CREATE INDEX IF NOT EXISTS idx_tickets_reporter ON tickets(reporter_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_assigned ON tickets(assigned_to_id);
@@ -144,16 +162,22 @@ CREATE INDEX IF NOT EXISTS idx_tickets_resolved_by ON tickets(resolved_by);
 CREATE INDEX IF NOT EXISTS idx_tickets_closed_by ON tickets(closed_by);
 CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_by ON tickets(cancelled_by);
 CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_at ON tickets(cancelled_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_organization ON tickets(organization_id);
 
 -- 4b. Equipos de trabajo
 CREATE TABLE IF NOT EXISTS teams (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL UNIQUE,
   description TEXT,
+  -- ETAPA 3 (aislamiento por organización): el equipo pertenece a una
+  -- organización. Los miembros (team_members) deben pertenecer a la misma org
+  -- del equipo; la validación vive en routes/teams.js.
+  organization_id INTEGER REFERENCES organizations(id),
   active      INTEGER NOT NULL DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at  TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_teams_organization ON teams(organization_id);
 
 CREATE TABLE IF NOT EXISTS team_members (
   team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -167,6 +191,10 @@ CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id);
 -- TEAM (visible para los miembros actuales del equipo). El CHECK de consistencia
 -- impide combinaciones inválidas (p. ej. GLOBAL con owner_id, TEAM sin team_id).
 -- No hay borrado físico: la baja es lógica con is_active para conservar use_count.
+-- ETAPA 3: organization_id fija dónde existe la plantilla. GLOBAL pasa a ser
+-- "GLOBAL de mi organización"; PERSONAL/TEAM heredan la org de su creador. La
+-- unicidad de title se conserva GLOBAL (toda la tabla): patrón a revisar en la
+-- etapa MSSQL (migración multiorg) o se relaja a única por organización.
 CREATE TABLE IF NOT EXISTS canned_responses (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   title      TEXT NOT NULL,
@@ -174,6 +202,8 @@ CREATE TABLE IF NOT EXISTS canned_responses (
   scope      TEXT NOT NULL CHECK (scope IN ('GLOBAL','PERSONAL','TEAM')),
   owner_id   INTEGER REFERENCES users(id) ON DELETE CASCADE,
   team_id    INTEGER REFERENCES teams(id) ON DELETE CASCADE,
+  -- ETAPA 3 (aislamiento por organización).
+  organization_id INTEGER REFERENCES organizations(id),
   is_active  INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
   use_count  INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
@@ -190,6 +220,7 @@ CREATE INDEX IF NOT EXISTS idx_canned_scope_active ON canned_responses(scope, is
 CREATE INDEX IF NOT EXISTS idx_canned_owner ON canned_responses(owner_id);
 CREATE INDEX IF NOT EXISTS idx_canned_team ON canned_responses(team_id);
 CREATE INDEX IF NOT EXISTS idx_canned_usage ON canned_responses(use_count DESC);
+CREATE INDEX IF NOT EXISTS idx_canned_organization ON canned_responses(organization_id);
 
 -- 5. Adjuntos, comentarios e historial
 CREATE TABLE IF NOT EXISTS ticket_comments (
@@ -305,10 +336,14 @@ CREATE TABLE IF NOT EXISTS kb_categories (
   name        TEXT NOT NULL UNIQUE,
   description TEXT,
   color       TEXT NOT NULL DEFAULT '#64748b',
+  -- ETAPA 3 (aislamiento por organización): la taxonomía del conocimiento
+  -- pertenece a una organización (mismo criterio que categories).
+  organization_id INTEGER REFERENCES organizations(id),
   active      INTEGER NOT NULL DEFAULT 1,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at  TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_kb_categories_organization ON kb_categories(organization_id);
 
 CREATE TABLE IF NOT EXISTS kb_articles (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -318,6 +353,11 @@ CREATE TABLE IF NOT EXISTS kb_articles (
   solution     TEXT NOT NULL,
   keywords     TEXT,
   category_id  INTEGER REFERENCES kb_categories(id) ON DELETE SET NULL,
+  -- ETAPA 3 (aislamiento por organización): el artículo pertenece a la org del
+  -- autor. Una categoría NULL tras el borrado conserva la org vía esta columna,
+  -- que es la fuente de verdad del aislamiento (categories y categorías cargan
+  -- el org de su categoria asociada o del autor cuando falta).
+  organization_id INTEGER REFERENCES organizations(id),
   status       TEXT NOT NULL DEFAULT 'DRAFT'
                CHECK (status IN ('DRAFT','PUBLISHED','ARCHIVED')),
   author_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -337,6 +377,7 @@ CREATE INDEX IF NOT EXISTS idx_kb_articles_author      ON kb_articles(author_id)
 CREATE INDEX IF NOT EXISTS idx_kb_articles_popular     ON kb_articles(view_count DESC);
 CREATE INDEX IF NOT EXISTS idx_kb_articles_published   ON kb_articles(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_kb_articles_status_date ON kb_articles(status, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_kb_articles_organization ON kb_articles(organization_id);
 
 -- Relación muchos-a-muchos artículo <-> ticket. CASCADE en ambos lados porque
 -- un enlace no significa nada sin las dos filas. Sustituye a una columna

@@ -192,11 +192,11 @@ router.get(
 
 router.get('/:id/tickets', (req, res) => {
   const id = parseIntSafe(req.params.id);
-  // ETAPA 2: el objetivo debe pertenecer a la organización del solicitante
-  // (404 para otra organización). COALESCE con NULL permite a un SUPERADMIN
-  // consultar cualquier usuario por id explícito.
+  // ETAPA 3: el objetivo debe pertenecer a la organización del solicitante
+  // (404 para otra organización). Un SUPERADMIN sin contexto también es 404:
+  // las rutas normales exigen una organización real.
   const target = db
-    .prepare('SELECT id, name, last_name FROM users WHERE id = ? AND organization_id = COALESCE(?, organization_id)')
+    .prepare('SELECT id, name, last_name FROM users WHERE id = ? AND organization_id = ?')
     .get(id, currentOrgId(req.user));
   if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
 
@@ -258,9 +258,10 @@ router.get('/:id/tickets', (req, res) => {
 
 router.get('/:id', requirePermission('user.view'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  // ETAPA 2: un usuario de otra organización responde 404 (no se revela su
-  // existencia). El SUPERADMIN puede consultar cualquier usuario por id.
-  const row = db.prepare(`${LIST_SQL} AND u.id = ? AND u.organization_id = COALESCE(?, u.organization_id)`)
+  // ETAPA 3: un usuario de otra organización responde 404 (no se revela su
+  // existencia). Un SUPERADMIN sin contexto también: las rutas normales exigen
+  // una organización real (la gestión global explícita se diseña más adelante).
+  const row = db.prepare(`${LIST_SQL} AND u.id = ? AND u.organization_id = ?`)
     .get(id, currentOrgId(req.user));
   if (!row) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json({ user: publicUser(row) });

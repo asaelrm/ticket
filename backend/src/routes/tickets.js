@@ -5,6 +5,7 @@ import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { visibleTemplateFor } from './cannedResponses.js';
 import { visibleArticlesForTicket } from './kbArticles.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
+import { requireOrg, rejectClientOrg, currentOrgId } from '../middleware/org.js';
 import { uploadMiddleware, uploadSizeError } from '../middleware/upload.js';
 import { validateFile, persistUpload } from '../utils/fileType.js';
 import { nextTicketNumber } from '../utils/ticketNumber.js';
@@ -92,7 +93,18 @@ export function getTicket(id) {
 }
 
 export function canViewTicket(user, ticket) {
-  if (!ticket) return false;
+  if (!user || !ticket) return false;
+  // ETAPA 3 (aislamiento por organización): las rutas NORMALES exigen contexto
+  // real de organización. El ticket pertenece a la org que lo creó (o que lo
+  // adoptó en el backfill). Si el actor no tiene org —un SUPERADMIN global— o
+  // la del ticket no coincide, el ticket NO existe para él (404). Un SUPERADMIN
+  // sin contexto nunca enumera ni lee recursos ajenos; la administración
+  // global explícita se diseña en etapas posteriores.
+  const org = currentOrgId(user);
+  if (!org || !ticket.organization_id) return false;
+  if (Number(ticket.organization_id) !== Number(org)) return false;
+  // `ticket.view.all` se evalúa DENTRO de la organización del actor: el visor
+  // global de tickets es "todos los de mi org", nunca los de otras.
   if (user.permissions.includes('ticket.view.all')) return true;
   return ticket.reporter_id === user.id;
 }
@@ -285,6 +297,17 @@ function buildConditions(req, viewOnlyOwn) {
   if (viewOnlyOwn) {
     conds.push('t.reporter_id = ?');
     params.push(req.user.id);
+  }
+
+  // ETAPA 3 (aislamiento por organización): el listado/exportación solo ve
+  // tickets de la organización del actor. Un SUPERADMIN global (org null) no
+  // tiene contexto: su listado queda vacío y su exportación con `1 = 0`.
+  const org = currentOrgId(user);
+  if (org) {
+    conds.push('t.organization_id = ?');
+    params.push(org);
+  } else {
+    conds.push('1 = 0');
   }
 
   // Vistas rápidas (declarativas, combinan con el resto de filtros).
@@ -500,8 +523,16 @@ function listQuery(req, viewOnlyOwn) {
 router.get('/counters', (req, res) => {
   const user = req.user;
   const staff = hasPerm(user, 'ticket.view.all');
-  const scopeParams = staff ? [] : [user.id];
-  const prefix = staff ? 'WHERE ' : 'WHERE t.reporter_id = ? AND ';
+  const org = currentOrgId(user);
+  // ETAPA 3: los contadores se acotan a la organización del actor. Un
+  // SUPERADMIN global (org null) no tiene contexto: todos a cero, coherente con
+  // su listado vacío (`1 = 0` en buildConditions).
+  const orgCond = org ? 't.organization_id = ?' : '1 = 0';
+  // Las consultas byStatus agrupan sobre `tickets` sin alias, así que no pueden
+  // usar el prefijo `t.` del contador individual.
+  const orgCondNoAlias = org ? 'organization_id = ?' : '1 = 0';
+  const scopeParams = (org ? [org] : []).concat(staff ? [] : [user.id]);
+  const prefix = `WHERE ${orgCond}${staff ? '' : ' AND t.reporter_id = ?'} AND `;
 
   const cnt = (cond, params = []) =>
     db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${prefix}${cond}`).get(...scopeParams, ...params).n;
@@ -512,8 +543,8 @@ router.get('/counters', (req, res) => {
   const closedCol = 'COALESCE(t.resolved_at, t.closed_at)';
 
   const byStatusRows = staff
-    ? db.prepare('SELECT status, COUNT(*) AS n FROM tickets GROUP BY status').all()
-    : db.prepare('SELECT status, COUNT(*) AS n FROM tickets WHERE reporter_id = ? GROUP BY status').all(user.id);
+    ? db.prepare(`SELECT status, COUNT(*) AS n FROM tickets WHERE ${orgCondNoAlias} GROUP BY status`).all(...(org ? [org] : []))
+    : db.prepare(`SELECT status, COUNT(*) AS n FROM tickets WHERE ${orgCondNoAlias} AND reporter_id = ? GROUP BY status`).all(...scopeParams);
   const byStatus = {};
   for (const row of byStatusRows) byStatus[row.status] = row.n;
 
@@ -570,10 +601,18 @@ router.get('/options', (req, res) => {
 router.post(
   '/',
   requirePermission('ticket.create'),
+  // ETAPA 3: un SUPERADMIN global (org null) no puede crear tickets: el ticket
+  // nace si o si dentro de una organización (la del actor por sesión).
+  requireOrg,
   uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
   (req, res) => {
     const body = req.body || {};
+    // ETAPA 3: la organización del ticket la decide el servidor (sesión),
+    // jamás el cliente.
+    const clientOrg = rejectClientOrg(body);
+    if (clientOrg) return res.status(400).json({ error: clientOrg });
+    const org = currentOrgId(req.user);
     const title = safeStr(body.title);
     const description = safeStr(body.description);
     const categoryId = parseIntSafe(body.category_id);
@@ -588,14 +627,15 @@ router.post(
       priority: rules.oneOf(priority, PRIORITIES, 'Prioridad'),
     });
 
-    const category = db.prepare('SELECT id FROM categories WHERE id = ?').get(categoryId);
+    const category = db.prepare('SELECT id FROM categories WHERE id = ? AND organization_id = ?').get(categoryId, org);
     if (!category) return res.status(400).json({ error: 'Categoría inválida' });
 
     // El departamento se comprueba igual que la categoría. Sin esta comprobación,
     // un department_id inexistente llega hasta el INSERT y revienta por la clave
     // foránea con un 500, en lugar de un 400 que el formulario puede mostrar.
+    // ETAPA 3: el departamento debe pertenecer a la organización del actor.
     if (departmentId !== null) {
-      const department = db.prepare('SELECT id FROM departments WHERE id = ?').get(departmentId);
+      const department = db.prepare('SELECT id FROM departments WHERE id = ? AND organization_id = ?').get(departmentId, org);
       if (!department) return res.status(400).json({ error: 'Departamento inválido' });
     }
 
@@ -606,11 +646,11 @@ router.post(
     const filesCheck = validateFiles(req.files);
     if (!filesCheck.ok) return res.status(400).json({ error: filesCheck.reason });
 
-    const number = nextTicketNumber();
+    const number = nextTicketNumber(org);
     const info = db.prepare(
-      `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, department_id, priority, sla_due_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(number, title, description, req.user.id, categoryId, departmentId, priority, computeSlaDue(priority));
+      `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, department_id, priority, sla_due_at, organization_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(number, title, description, req.user.id, categoryId, departmentId, priority, computeSlaDue(priority), org);
     const ticketId = info.lastInsertRowid;
 
     let attachments = [];
@@ -625,7 +665,8 @@ router.post(
     recordHistory(ticketId, req.user.id, 'CREATED', `Ticket creado por ${req.user.name} ${req.user.last_name}`);
     touchTicket(ticketId);
 
-    // Avisa al personal de soporte (quien puede ver todos los tickets) de que llegó un ticket nuevo.
+    // Avisa al personal de soporte de la MISMA organización (quien puede ver
+    // todos los tickets de esa org) de que llegó un ticket nuevo.
     const created = getTicket(ticketId);
     notifyStaff({
       type: 'NEW_TICKET',
@@ -634,6 +675,7 @@ router.post(
       ticketId: created.id,
       excludeUserId: req.user.id,
       link: `/app/tickets/${created.id}`,
+      organizationId: created.organization_id,
     });
 
     // Confirmación al reportante de que su solicitud fue registrada.
@@ -1033,7 +1075,7 @@ router.patch('/:id', (req, res) => {
   if (body.category_id !== undefined) {
     if (!canManage) return res.status(403).json({ error: 'No tiene permiso' });
     const catId = body.category_id === '' || body.category_id == null ? null : parseIntSafe(body.category_id);
-    const cat = catId ? db.prepare('SELECT id FROM categories WHERE id = ?').get(catId) : null;
+    const cat = catId ? db.prepare('SELECT id FROM categories WHERE id = ? AND organization_id = ?').get(catId, ticket.organization_id) : null;
     if (!cat) return res.status(400).json({ error: 'Categoría inválida' });
     if (catId !== ticket.category_id) {
       sets.push({ col: 'category_id = ?', val: catId });
@@ -1045,7 +1087,7 @@ router.patch('/:id', (req, res) => {
     if (!canAssign) return res.status(403).json({ error: 'No tiene permiso para asignar tickets' });
     const targetId = body.assigned_to_id === '' || body.assigned_to_id == null ? null : parseIntSafe(body.assigned_to_id);
     if (targetId !== null) {
-      const u = db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(targetId);
+      const u = db.prepare('SELECT id FROM users WHERE id = ? AND active = 1 AND organization_id = ?').get(targetId, ticket.organization_id);
       if (!u) return res.status(400).json({ error: 'Usuario inválido para asignación' });
     }
     if (targetId !== ticket.assigned_to_id) {
@@ -1058,7 +1100,7 @@ router.patch('/:id', (req, res) => {
     if (!canAssign) return res.status(403).json({ error: 'No tiene permiso para asignar tickets' });
     const targetTeam = body.assigned_team_id === '' || body.assigned_team_id == null ? null : parseIntSafe(body.assigned_team_id);
     if (targetTeam !== null) {
-      const tm = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1').get(targetTeam);
+      const tm = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?').get(targetTeam, ticket.organization_id);
       if (!tm) return res.status(400).json({ error: 'Equipo inválido para asignación' });
     }
     if (targetTeam !== ticket.assigned_team_id) {
@@ -1279,7 +1321,7 @@ router.post(
 router.post('/:id/assign', (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
-  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (!hasPerm(req.user, 'ticket.assign')) return res.status(403).json({ error: 'No tiene permiso para asignar' });
 
   const updates = [];
@@ -1290,7 +1332,7 @@ router.post('/:id/assign', (req, res) => {
     const value = req.body.assigned_to_id;
     const targetId = value === null || value === '' ? null : parseIntSafe(value);
     if (targetId !== null) {
-      const u = db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(targetId);
+      const u = db.prepare('SELECT id FROM users WHERE id = ? AND active = 1 AND organization_id = ?').get(targetId, ticket.organization_id);
       if (!u) return res.status(400).json({ error: 'Usuario inválido para asignación' });
     }
     if (targetId !== ticket.assigned_to_id) {
@@ -1303,7 +1345,7 @@ router.post('/:id/assign', (req, res) => {
     const value = req.body.assigned_team_id;
     const targetTeam = value === null || value === '' ? null : parseIntSafe(value);
     if (targetTeam !== null) {
-      const tm = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1').get(targetTeam);
+      const tm = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?').get(targetTeam, ticket.organization_id);
       if (!tm) return res.status(400).json({ error: 'Equipo inválido para asignación' });
     }
     if (targetTeam !== ticket.assigned_team_id) {
@@ -1421,7 +1463,7 @@ router.post(
   (req, res) => {
     const id = parseIntSafe(req.params.id);
     const ticket = getTicket(id);
-    if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+    if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
     if (['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status)) {
       return res.status(400).json({ error: 'El ticket ya está en un estado terminal y no puede resolverse' });
     }
@@ -1512,7 +1554,7 @@ router.post(
 router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
-  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (ticket.status === 'CLOSED') return res.status(400).json({ error: 'El ticket ya está cerrado' });
   if (ticket.status === 'CANCELLED') return res.status(400).json({ error: 'No puede cerrar un ticket cancelado' });
 
@@ -1546,7 +1588,7 @@ router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
 router.post('/:id/cancel', (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
-  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (!hasPerm(req.user, 'ticket.update.any')) {
     return res.status(403).json({ error: 'No tiene permiso para cancelar tickets' });
   }
@@ -1588,7 +1630,7 @@ router.post('/:id/cancel', (req, res) => {
 router.post('/:id/csat', (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
-  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (ticket.reporter_id !== req.user.id) {
     return res.status(403).json({ error: 'Solo el reportante puede calificar este ticket' });
   }
@@ -1639,7 +1681,7 @@ router.post('/:id/csat', (req, res) => {
 router.post('/:id/reopen', requirePermission('ticket.reopen'), (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
-  if (!ticket) return res.status(404).json({ error: 'Ticket no encontrado' });
+  if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (!['RESOLVED', 'CLOSED'].includes(ticket.status)) {
     return res.status(400).json({ error: 'Solo se pueden reabrir tickets resueltos o cerrados' });
   }

@@ -2,6 +2,7 @@ import express from 'express';
 import db, { nowIso } from '../db.js';
 import { safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js';
+import { currentOrgId, rejectClientOrg, requireOrg } from '../middleware/org.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -23,9 +24,11 @@ function canViewTeams(user) {
   return hasPerm(user, 'ticket.view.all') || hasPerm(user, 'user.view') || hasPerm(user, 'team.manage');
 }
 
+// ETAPA 3 (aislamiento por organización): equipos SIEMPRE dentro de la org del
+// contexto de sesión. Un SUPERADMIN sin contexto obtiene una lista vacía.
 router.get('/', (req, res) => {
   if (!canViewTeams(req.user)) return res.status(403).json({ error: 'No tiene permiso para ver equipos' });
-  const rows = db.prepare(`${LIST_SQL} WHERE te.active = 1 ORDER BY te.name ASC`).all();
+  const rows = db.prepare(`${LIST_SQL} WHERE te.active = 1 AND te.organization_id = ? ORDER BY te.name ASC`).all(currentOrgId(req.user));
   res.json({ data: rows });
 });
 
@@ -39,8 +42,8 @@ router.get(
     const rows = db.prepare(
       `SELECT te.id, te.name, te.description,
          (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = te.id) AS member_count
-       FROM teams te WHERE te.active = 1 ORDER BY te.name ASC`
-    ).all();
+       FROM teams te WHERE te.active = 1 AND te.organization_id = ? ORDER BY te.name ASC`
+    ).all(currentOrgId(req.user));
     res.json({ data: rows });
   }
 );
@@ -64,16 +67,19 @@ router.get('/mine', (req, res) => {
     `SELECT te.id, te.name
        FROM team_members tm
        JOIN teams te ON te.id = tm.team_id
-      WHERE tm.user_id = ?
+      WHERE tm.user_id = ? AND te.organization_id = ?
       ORDER BY te.name ASC`
-  ).all(req.user.id);
+  ).all(req.user.id, currentOrgId(req.user));
   res.json({ data: rows });
 });
 
+// Detalle: alias de organización devuelve 404 (no revela la existencia de un
+// equipo de otra organización). Un SUPERADMIN sin contexto (org NULL) también
+// obtiene 404: las rutas normales exigen una organización real.
 router.get('/:id', (req, res) => {
   if (!canViewTeams(req.user)) return res.status(403).json({ error: 'No tiene permiso para ver equipos' });
   const id = parseIntSafe(req.params.id);
-  const team = db.prepare(`${LIST_SQL} WHERE te.id = ?`).get(id);
+  const team = db.prepare(`${LIST_SQL} WHERE te.id = ? AND te.organization_id = ?`).get(id, currentOrgId(req.user));
   if (!team) return res.status(404).json({ error: 'Equipo no encontrado' });
 
   const members = db.prepare(`
@@ -89,24 +95,35 @@ router.get('/:id', (req, res) => {
   res.json({ team, members });
 });
 
-router.post('/', requirePermission('team.manage'), (req, res) => {
+// Creación: exige contexto de organización y rechaza que el cliente intente
+// fijar `organization_id` en el cuerpo (mismo patrón que departments).
+router.post('/', requirePermission('team.manage'), requireOrg, (req, res) => {
+  const rejected = rejectClientOrg(req.body || {});
+  if (rejected) return res.status(400).json({ error: rejected });
+
   const name = safeStr(req.body.name);
   const description = safeStr(req.body.description);
   if (!name) return res.status(400).json({ error: 'El nombre es obligatorio' });
   if (name.length > 100) return res.status(400).json({ error: 'El nombre no puede superar 100 caracteres' });
 
+  // El nombre sigue siendo único global (SQLite); limitación conocida que se
+  // resuelve en la etapa MSSQL (mismo criterio que departments/categories).
   if (db.prepare('SELECT id FROM teams WHERE LOWER(name) = LOWER(?)').get(name)) {
     return res.status(409).json({ error: 'Ya existe un equipo con ese nombre' });
   }
 
-  const info = db.prepare('INSERT INTO teams (name, description) VALUES (?, ?)').run(name, description || null);
+  const organizationId = currentOrgId(req.user);
+  const info = db.prepare('INSERT INTO teams (name, description, organization_id) VALUES (?, ?, ?)').run(name, description || null, organizationId);
   res.status(201).json({ team: db.prepare(`${LIST_SQL} WHERE te.id = ?`).get(info.lastInsertRowid) });
 });
 
 router.patch('/:id', requirePermission('team.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT * FROM teams WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM teams WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
   if (!existing) return res.status(404).json({ error: 'Equipo no encontrado' });
+
+  const rejected = rejectClientOrg(req.body || {});
+  if (rejected) return res.status(400).json({ error: rejected });
 
   const name = req.body.name === undefined ? existing.name : safeStr(req.body.name);
   const description = req.body.description === undefined ? existing.description : safeStr(req.body.description);
@@ -121,7 +138,7 @@ router.patch('/:id', requirePermission('team.manage'), (req, res) => {
 
 router.delete('/:id', requirePermission('team.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT id FROM teams WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT id FROM teams WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
   if (!existing) return res.status(404).json({ error: 'Equipo no encontrado' });
 
   db.prepare('DELETE FROM teams WHERE id = ?').run(id);
@@ -129,19 +146,25 @@ router.delete('/:id', requirePermission('team.manage'), (req, res) => {
 });
 
 // Remplaza la lista de miembros de un equipo (team_id, [user_id, ...]).
+// ETAPA 3: los miembros deben pertenecer a la MISMA organización del equipo.
+// Un usuario de otra organización no existe para este equipo (400) y nunca se
+// inserta. La organización del equipo nunca se modifica desde el cliente.
 router.put('/:id/members', requirePermission('team.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT id FROM teams WHERE id = ?').get(id);
+  const existing = db.prepare('SELECT * FROM teams WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
   if (!existing) return res.status(404).json({ error: 'Equipo no encontrado' });
+
+  const rejected = rejectClientOrg(req.body || {});
+  if (rejected) return res.status(400).json({ error: rejected });
 
   const ids = Array.isArray(req.body.user_ids) ? req.body.user_ids.map((v) => parseIntSafe(v)).filter((v) => v > 0) : [];
   const existingUsers = db
-    .prepare(`SELECT id FROM users WHERE id IN (${ids.map(() => '?').join(',') || 'NULL'})`)
-    .all(...ids)
+    .prepare(`SELECT id FROM users WHERE id IN (${ids.map(() => '?').join(',') || 'NULL'}) AND organization_id = ?`)
+    .all(...ids, existing.organization_id)
     .map((r) => r.id);
   for (const uid of ids) {
     if (!existingUsers.includes(uid)) {
-      return res.status(400).json({ error: `El usuario ${uid} no existe` });
+      return res.status(400).json({ error: `El usuario ${uid} no existe o no pertenece a esta organización` });
     }
   }
 

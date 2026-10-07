@@ -23,11 +23,12 @@ router.get('/', (req, res) => {
 });
 
 // Detalle: alias de organización devuelve 404 (no revela la existencia de un
-// recurso de otra organización). Un SUPERADMIN puede pedir un departamento por
-// id explícito (COALESCE con NULL resuelve a cualquier organización).
+// recurso de otra organización). Un SUPERADMIN sin contexto (org NULL) también
+// obtiene 404: las rutas normales exigen una organización real; la
+// administración global explícita llega en etapas posteriores.
 router.get('/:id', (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const row = db.prepare('SELECT * FROM departments WHERE id = ? AND organization_id = COALESCE(?, organization_id)')
+  const row = db.prepare('SELECT * FROM departments WHERE id = ? AND organization_id = ?')
     .get(id, currentOrgId(req.user));
   if (!row) return res.status(404).json({ error: 'Departamento no encontrado' });
   res.json({ department: row });
@@ -60,10 +61,11 @@ router.post('/', requirePermission('department.manage'), requireOrg, (req, res) 
 });
 
 // Edición: misma regla de alias — 404 si el departamento pertenece a otra
-// organización, y la organización nunca se modifica desde el cliente.
+// organización (o si el actor carece de contexto), y la organización nunca se
+// modifica desde el cliente.
 router.patch('/:id', requirePermission('department.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT * FROM departments WHERE id = ? AND organization_id = COALESCE(?, organization_id)')
+  const existing = db.prepare('SELECT * FROM departments WHERE id = ? AND organization_id = ?')
     .get(id, currentOrgId(req.user));
   if (!existing) return res.status(404).json({ error: 'Departamento no encontrado' });
 
