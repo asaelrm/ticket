@@ -4,11 +4,14 @@ import { nowIso } from '../db.js';
 const USER_SQL = `
   SELECT u.id, u.name, u.last_name, u.username, u.email, u.department_id,
          u.position, u.role_id, u.active, u.created_at, u.last_login_at,
+         u.organization_id,
          r.code AS role_code, r.name AS role_name,
-         d.name AS department_name
+         d.name AS department_name,
+         o.name AS organization_name
   FROM users u
   JOIN roles r ON r.id = u.role_id
   LEFT JOIN departments d ON d.id = u.department_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
   WHERE u.id = ?
 `;
 
@@ -35,6 +38,12 @@ export function publicUser(row) {
     active: !!row.active,
     created_at: row.created_at,
     last_login_at: row.last_login_at,
+    // Contexto de organización (ETAPA 1A). Un SUPERADMIN global tiene
+    // organization_id null y organization_name vacío; is_superadmin depende
+    // únicamente del rol, nunca de una petición del cliente.
+    organization_id: row.organization_id,
+    organization_name: row.organization_name || '',
+    is_superadmin: row.role_code === 'SUPERADMIN',
   };
 }
 

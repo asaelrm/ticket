@@ -12,14 +12,35 @@ router.use(requireAuth);
 
 const LIST_SQL = `
   SELECT u.id, u.name, u.last_name, u.username, u.email, u.department_id, u.position,
-         u.role_id, u.active, u.created_at, u.last_login_at, u.last_password_change_at,
+         u.role_id, u.organization_id, u.active, u.created_at, u.last_login_at, u.last_password_change_at,
          r.code AS role_code, r.name AS role_name, d.name AS department_name,
+         o.name AS organization_name,
          (SELECT COUNT(*) FROM tickets t WHERE t.reporter_id = u.id) AS tickets_count
   FROM users u
   JOIN roles r ON r.id = u.role_id
   LEFT JOIN departments d ON d.id = u.department_id
+  LEFT JOIN organizations o ON o.id = u.organization_id
   WHERE 1=1
 `;
+
+// El contexto de organización lo decide exclusivamente el servidor a partir de
+// la sesión. Un organization_id enviado por el cliente es un intento de
+// escalada o un error del frontend, nunca una instrucción válida.
+function rejectClientOrg(body) {
+  const org = body && body.organization_id;
+  if (org !== undefined && org !== null && org !== '') {
+    return 'El contexto de organización lo decide el servidor, no la petición';
+  }
+  return null;
+}
+
+// La asignación del rol SUPERADMIN (y la gestión de cuentas SUPERADMIN) es
+// privilegio exclusivo de otro SUPERADMIN. Sin esta barrera, un administrador
+// normal con user.manage podría ascender a un tercero (o a sí mismo, la ruta lo
+// impide por otra vía) simplemente editando una petición.
+function isSuperadminRole(roleCode) {
+  return roleCode === 'SUPERADMIN';
+}
 
 function userWhere() {
   const conditions = [];
@@ -82,6 +103,8 @@ router.get('/roles', requirePermission('user.view'), (req, res) => {
 
 router.post('/', requirePermission('user.manage'), (req, res) => {
   const body = req.body || {};
+  const rejected = rejectClientOrg(body);
+  if (rejected) return res.status(400).json({ error: rejected });
   const name = body.name;
   const lastName = body.last_name;
   const username = safeStr(body.username);
@@ -100,8 +123,24 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
     role: rules.required(roleId, 'Rol'),
   });
 
-  const role = db.prepare('SELECT id FROM roles WHERE id = ? AND active = 1').get(roleId);
+  const role = db.prepare('SELECT id, code FROM roles WHERE id = ? AND active = 1').get(roleId);
   if (!role) return res.status(400).json({ error: 'Rol inválido' });
+
+  // Un usuario creado nace SIEMPRE en la organización del usuario autenticado
+  // (sesión), nunca en una indicada por el cliente. Solo un SUPERADMIN puede
+  // crear otro SUPERADMIN, y esos nacen globales (organization_id null).
+  let organizationId = req.user.organization_id;
+  if (isSuperadminRole(role.code)) {
+    if (!req.user.is_superadmin) {
+      return res.status(403).json({ error: 'Solo un superadministrador puede asignar el rol SUPERADMIN' });
+    }
+    organizationId = null;
+  } else if (!organizationId) {
+    return res.status(400).json({
+      error: 'Este rol requiere pertenecer a una organización; el contexto se resuelve desde la sesión',
+    });
+  }
+
   if (departmentId) {
     const dept = db.prepare('SELECT id FROM departments WHERE id = ?').get(departmentId);
     if (!dept) return res.status(400).json({ error: 'Departamento inválido' });
@@ -114,9 +153,9 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
   }
 
   const info = db.prepare(
-    `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, last_password_change_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(name, lastName, username, email, hashPassword(password), departmentId, position, roleId, nowIso());
+    `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, organization_id, last_password_change_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(name, lastName, username, email, hashPassword(password), departmentId, position, roleId, organizationId, nowIso());
 
   saveDirectorySnapshot();
   const row = db.prepare(`${LIST_SQL} AND u.id = ?`).get(info.lastInsertRowid);
@@ -211,10 +250,19 @@ router.get('/:id', requirePermission('user.view'), (req, res) => {
 
 router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
+  const rejected = rejectClientOrg(req.body || {});
+  if (rejected) return res.status(400).json({ error: rejected });
   const existing = db
     .prepare('SELECT id, name, last_name, department_id, position, username, email, role_id FROM users WHERE id = ?')
     .get(id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  const existingRole = db
+    .prepare('SELECT code FROM roles WHERE id = ?')
+    .get(existing.role_id);
+  if (isSuperadminRole(existingRole?.code) && !req.user.is_superadmin) {
+    return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
+  }
 
   const body = req.body || {};
   const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
@@ -246,8 +294,17 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
   const otherMail = db.prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ?').get(email, id);
   if (otherMail) return res.status(409).json({ error: 'El correo ya está registrado' });
 
-  const role = db.prepare('SELECT id FROM roles WHERE id = ? AND active = 1').get(roleId);
+  const role = db.prepare('SELECT id, code FROM roles WHERE id = ? AND active = 1').get(roleId);
   if (!role) return res.status(400).json({ error: 'Rol inválido' });
+
+  // Cambiar a (o desde) SUPERADMIN solo puede hacerlo otro SUPERADMIN. La
+  // organización nunca cambia aquí: sigue siendo la que tiene en la base.
+  const changingRole = roleId !== existing.role_id;
+  if (changingRole && (isSuperadminRole(role.code) || isSuperadminRole(existingRole?.code))) {
+    if (!req.user.is_superadmin) {
+      return res.status(403).json({ error: 'Solo un superadministrador puede asignar o quitar el rol SUPERADMIN' });
+    }
+  }
 
   db.prepare(
     `UPDATE users SET name = ?, last_name = ?, username = ?, email = ?, department_id = ?, position = ?, role_id = ?, updated_at = ? WHERE id = ?`
@@ -269,6 +326,13 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
   const existing = db.prepare('SELECT id, active FROM users WHERE id = ?').get(id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado' });
 
+  const targetRole = db
+    .prepare('SELECT r.code FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?')
+    .get(id);
+  if (isSuperadminRole(targetRole?.code) && !req.user.is_superadmin) {
+    return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
+  }
+
   if (!active && (
     db.prepare('SELECT COUNT(*) AS n FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = ? AND u.active = 1').get('ADMIN').n <= 1 &&
     db.prepare('SELECT role_id FROM users WHERE id = ?').get(id).role_id === db.prepare('SELECT id FROM roles WHERE code = ?').get('ADMIN').id
@@ -284,6 +348,12 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
 
 router.post('/:id/reset-password', requirePermission('user.manage'), (req, res) => {
   const id = parseIntSafe(req.params.id);
+  const targetRole = db
+    .prepare('SELECT r.code FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?')
+    .get(id);
+  if (targetRole && isSuperadminRole(targetRole.code) && !req.user.is_superadmin) {
+    return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
+  }
   const existing = db.prepare('SELECT id, name, username FROM users WHERE id = ? AND active = 1').get(id);
   if (!existing) return res.status(404).json({ error: 'Usuario no encontrado o inactivo' });
 

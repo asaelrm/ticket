@@ -76,6 +76,15 @@ export function runMigrations() {
       ensureColumn('ticket_comments', 'is_internal', 'is_internal INTEGER NOT NULL DEFAULT 0');
     }
 
+    // ETAPA 1A (multiempresa): organización del usuario. La columna se agrega
+    // ANTES de schema.sql, cuyos CREATE INDEX y CREATE TABLE IF NOT EXISTS ya la
+    // referencian (idempotente). SQLite valida la FK al hacer DML, no al añadir
+    // la columna, por lo que es seguro referenciar `organizations` aunque la
+    // tabla se cree justo después en schema.sql.
+    if (tableExists('users')) {
+      ensureColumn('users', 'organization_id', 'organization_id INTEGER REFERENCES organizations(id)');
+    }
+
     db.exec(schema);
 
     // Índices de columnas aditivas (idempotentes).

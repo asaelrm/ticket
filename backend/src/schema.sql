@@ -3,6 +3,21 @@
 -- Migraciones aplicadas de forma incremental (user_version).
 -- ============================================================================
 
+-- 0. Organizaciones (multiempresa)
+-- Un superadministrador global NO pertenece a ninguna organización
+-- (organization_id NULL en users). El resto de cuentas pertenecen a una única
+-- organización, que es la que da contexto a sus datos.
+CREATE TABLE IF NOT EXISTS organizations (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  code        TEXT NOT NULL UNIQUE,
+  name        TEXT NOT NULL,
+  description TEXT,
+  active      INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_organizations_active ON organizations(active);
+
 -- 1. Roles y permisos (RBAC)
 CREATE TABLE IF NOT EXISTS roles (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,6 +71,7 @@ CREATE TABLE IF NOT EXISTS users (
   department_id           INTEGER REFERENCES departments(id) ON DELETE SET NULL,
   position                TEXT,
   role_id                 INTEGER NOT NULL REFERENCES roles(id),
+  organization_id         INTEGER REFERENCES organizations(id),
   active                  INTEGER NOT NULL DEFAULT 1,
   last_login_at           TEXT,
   last_password_change_at TEXT,
@@ -66,6 +82,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_department ON users(department_id);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role_id);
+CREATE INDEX IF NOT EXISTS idx_users_organization ON users(organization_id);
 CREATE INDEX IF NOT EXISTS idx_users_active ON users(active);
 
 -- 4. Tickets

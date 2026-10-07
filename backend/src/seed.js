@@ -35,6 +35,7 @@ export const PERMISSIONS = [
   ['kb.create', 'Crear borradores de artículos de conocimiento'],
   ['kb.publish', 'Publicar y archivar artículos propios'],
   ['kb.manage', 'Administrar artículos de conocimiento de cualquier autor'],
+  ['organization.manage', 'Gestionar organizaciones'],
 ];
 
 const ROLES = {
@@ -69,8 +70,24 @@ const ROLES = {
   ADMIN: {
     name: 'Administrador',
     description: 'Control total del sistema',
+    // El administrador dirige una organización concreta: NO incluye
+    // organization.manage, que queda reservado al SUPERADMIN global.
+    permissions: PERMISSIONS.filter(([code]) => code !== 'organization.manage').map(([code]) => code),
+  },
+  SUPERADMIN: {
+    name: 'Superadministrador',
+    description: 'Cuenta global sin organización: administra todo el sistema',
     permissions: PERMISSIONS.map(([code]) => code),
   },
+};
+
+// Organización inicial (ETAPA 1A). Es la organización a la que se asocian los
+// datos existentes sin pérdida de información. Las siguientes organizaciones
+// llegarán en etapas posteriores, no en esta.
+export const INITIAL_ORGANIZATION = {
+  code: 'UCE',
+  name: 'Centro Médico UCE',
+  description: 'Organización inicial del sistema',
 };
 
 /**
@@ -161,7 +178,29 @@ function seedBaseData() {
   for (const [name, desc, color] of INITIAL_KB_CATEGORIES) insertKbCat.run(name, desc, color);
 }
 
-function ensureUsers(options = {}) {
+// Organización inicial (ETAPA 1A): crea UCE si no existe y asocia a UCE los
+// usuarios existentes que aún no tienen organización, SIN tocar a quienes ya
+// tengan una. El UPDATE excluye explícitamente al rol SUPERADMIN: una cuenta
+// global (organization_id NULL) nunca debe ser arrastrada a una organización
+// por una reejecución del seed.
+function ensureOrganizations() {
+  db.prepare(
+    'INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1) ON CONFLICT(code) DO NOTHING'
+  ).run(INITIAL_ORGANIZATION.code, INITIAL_ORGANIZATION.name, INITIAL_ORGANIZATION.description);
+
+  const uce = db.prepare('SELECT id FROM organizations WHERE code = ?').get(INITIAL_ORGANIZATION.code);
+  if (!uce) throw new Error('No se pudo resolver la organización inicial');
+
+  db.prepare(`
+    UPDATE users SET organization_id = ?
+    WHERE organization_id IS NULL
+      AND role_id NOT IN (SELECT id FROM roles WHERE code = 'SUPERADMIN')
+  `).run(uce.id);
+
+  return uce.id;
+}
+
+function ensureUsers(options = {}, organizationId = null) {
   const {
     env = config.env,
     seedAdminPassword = process.env.SEED_ADMIN_PASSWORD || '',
@@ -195,8 +234,8 @@ function ensureUsers(options = {}) {
     const admin = getBy.get(adminUsername, adminEmail);
     if (!admin) {
       db.prepare(
-        `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+        `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
       ).run(
         process.env.SEED_ADMIN_NAME || 'Administrador',
         process.env.SEED_ADMIN_LAST_NAME || 'Sistema',
@@ -206,7 +245,8 @@ function ensureUsers(options = {}) {
         deptTech?.id ?? null,
         'Administrador del sistema',
         roleAdmin,
-        new Date().toISOString()
+        new Date().toISOString(),
+        organizationId
       );
     } else if (forceAdminPassword) {
       // Única vía para recuperar el acceso: hay que pedirla explícitamente con
@@ -254,8 +294,8 @@ function ensureUsers(options = {}) {
     const password = demoPassword || unusablePassword();
     if (!demoPassword) sinContrasenaConocida.push('empleado');
     db.prepare(
-      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     ).run(
       'Empleado',
       'Demo',
@@ -265,7 +305,8 @@ function ensureUsers(options = {}) {
       deptRh?.id ?? null,
       'Analista',
       roleEmployee,
-      new Date().toISOString()
+      new Date().toISOString(),
+      organizationId
     );
   }
 
@@ -274,8 +315,8 @@ function ensureUsers(options = {}) {
     const password = techPassword || unusablePassword();
     if (!techPassword) sinContrasenaConocida.push('tecnico');
     db.prepare(
-      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     ).run(
       'Técnico',
       'Soporte',
@@ -285,7 +326,8 @@ function ensureUsers(options = {}) {
       deptTech?.id ?? null,
       'Soporte Técnico',
       roleTechnician,
-      new Date().toISOString()
+      new Date().toISOString(),
+      organizationId
     );
   }
 
@@ -302,14 +344,18 @@ export function seed(options = {}) {
   return transaction(() => {
     seedPermissionsAndRoles();
     seedBaseData();
+    // La organización inicial debe existir ANTES que las cuentas para que las
+    // cuentas nuevas nazcan ya asociadas a UCE.
+    const organizationId = ensureOrganizations();
     // ensureUsers decide internamente qué cuentas crear según el entorno.
-    ensureUsers(options);
+    ensureUsers(options, organizationId);
     return {
       ok: true,
       roles: Object.keys(ROLES).length,
       categories: INITIAL_CATEGORIES.length,
       departments: INITIAL_DEPARTMENTS.length,
       kb_categories: INITIAL_KB_CATEGORIES.length,
+      organizations: db.prepare('SELECT COUNT(*) AS n FROM organizations').get().n,
     };
   });
 }

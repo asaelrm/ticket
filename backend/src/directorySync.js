@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import db, { transaction } from './db.js';
 import config from './config.js';
 import { hashPassword } from './utils/password.js';
+import { INITIAL_ORGANIZATION } from './seed.js';
 
 // Snapshot del directorio de usuarios y departamentos.
 //
@@ -84,12 +85,16 @@ export function restoreDirectorySnapshot({ enabled, file } = {}) {
     const getDepartment = db.prepare('SELECT id FROM departments WHERE name = ?');
     const getRole = db.prepare('SELECT id FROM roles WHERE code = ?');
     const getUser = db.prepare('SELECT id FROM users WHERE username = ?');
+    // Las cuentas restauradas del directorio nacen en la organización inicial;
+    // el snapshot todavía no transporta organizaciones (etapas posteriores).
+    const getOrg = db.prepare('SELECT id FROM organizations WHERE code = ?');
+    const initialOrgId = getOrg.get(INITIAL_ORGANIZATION.code)?.id ?? null;
 
     // El conflicto nunca toca `password_hash` ni `last_password_change_at`: la
     // contraseña y su fecha de cambio son propiedad exclusiva de la tabla users.
     const upsertUser = db.prepare(`
-      INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(username) DO UPDATE SET
         name = excluded.name,
         last_name = excluded.last_name,
@@ -108,6 +113,9 @@ export function restoreDirectorySnapshot({ enabled, file } = {}) {
       const role = getRole.get(user.role_code);
       if (!role) throw new Error(`Rol no encontrado en directory.json: ${user.role_code}`);
       const department = user.department_name ? getDepartment.get(user.department_name) : null;
+      // Un rol global del directorio se restaura sin organización; el resto de
+      // roles (empleado/técnico/admin) pertenecen a la organización inicial.
+      const orgId = role.code === 'SUPERADMIN' ? null : initialOrgId;
 
       const existe = getUser.get(user.username);
       if (existe) {
@@ -122,7 +130,8 @@ export function restoreDirectorySnapshot({ enabled, file } = {}) {
           user.position ?? '',
           role.id,
           user.active ? 1 : 0,
-          user.last_password_change_at ?? null
+          user.last_password_change_at ?? null,
+          orgId
         );
       } else {
         upsertUser.run(
@@ -135,7 +144,8 @@ export function restoreDirectorySnapshot({ enabled, file } = {}) {
           user.position ?? '',
           role.id,
           user.active ? 1 : 0,
-          user.last_password_change_at ?? null
+          user.last_password_change_at ?? null,
+          orgId
         );
         nuevas.push(user.username);
       }
