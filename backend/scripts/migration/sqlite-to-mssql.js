@@ -3,6 +3,42 @@ import crypto from 'node:crypto';
 export const FORBIDDEN_INSTANCE_TOKENS = ['HPWJA', 'ZZZSQL'];
 export const FORBIDDEN_DATABASES = ['master', 'tempdb', 'model', 'msdb', 'SIFHA_Tickets_DEV'];
 export const SESSION_POLICY = 'REQUIRES_DECISION';
+export const LEGACY_ORG_CODE = /^[A-Z][A-Z0-9_-]{1,63}$/;
+
+export function resolveSourcePath(runtimeDbFile, explicitSource = undefined) {
+  if (explicitSource !== undefined) {
+    if (!explicitSource || typeof explicitSource !== 'string') throw new Error('--source requiere una ruta de archivo SQLite.');
+    return explicitSource;
+  }
+  if (!runtimeDbFile || typeof runtimeDbFile !== 'string') throw new Error('No se pudo determinar config.dbFile del runtime SQLite.');
+  return runtimeDbFile;
+}
+
+export function legacyOrganizationPlan(source, { code, name } = {}) {
+  const hasLegacyTenantRows = ['departments', 'categories', 'users', 'teams', 'tickets', 'canned_responses', 'kb_categories', 'kb_articles']
+    .some((table) => (source[table] || []).length > 0 && !(source[table] || []).some((row) => row.organization_id != null));
+  if (!hasLegacyTenantRows) return null;
+  if (!code) throw new Error('Legacy tenant requiere --legacy-org-code explícito.');
+  if (!LEGACY_ORG_CODE.test(code)) throw new Error('legacy_org_code inválido; use A-Z, 0-9, _ o -, comenzando por letra.');
+  if (!name || !String(name).trim() || String(name).trim().length > 200) throw new Error('Legacy tenant requiere --legacy-org-name válido (1-200 caracteres).');
+  const affectedTables = Object.fromEntries(
+    ['departments', 'categories', 'users', 'teams', 'tickets', 'canned_responses', 'ticket_comments', 'ticket_attachments', 'ticket_history', 'notifications', 'kb_categories', 'kb_articles', 'kb_article_history']
+      .map((table) => [table, (source[table] || []).length]).filter(([, count]) => count > 0),
+  );
+  const emailLogs = (source.email_logs || []).filter((row) => row.ticket_id != null).length;
+  if (emailLogs) affectedTables.email_logs = emailLogs;
+  return { code, name: String(name).trim(), marker: `legacy-org:${code}`, affectedTables, sequence: legacySequencePlan(source.tickets || [], code, source.sequences || []) };
+}
+
+export function legacySequencePlan(tickets, organizationCode, sequences = []) {
+  const values = (tickets || []).map((ticket) => {
+    const match = /-([0-9]+)$/.exec(String(ticket.ticket_number || ''));
+    return match ? Number(match[1]) : null;
+  }).filter(Number.isSafeInteger);
+  const max = values.length ? Math.max(...values) : 0;
+  const legacy = (sequences || []).find((row) => row.name === 'ticket_number');
+  return { organization_code: organizationCode, target_sequence: `ticket_number:<id resuelto por code ${organizationCode}>`, max_ticket_number: max, next_ticket_number: max + 1, legacy_sequence_value: legacy ? Number(legacy.value) : null, reconciled_value: max };
+}
 
 // Ordered from the actual FK graph in src/db/mssql/schema.sql.  Tables with
 // tenant children carry organization_id in MSSQL even when legacy SQLite did
@@ -75,44 +111,65 @@ export function toDate(value, label) {
   return new Date(Math.round(date.getTime())).toISOString();
 }
 
+// Narrow compatibility rule for the SQLite backfill in src/db.js. SQLite's
+// datetime(ISO-with-Z, '+N hours') evaluates in UTC and emits a 19-character
+// UTC value without a suffix. We accept it only when the stored value exactly
+// equals that documented calculation from the ticket's UTC created_at.
+export function normalizeLegacySlaBackfill(row) {
+  const value = row?.sla_due_at;
+  const hours = { CRITICAL: 4, HIGH: 24, MEDIUM: 48, LOW: 72 }[row?.priority];
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) || hours === undefined) return null;
+  const created = toDate(row.created_at, 'tickets.created_at');
+  const expected = new Date(new Date(created).getTime() + hours * 3600000).toISOString().slice(0, 19).replace('T', ' ');
+  return value === expected ? `${value.replace(' ', 'T')}.000Z` : null;
+}
+
 export function sourceFingerprint(rowsByTable) {
   const counts = Object.fromEntries(TABLES.map((table) => [table, (rowsByTable[table] || []).length]));
   return crypto.createHash('sha256').update(JSON.stringify(counts)).digest('hex');
 }
 
-export function organizationFor(table, row, source) {
-  if (GLOBAL_TABLES.has(table) || table === 'organizations' || table === 'email_logs') return row.organization_id ?? null;
+export function organizationFor(table, row, source, legacyOrganization = null) {
+  if (GLOBAL_TABLES.has(table) || table === 'organizations') return row.organization_id ?? null;
+  if (table === 'email_logs') {
+    if (row.organization_id != null) return row.organization_id;
+    const ticket = (source.tickets || []).find((r) => r.id === row.ticket_id);
+    return ticket ? organizationFor('tickets', ticket, source, legacyOrganization) : null;
+  }
   if (row.organization_id != null) return row.organization_id;
   const parent = PARENT[table];
   if (parent && row[`${parent.slice(0, -1)}_id`] != null) {
     const parentRow = (source[parent] || []).find((r) => r.id === row[`${parent.slice(0, -1)}_id`]);
-    return parentRow?.organization_id ?? null;
+    return parentRow?.organization_id ?? legacyOrganization?.marker ?? null;
   }
-  return null;
+  return legacyOrganization?.marker ?? null;
 }
 
-export function transformRow(table, row, source) {
+export function transformRow(table, row, source, legacyOrganization = null) {
   if (SKIPPED_TABLES.has(table)) return null;
   const output = { ...row };
   for (const [column, value] of Object.entries(output)) {
     const key = `${table}.${column}`;
     if (BOOLEAN_COLUMNS.has(key)) output[column] = toBit(value, key);
-    if (DATETIME_COLUMNS.has(key)) output[column] = toDate(value, key);
+    if (DATETIME_COLUMNS.has(key)) {
+      const normalizedLegacySla = key === 'tickets.sla_due_at' ? normalizeLegacySlaBackfill(row) : null;
+      output[column] = normalizedLegacySla ?? toDate(value, key);
+    }
   }
-  if (!GLOBAL_TABLES.has(table) && table !== 'organizations' && table !== 'email_logs') {
-    output.organization_id = organizationFor(table, row, source);
+  if (!GLOBAL_TABLES.has(table) && table !== 'organizations') {
+    output.organization_id = organizationFor(table, row, source, legacyOrganization);
     if (output.organization_id == null) throw new Error(`${table}#${row.id ?? '?'}: organization_id requiere decisión explícita`);
   }
   return output;
 }
 
-export function validateSource(source) {
+export function validateSource(source, legacyOrganization = null) {
   const errors = [];
   const ids = Object.fromEntries(Object.entries(source).map(([table, rows]) => [table, new Set(rows.map((r) => r.id))]));
   for (const table of TABLES) for (const row of source[table] || []) {
-    try { transformRow(table, row, source); } catch (error) { errors.push({ table, id: row.id ?? null, error: error.message }); }
+    try { transformRow(table, row, source, legacyOrganization); } catch (error) { errors.push({ table, id: row.id ?? null, error: error.message }); }
   }
-  const refs = [['users', 'department_id', 'departments'], ['users', 'role_id', 'roles'], ['tickets', 'reporter_id', 'users'], ['tickets', 'category_id', 'categories'], ['tickets', 'department_id', 'departments'], ['ticket_comments', 'ticket_id', 'tickets'], ['ticket_attachments', 'ticket_id', 'tickets'], ['ticket_history', 'ticket_id', 'tickets'], ['notifications', 'user_id', 'users'], ['kb_articles', 'category_id', 'kb_categories'], ['kb_ticket_articles', 'ticket_id', 'tickets'], ['kb_ticket_articles', 'article_id', 'kb_articles']];
+  const refs = [['users', 'department_id', 'departments'], ['users', 'role_id', 'roles'], ['tickets', 'reporter_id', 'users'], ['tickets', 'category_id', 'categories'], ['tickets', 'department_id', 'departments'], ['ticket_comments', 'ticket_id', 'tickets'], ['ticket_attachments', 'ticket_id', 'tickets'], ['ticket_history', 'ticket_id', 'tickets'], ['notifications', 'user_id', 'users'], ['kb_articles', 'category_id', 'kb_categories'], ['kb_ticket_articles', 'ticket_id', 'tickets'], ['kb_ticket_articles', 'article_id', 'kb_articles'], ['email_logs', 'ticket_id', 'tickets']];
   for (const [table, column, parent] of refs) for (const row of source[table] || []) {
     if (row[column] != null && !ids[parent]?.has(row[column])) errors.push({ table, id: row.id ?? null, error: `${column} referencia ${parent} inexistente` });
   }
@@ -131,8 +188,20 @@ export function sanitizeManifest(manifest) {
   return manifest;
 }
 
-export function buildManifest(source, target) {
-  return sanitizeManifest({ source_fingerprint: sourceFingerprint(source), target, started_at: new Date().toISOString(), tables: Object.fromEntries(TABLES.map((t) => [t, { source_count: (source[t] || []).length, inserted_count: 0, skipped_count: SKIPPED_TABLES.has(t) ? (source[t] || []).length : 0, error_count: 0 }])) });
+export function summarizeValidationErrors(errors) {
+  const summary = {};
+  for (const { table, error } of errors) {
+    const kind = String(error).replace(/#\d+/g, '#?');
+    const key = `${table}: ${kind}`;
+    summary[key] = (summary[key] || 0) + 1;
+  }
+  return summary;
+}
+
+export function buildManifest(source, target, legacyOrganization = null) {
+  const manifest = { source_fingerprint: sourceFingerprint(source), target, started_at: new Date().toISOString(), tables: Object.fromEntries(TABLES.map((t) => [t, { source_count: (source[t] || []).length, planned_insert_count: SKIPPED_TABLES.has(t) ? 0 : (source[t] || []).length, inserted_count: 0, skipped_count: SKIPPED_TABLES.has(t) ? (source[t] || []).length : 0, error_count: 0 }])) };
+  if (legacyOrganization) { manifest.legacy_organization = { legacy_org_code: legacyOrganization.code, planned_creation: true, associated_records: legacyOrganization.affectedTables, sequence_reconciliation: legacyOrganization.sequence }; manifest.tables.organizations.planned_insert_count = 1; }
+  return sanitizeManifest(manifest);
 }
 
 export function reconciliationPlan() { return { compareCounts: TABLES.filter((t) => !SKIPPED_TABLES.has(t)), verify: ['FK integrity', 'duplicates', 'NULL violations', 'ticket sequence', 'organization isolation', 'settings parity'], checksums: ['organizations', 'roles', 'permissions', 'departments', 'categories', 'teams', 'tickets metadata', 'kb categories'] }; }
