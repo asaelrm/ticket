@@ -11,7 +11,15 @@ import { nextTicketNumber } from '../utils/ticketNumber.js';
 import { computeSlaDue, OPEN_STATUSES, slaAtRiskUntilIso } from '../utils/sla.js';
 import { getWorkflowOptions, requireResolutionToClose, isCsatEnabled } from '../utils/options.js';
 import { emitTicketEvent, onTicketEvent } from '../utils/ticketBus.js';
-import { notifyAssigned, notifyComment, notifyResolved, notifyCancelled } from '../utils/mailer.js';
+import {
+  notifyAssigned,
+  notifyComment,
+  notifyResolved,
+  notifyCancelled,
+  notifyCreated,
+  notifyStatusChanged,
+  notifyClosed,
+} from '../utils/mailer.js';
 import {
   createNotification,
   createNotifications,
@@ -628,6 +636,9 @@ router.post(
       link: `/app/tickets/${created.id}`,
     });
 
+    // Confirmación al reportante de que su solicitud fue registrada.
+    notifyCreated(created);
+
     emitTicketEvent(ticketId, 'refresh');
     return res.status(201).json({ ticket: created, attachments });
   }
@@ -1084,6 +1095,18 @@ router.patch('/:id', (req, res) => {
   for (const e of entries) recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
 
   const updated = getTicket(id);
+
+  // Cambio de estado no terminal: se avisa al reportante salvo que él mismo lo
+  // haya provocado. RESOLVED/CLOSED/CANCELLED quedan fuera porque ya tienen su
+  // propia notificación (resolver, cerrar, cancelar) y duplicarían el correo.
+  if (
+    updated.status !== ticket.status
+    && !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(updated.status)
+    && updated.reporter_id !== req.user.id
+  ) {
+    notifyStatusChanged(updated, ticket.status, `${req.user.name} ${req.user.last_name}`);
+  }
+
   if (changedAssign) {
     notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
     notifyTicketParticipants(updated, {
@@ -1513,6 +1536,8 @@ router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
   );
   const updated = getTicket(id);
   notifyTicketClosed(updated, req.user.id, note);
+  // Correo de cierre al reportante (salvo que el propio reportante lo cierre).
+  if (updated.reporter_id !== req.user.id) notifyClosed(updated);
   emitTicketEvent(id, 'refresh');
   res.json({ ticket: updated });
 });

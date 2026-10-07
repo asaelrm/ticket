@@ -1,7 +1,8 @@
 import { describe, it, before, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import { sentEmails } from '../src/utils/mailer.js';
+import { sentEmails, sendMail } from '../src/utils/mailer.js';
+import db from '../src/db.js';
 
 let adminC;
 let empleadoC;
@@ -176,5 +177,94 @@ describe('Notificaciones por correo', () => {
   it('el empleado no puede ver la bitácora de correos', async () => {
     const res = await empleadoC.get('/api/settings/emails');
     assert.equal(res.status, 403);
+  });
+
+  it('crear un ticket envía correo de confirmación al reportante', async () => {
+    const t = await newTicket(empleadoC);
+
+    const mails = emailsOf('create');
+    assert.equal(mails.length, 1);
+    assert.equal(mails[0].to, 'empleado@empresa.com');
+    assert.match(mails[0].subject, new RegExp(t.ticket_number));
+    assert.match(mails[0].subject, /recibido/i);
+  });
+
+  it('cambiar el estado notifica al reportante (estado no terminal)', async () => {
+    const t = await newTicket(empleadoC);
+    const res = await adminC.patch(`/api/tickets/${t.id}`, { status: 'IN_PROGRESS' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ticket.status, 'IN_PROGRESS');
+
+    const mails = emailsOf('status');
+    assert.equal(mails.length, 1);
+    assert.equal(mails[0].to, 'empleado@empresa.com');
+    assert.match(mails[0].subject, new RegExp(t.ticket_number));
+    assert.match(mails[0].subject, /estado actualizado/i);
+    assert.match(mails[0].subject, /en proceso/i);
+  });
+
+  it('no envía correo de estado cuando el propio reportante cambia su ticket', async () => {
+    const t = await newTicket(adminC);
+    const res = await adminC.patch(`/api/tickets/${t.id}`, { status: 'IN_PROGRESS' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ticket.status, 'IN_PROGRESS');
+    assert.equal(emailsOf('status').length, 0);
+  });
+
+  it('la resolución no duplica con un correo de cambio de estado', async () => {
+    const t = await newTicket(empleadoC);
+    const res = await adminC.post(`/api/tickets/${t.id}/resolve`, {
+      resolution: 'Se resolvió el incidente.',
+      notify: '1',
+    });
+    assert.equal(res.status, 200);
+    assert.equal(emailsOf('resolve').length, 1);
+    assert.equal(emailsOf('status').length, 0, 'RESOLVED tiene su propia notificación');
+  });
+
+  it('cerrar un ticket envía correo de cierre al reportante', async () => {
+    const t = await newTicket(empleadoC);
+    await adminC.post(`/api/tickets/${t.id}/resolve`, { resolution: 'Listo', notify: '0' });
+    const res = await adminC.post(`/api/tickets/${t.id}/close`, {});
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ticket.status, 'CLOSED');
+
+    const mails = emailsOf('close');
+    assert.equal(mails.length, 1);
+    assert.equal(mails[0].to, 'empleado@empresa.com');
+    assert.match(mails[0].subject, new RegExp(t.ticket_number));
+    assert.match(mails[0].subject, /cerrado/i);
+  });
+
+  it('un fallo al registrar en email_logs no hace fallar la creación del ticket', async () => {
+    const original = db.prepare;
+    db.prepare = function (sql) {
+      if (typeof sql === 'string' && sql.includes('INSERT INTO email_logs')) {
+        throw new Error('fallo forzado de email_logs');
+      }
+      return original.call(this, sql);
+    };
+    try {
+      const res = await adminC.post('/api/tickets', {
+        title: 'Robustez de correo',
+        description: 'La bitácora de correo está caída',
+        category_id: 1,
+        priority: 'MEDIUM',
+      });
+      assert.equal(res.status, 201);
+      assert.ok(res.body.ticket.id, 'el ticket debe crearse igualmente');
+    } finally {
+      db.prepare = original;
+    }
+  });
+
+  it('sendMail nunca lanza ante un fallo interno de plantilla', async () => {
+    const evilSubject = {
+      toString() {
+        throw new Error('plantilla rota');
+      },
+    };
+    const result = await sendMail({ to: 'persona@empresa.com', subject: evilSubject, kind: 'robust' });
+    assert.equal(result.status, 'error');
   });
 });

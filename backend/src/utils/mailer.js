@@ -12,7 +12,27 @@ const NOTIFY_KEYS = {
   assign: 'notify_on_assign',
   comment: 'notify_on_comment',
   resolve: 'notify_on_resolve',
+  create: 'notify_on_create',
+  status: 'notify_on_status',
+  close: 'notify_on_close',
 };
+
+// Etiquetas legibles para los estados del ticket. Se mantienen aquí (y no se
+// importan de routes/tickets.js) para no crear una dependencia circular.
+const STATUS_TEXT = {
+  OPEN: 'Abierto',
+  ASSIGNED: 'Asignado',
+  IN_PROGRESS: 'En proceso',
+  PENDING: 'Pendiente',
+  RESOLVED: 'Resuelto',
+  CLOSED: 'Cerrado',
+  CANCELLED: 'Cancelado',
+};
+
+function statusText(status) {
+  const key = String(status || '').toUpperCase();
+  return STATUS_TEXT[key] || ucFirst(status);
+}
 
 function getSetting(key) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
@@ -47,59 +67,103 @@ async function smtpTransport() {
   return transport;
 }
 
+// Mensaje de error apto para registro: nunca incluye la contraseña del
+// transporte (solo el texto que devuelve nodemailer o la propia base de datos).
+function safeError(err) {
+  const message = err && err.message ? String(err.message) : String(err);
+  return message.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
 /**
  * Envía (o registra en modo dev) un correo y lo audita en email_logs.
- * La función nunca lanza: los errores de SMTP quedan en el registro.
+ *
+ * Es funcionalidad secundaria: NUNCA lanza. Cualquier fallo (SMTP, transporte,
+ * configuración, plantilla o el propio registro en email_logs) se captura y se
+ * registra de forma segura para diagnóstico, sin afectar a la operación que lo
+ * disparó (crear, comentar, cambiar estado, resolver, cerrar...).
  */
 export async function sendMail({ to, subject, text = '', html = '', kind = 'generic', ticketId = null }) {
-  const recipients = [to].flat().filter(Boolean);
-  const cfg = getMailConfig();
-  const results = [];
+  try {
+    const recipients = [to].flat().filter(Boolean);
+    const cfg = getMailConfig();
+    const results = [];
 
-  for (const recipient of recipients) {
-    const subjectSafe = String(subject).slice(0, 200);
-    const row = {
-      kind,
-      to: recipient,
-      subject: subjectSafe,
-      ticket_id: ticketId,
-      status: 'error',
-      error: null,
-    };
+    for (const recipient of recipients) {
+      const subjectSafe = String(subject ?? '').slice(0, 200);
+      const row = {
+        kind,
+        to: recipient,
+        subject: subjectSafe,
+        ticket_id: ticketId,
+        status: 'error',
+        error: null,
+      };
 
-    if (cfg.useSmtp) {
-      try {
-        const t = await smtpTransport();
-        await t.sendMail({
-          from: `"${cfg.fromName}" <${cfg.from}>`,
-          to: recipient,
-          subject: subjectSafe,
-          text,
-          html: html || textHtml(text),
-        });
-        row.status = 'smtp';
-      } catch (err) {
-        row.status = 'error';
-        row.error = String(err?.message || err).slice(0, 500);
+      if (cfg.useSmtp) {
+        try {
+          const t = await smtpTransport();
+          await t.sendMail({
+            from: `"${cfg.fromName}" <${cfg.from}>`,
+            to: recipient,
+            subject: subjectSafe,
+            text,
+            html: html || textHtml(text),
+          });
+          row.status = 'smtp';
+        } catch (err) {
+          row.status = 'error';
+          row.error = safeError(err);
+          console.error(`[mail] Fallo SMTP (${kind} → ${recipient}): ${row.error}`);
+        }
+      } else {
+        row.status = 'dev';
+        console.log(`[mail:dev] ${row.kind} → ${recipient} :: ${subjectSafe}`);
       }
-    } else {
-      row.status = 'dev';
-      console.log(`[mail:dev] ${row.kind} → ${recipient} :: ${subjectSafe}`);
+
+      // El registro en la bitácora es secundario: si falla, el correo ya se
+      // envió (o se registró en dev) y la operación principal no debe caerse.
+      let logId = null;
+      try {
+        const info = db
+          .prepare(
+            'INSERT INTO email_logs (kind, to_email, subject, ticket_id, status, error) VALUES (?, ?, ?, ?, ?, ?)'
+          )
+          .run(row.kind, row.to, row.subject, row.ticket_id, row.status, row.error);
+        logId = info.lastInsertRowid;
+      } catch (err) {
+        console.error(`[mail] No se pudo registrar el correo en email_logs: ${safeError(err)}`);
+      }
+
+      if (row.status !== 'error') {
+        sentEmails.push({ id: logId, ...row, created_at: nowIso() });
+      }
+      results.push(row);
     }
 
-    const info = db
-      .prepare(
-        'INSERT INTO email_logs (kind, to_email, subject, ticket_id, status, error) VALUES (?, ?, ?, ?, ?, ?)'
-      )
-      .run(row.kind, row.to, row.subject, row.ticket_id, row.status, row.error);
-
-    if (row.status !== 'error') {
-      sentEmails.push({ id: info.lastInsertRowid, ...row, created_at: nowIso() });
-    }
-    results.push(row);
+    return results[0] || { status: 'skipped' };
+  } catch (err) {
+    console.error(`[mail] Fallo inesperado al preparar el correo (${kind}): ${safeError(err)}`);
+    return { status: 'error', error: safeError(err) };
   }
+}
 
-  return results[0] || { status: 'skipped' };
+/**
+ * Envuelve sendMail para que un disparador de correo jamás genere un
+ * unhandledRejection, ni siquiera si en el futuro sendMail empezara a rechazar.
+ * El resultado siempre es una promesa resuelta.
+ */
+function send(payload) {
+  let promise;
+  try {
+    promise = sendMail(payload);
+  } catch (err) {
+    console.error(`[mail] Error no controlado al preparar sendMail (${payload?.kind}): ${safeError(err)}`);
+    return Promise.resolve({ status: 'error', error: safeError(err) });
+  }
+  return Promise.resolve(promise).catch((err) => {
+    console.error(`[mail] Error no controlado en sendMail (${payload?.kind}): ${safeError(err)}`);
+    return { status: 'error', error: safeError(err) };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +219,7 @@ export function notifyAssigned(ticket, actorName) {
     ``,
     `Atienda el ticket desde la aplicación.`,
   ].join('\n');
-  return sendMail({
+  return send({
     to: assignee.email,
     subject,
     text,
@@ -186,7 +250,7 @@ export function notifyComment(ticket, comment, actorName) {
     ``,
     `Puede responder desde la aplicación.`,
   ].join('\n');
-  return sendMail({
+  return send({
     to: unique,
     subject,
     text,
@@ -211,7 +275,7 @@ export function notifyResolved(ticket, resolverName, resolution) {
     ``,
     `Si el problema persiste, puede reabrir el ticket desde la aplicación.`,
   ].join('\n');
-  return sendMail({
+  return send({
     to: ticket.reporter_email,
     subject,
     text,
@@ -236,7 +300,7 @@ export function notifyCancelled(ticket, actorName, reason) {
     ``,
     `Puede consultar el detalle desde la aplicación o reportar una nueva incidencia.`,
   ].join('\n');
-  return sendMail({
+  return send({
     to: ticket.reporter_email,
     subject,
     text,
@@ -260,11 +324,99 @@ export function notifyPasswordReset(user, token, resetUrlBase) {
     ``,
     `Si usted no solicitó este cambio, ignore este mensaje.`,
   ].join('\n');
-  return sendMail({
+  return send({
     to: user.email,
     subject,
     text,
     html: wrapHtml(subject, textHtml(text)),
     kind: 'password_reset',
+  });
+}
+
+// Confirmación al reportante de que su requerimiento fue creado.
+export function notifyCreated(ticket) {
+  if (!isNotifyEnabled('create')) return;
+  if (!ticket?.reporter_email) return;
+  if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
+
+  const greeting = ticket.reporter_name ? `Hola ${ticket.reporter_name}:` : 'Hola:';
+  const subject = `[${ticket.ticket_number}] Hemos recibido su ticket: ${ticket.title}`;
+  const text = [
+    greeting,
+    '',
+    `Su requerimiento fue recibido correctamente y quedó registrado con el número ${ticket.ticket_number}.`,
+    '',
+    `Número de ticket: ${ticket.ticket_number}`,
+    `Asunto: ${ticket.title}`,
+    `Estado: ${statusText(ticket.status)}`,
+    `Prioridad: ${ucFirst(ticket.priority)}`,
+    '',
+    'Nuestro equipo revisará su solicitud y le informaremos por este medio cuando haya novedades.',
+  ].join('\n');
+  return send({
+    to: ticket.reporter_email,
+    subject,
+    text,
+    html: wrapHtml(subject, textHtml(text)),
+    kind: 'create',
+    ticketId: ticket.id,
+  });
+}
+
+// Cambio de estado NO terminal. No debe usarse para RESOLVED/CLOSED/CANCELLED:
+// esas transiciones ya tienen su propia notificación y generarían duplicados.
+export function notifyStatusChanged(ticket, oldStatus, actor) {
+  if (!isNotifyEnabled('status')) return;
+  if (!ticket?.reporter_email) return;
+  if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
+
+  const oldLabel = statusText(oldStatus);
+  const newLabel = statusText(ticket.status);
+  const who = actor ? ` por ${actor}` : '';
+  const subject = `[${ticket.ticket_number}] Estado actualizado: ${newLabel}`;
+  const text = [
+    'Hola:',
+    '',
+    `El ticket ${ticket.ticket_number} “${ticket.title}” cambió de estado${who}.`,
+    '',
+    `Estado anterior: ${oldLabel}`,
+    `Nuevo estado: ${newLabel}`,
+    '',
+    'Puede consultar el detalle desde la aplicación.',
+  ].join('\n');
+  return send({
+    to: ticket.reporter_email,
+    subject,
+    text,
+    html: wrapHtml(subject, textHtml(text)),
+    kind: 'status',
+    ticketId: ticket.id,
+  });
+}
+
+// Cierre del ticket: se avisa explícitamente al reportante.
+export function notifyClosed(ticket) {
+  if (!isNotifyEnabled('close')) return;
+  if (!ticket?.reporter_email) return;
+  if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
+
+  const subject = `[${ticket.ticket_number}] Su ticket fue cerrado: ${ticket.title}`;
+  const text = [
+    'Hola:',
+    '',
+    `El ticket ${ticket.ticket_number} “${ticket.title}” fue cerrado.`,
+    '',
+    `Número de ticket: ${ticket.ticket_number}`,
+    `Estado: ${statusText(ticket.status)}`,
+    '',
+    'Si el problema persiste, puede reabrir el ticket desde la aplicación o reportar una nueva incidencia.',
+  ].join('\n');
+  return send({
+    to: ticket.reporter_email,
+    subject,
+    text,
+    html: wrapHtml(subject, textHtml(text)),
+    kind: 'close',
+    ticketId: ticket.id,
   });
 }

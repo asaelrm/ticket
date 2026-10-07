@@ -27,6 +27,9 @@ const KEYS = {
   notify_on_assign: 'Correo al asignar un ticket',
   notify_on_comment: 'Correo con comentarios nuevos',
   notify_on_resolve: 'Correo al resolver un ticket',
+  notify_on_create: 'Correo de confirmación al crear un ticket',
+  notify_on_status: 'Correo al cambiar el estado de un ticket',
+  notify_on_close: 'Correo al cerrar un ticket',
   enable_csat: 'Encuesta de satisfacción (CSAT) al cerrar',
   rule_unassigned_hours: 'Horas antes de escalar ticket sin asignar',
   rule_unassigned_priority: 'Prioridad de escalación por falta de asignación',
@@ -35,7 +38,7 @@ const KEYS = {
 
 // Claves que se guardan como lista (JSON) en la tabla settings.
 const LIST_KEYS = ['resolution_categories', 'root_causes', 'pending_reasons'];
-const BOOL_KEYS = ['require_resolution_to_close', 'notify_on_assign', 'notify_on_comment', 'notify_on_resolve', 'enable_csat'];
+const BOOL_KEYS = ['require_resolution_to_close', 'notify_on_assign', 'notify_on_comment', 'notify_on_resolve', 'notify_on_create', 'notify_on_status', 'notify_on_close', 'enable_csat'];
 const NUM_KEYS = ['sla_critical_hours', 'sla_high_hours', 'sla_medium_hours', 'sla_low_hours', 'rule_unassigned_hours', 'rule_critical_hours'];
 const PRIORITY_VALUES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
 const PREFIX_RE = /^[A-Za-z0-9]{1,8}$/;
