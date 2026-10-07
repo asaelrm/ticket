@@ -35,20 +35,27 @@ export function ensureColumn(table, column, ddl) {
   }
 }
 
-// ETAPA 3: ¿la tabla conserva un UNIQUE de COLUMNA sobre `column`? Una
-// constraint UNIQUE (columna o tabla) materializa un autoindex
-// (sqlite_autoindex_%). El autoindex de la PRIMARY KEY tiene origin 'pk'; el
-// de una UNIQUE, origin 'u'. Se comprueba además `PRAGMA index_info` para
-// distinguir UNIQUE(ticket_number) de UNIQUE(otra columna), de modo que una
-// tabla con cualquier otro UNIQUE no dispare un rebuild innecesario.
-function legacyColumnUniqueIndex(table, column) {
-  const indexes = db.prepare(`PRAGMA index_list(${JSON.stringify(table)})`).all();
-  for (const idx of indexes) {
-    if (idx.origin !== 'u' || !idx.unique) continue;
+// ETAPA 3: lista de índices UNIQUE de `table` cuya lista EXACTA de columnas es
+// únicamente [`column`]. Se mira `PRAGMA index_info` (nunca el nombre del
+// índice) para distinguir el UNIQUE global de ticket_number de
+// UNIQUE(organization_id, ticket_number), que es legítimo y debe conservarse.
+// Devuelve [{ name, origin }]:
+//   - origin 'u' → constraint UNIQUE (de columna o de tabla) materializada
+//     como autoindex: SQLite no puede quitarla in situ y exige REBUILD.
+//   - origin 'c' → CREATE UNIQUE INDEX explícito: se elimina con DROP INDEX,
+//     sin reconstruir la tabla.
+//   - origin 'pk' → clave principal; no se toca (imposible en esta tabla).
+function uniqueIndexesOn(table, column) {
+  if (!tableExists(table)) return [];
+  const found = [];
+  for (const idx of db.prepare(`PRAGMA index_list(${JSON.stringify(table)})`).all()) {
+    if (!idx.unique) continue;
     const cols = db.prepare(`PRAGMA index_info(${JSON.stringify(idx.name)})`).all();
-    if (cols.length === 1 && cols[0].name === column) return idx.name;
+    if (cols.length === 1 && cols[0].name === column) {
+      found.push({ name: idx.name, origin: idx.origin });
+    }
   }
-  return null;
+  return found;
 }
 
 // Índices estándar que schema.sql/db.js recrean con IF NOT EXISTS al migrar:
@@ -122,16 +129,23 @@ function ticketsRebuildDdl(schema) {
  *      nombre referencian `tickets`, vuelven a apuntar a la tabla reconstruida
  *      sin mover ni perder ningún dato.
  *   4. Se restauran los índices explícitos y triggers personalizados (no los
- *      estándar que schema.sql/db.js ya recrean). Si algo no se puede
+ *      estándar que schema.sql/db.js ya recrean, ni el UNIQUE global sobre
+ *      ticket_number, que es el bloqueo que se elimina). Si algo no se puede
  *      restaurar, se aborta la migración con un error claro.
  *   5. foreign_key_check debe quedar limpio; si no, rollback (el DDL es
  *      transaccional, la tabla vieja se restaura intacta).
  */
 function rebuildTicketsTable(schema) {
+  // El UNIQUE global explícito sobre ticket_number (CREATE UNIQUE INDEX
+  // legado) muere con el DROP TABLE y NO se restaura: sería exactamente el
+  // bloqueo que esta migración viene a eliminar.
+  const globalUniqueNames = new Set(
+    uniqueIndexesOn('tickets', 'ticket_number').map((i) => i.name)
+  );
   const customIndexes = db
     .prepare("SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='tickets' AND sql IS NOT NULL")
     .all()
-    .filter((r) => !STANDARD_TICKET_INDEXES.has(r.name));
+    .filter((r) => !STANDARD_TICKET_INDEXES.has(r.name) && !globalUniqueNames.has(r.name));
   const customTriggers = db
     .prepare("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name='tickets' AND sql IS NOT NULL")
     .all();
@@ -176,19 +190,31 @@ export function runMigrations() {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 
   // ETAPA 3: bases anteriores declaraban `ticket_number TEXT NOT NULL UNIQUE`
-  // como constraint de COLUMNA. Con la numeración por organización (cada org
+  // como constraint de COLUMNA, o bien sobrevivía un CREATE UNIQUE INDEX
+  // explícito sobre ticket_number. Con la numeración por organización (cada org
   // arranca en 000001) dos organizaciones producen legítimamente el mismo
   // número, así que la unicidad debe ser COMPUESTA
-  // (organization_id, ticket_number). SQLite no puede quitar un UNIQUE de
-  // columna in situ, así que la tabla se RECONSTRUYE (rebuildTicketsTable).
+  // (organization_id, ticket_number).
+  //   - Constraint de columna (origin 'u'): SQLite no puede quitarla in situ,
+  //     así que la tabla se RECONSTRUYE (rebuildTicketsTable).
+  //   - Índice explícito (origin 'c'): basta con DROP INDEX; no se reconstruye
+  //     la tabla entera para algo que es un simple índice.
   // `PRAGMA foreign_keys` debe cambiarse FUERA de la transacción: dentro de
   // una transacción el cambio se difiere hasta el COMMIT y no afecta al DDL.
-  const rebuildTickets = legacyColumnUniqueIndex('tickets', 'ticket_number') != null;
+  const globalTicketUnique = uniqueIndexesOn('tickets', 'ticket_number');
+  const rebuildTickets = globalTicketUnique.some((i) => i.origin === 'u');
+  const dropOnlyUnique = rebuildTickets ? [] : globalTicketUnique.filter((i) => i.origin === 'c');
   if (rebuildTickets) db.exec('PRAGMA foreign_keys = OFF');
 
   db.exec('BEGIN');
   try {
-    if (rebuildTickets) rebuildTicketsTable(schema);
+    if (rebuildTickets) {
+      rebuildTicketsTable(schema);
+    } else if (dropOnlyUnique.length) {
+      for (const idx of dropOnlyUnique) {
+        db.exec(`DROP INDEX IF EXISTS ${JSON.stringify(idx.name)}`);
+      }
+    }
 
     // En bases existentes con esquema antiguo, las columnas aditivas deben crearse
     // ANTES de schema.sql, cuyos CREATE INDEX ya las referencian (idempotente).
@@ -277,6 +303,10 @@ export function runMigrations() {
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_cancelled_at ON tickets(cancelled_at)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_comments_internal ON ticket_comments(ticket_id, is_internal)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_organization ON tickets(organization_id)');
+    // La unicidad de ticket_number es POR ORGANIZACIÓN. Se garantiza aquí de
+    // forma explícita (idempotente) además de en schema.sql: es el índice que
+    // sustituye al UNIQUE global eliminado por esta migración.
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_number_org ON tickets(organization_id, ticket_number)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_categories_organization ON categories(organization_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_teams_organization ON teams(organization_id)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_canned_organization ON canned_responses(organization_id)');

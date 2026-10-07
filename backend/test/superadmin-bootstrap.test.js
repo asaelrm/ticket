@@ -201,7 +201,7 @@ describe('ETAPA 1B: Consistencia de organización en la API', () => {
     assert.equal(res.status, 400, 'el contexto de organización sale de la sesión y aquí no existe');
   });
 
-  it('un SUPERADMIN promueve a un usuario normal (queda global) y el descenso se bloquea', async () => {
+  it('un SUPERADMIN sin contexto no toca usuarios de organización; la vía global explícita sí funciona', async () => {
     const admin = createClient();
     await admin.login('admin', '123456');
     const created = await admin.post('/api/users', {
@@ -218,24 +218,39 @@ describe('ETAPA 1B: Consistencia de organización en la API', () => {
 
     const superAdmin = createClient();
     await superAdmin.login('bootstrap_super', 'BootstrapClave123!');
-    const promoted = await superAdmin.patch(`/api/users/${targetId}`, { role_id: superRole().id });
-    assert.equal(promoted.status, 200, JSON.stringify(promoted.body));
-    assert.equal(promoted.body.user.organization_id, null, 'el promovido queda global');
-    assert.equal(promoted.body.user.is_superadmin, true);
 
-    const globalRow = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(targetId);
-    assert.equal(globalRow.organization_id, null);
+    // ETAPA 3: las rutas tenant NO confían en "sin organización = todas". Un
+    // SUPERADMIN global no puede modificar a un usuario de ninguna
+    // organización por PATCH /api/users/:id (404, sin revelar el recurso).
+    const intrusion = await superAdmin.patch(`/api/users/${targetId}`, { role_id: superRole().id });
+    assert.equal(intrusion.status, 404, 'el SUPERADMIN sin org no modifica un usuario de organización');
+    const unchanged = db.prepare('SELECT organization_id, role_id FROM users WHERE id = ?').get(targetId);
+    assert.equal(unchanged.role_id, techRole().id, 'el rol del usuario de organización no cambia');
+    assert.equal(unchanged.organization_id, uceId(), 'sigue en su organización');
 
-    const promotedClient = createClient();
-    const login = await promotedClient.login(created.body.user.username, 'Temporal1234!');
-    assert.equal(login.status, 200);
+    // La vía GLOBAL explícita sigue existiendo: crear directamente un
+    // SUPERADMIN global desde el canal SUPERADMIN.
+    const global = await superAdmin.post('/api/users', {
+      name: 'Global',
+      last_name: 'Nuevo',
+      username: `global.nuevo.${Date.now()}`,
+      email: `global.nuevo.${Date.now()}@empresa.com`,
+      password: 'Temporal1234!',
+      role_id: superRole().id,
+    });
+    assert.equal(global.status, 201, JSON.stringify(global.body));
+    assert.equal(global.body.user.organization_id, null, 'el nuevo SUPERADMIN nace global');
+    assert.equal(global.body.user.is_superadmin, true);
+    const globalId = global.body.user.id;
 
-    const demote = await superAdmin.patch(`/api/users/${targetId}`, { role_id: techRole().id });
+    const demote = await superAdmin.patch(`/api/users/${globalId}`, { role_id: techRole().id });
     assert.equal(demote.status, 400, 'quitar SUPERADMIN exige aprovisionar organización');
     assert.match(demote.body.error, /Convertir un SUPERADMIN/);
 
-    const stillGlobal = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(targetId);
+    const stillGlobal = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(globalId);
     assert.equal(stillGlobal.organization_id, null, 'el descenso falla y nada cambia');
+    const orgEnd = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(targetId);
+    assert.equal(orgEnd.organization_id, uceId(), 'la cuenta de organización queda intacta');
   });
 
   it('un cambio normal->normal conserva la organización del usuario', async () => {

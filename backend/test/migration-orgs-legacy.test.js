@@ -94,29 +94,30 @@ describe('Migración de departamentos.organization_id (ETAPA 2)', () => {
 // tickets debe conservar filas hijas e ids, recrear objetos personalizados y
 // dejar la integridad referencial intacta al REARANCAR el proceso sobre el
 // MISMO archivo.
+function runOn(db, extraEnv = {}) {
+  const r = spawnSync(process.execPath, [fixtureTickets], {
+    env: {
+      ...process.env,
+      DB_FILE: db,
+      SEED_DEMO_ACCOUNTS: 'false',
+      SEED_DEMO_PASSWORD: '',
+      SEED_TECH_PASSWORD: '',
+      NODE_ENV: 'development',
+      ...extraEnv,
+    },
+    encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, `el hijo falló:\n${r.stdout}\n${r.stderr}`);
+  return JSON.parse(r.stdout.trim().split('\n').pop());
+}
+
+function runLegacy(extraEnv) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-migracion3-'));
+  const db = path.join(dir, 'legacy.db');
+  return { dir, result: runOn(db, extraEnv) };
+}
+
 describe('Migración de los dominios asociados a la organización (ETAPA 3)', () => {
-  function runOn(db) {
-    const r = spawnSync(process.execPath, [fixtureTickets], {
-      env: {
-        ...process.env,
-        DB_FILE: db,
-        SEED_DEMO_ACCOUNTS: 'false',
-        SEED_DEMO_PASSWORD: '',
-        SEED_TECH_PASSWORD: '',
-        NODE_ENV: 'development',
-      },
-      encoding: 'utf8',
-    });
-    assert.equal(r.status, 0, `el hijo falló:\n${r.stdout}\n${r.stderr}`);
-    return JSON.parse(r.stdout.trim().split('\n').pop());
-  }
-
-  function runLegacy() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-migracion3-'));
-    const db = path.join(dir, 'legacy.db');
-    return { dir, result: runOn(db) };
-  }
-
   it('añade organization_id a las 6 tablas, hace backfill a UCE y conserva los datos', () => {
     const { dir, result } = runLegacy();
     try {
@@ -206,6 +207,157 @@ describe('Migración de los dominios asociados a la organización (ETAPA 3)', ()
       // integridad: sin violaciones de FK y secuencia heredada del max(id).
       assert.equal(result.rebuild.fkCheckOk, true, 'foreign_key_check queda limpio tras el rebuild');
       assert.equal(result.rebuild.seqOk, true, 'sqlite_sequence se restaura al max(id)');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('el rebuild preserva EXPLÍCITAMENTE las filas hijas (comentarios, adjuntos, historial, KB)', () => {
+    const { dir, result } = runLegacy();
+    try {
+      // Antes y después del rebuild, fila a fila: cantidad, IDs y ticket_id.
+      assert.deepEqual(
+        result.children.after.comments,
+        result.children.before.comments,
+        'ticket_comments: misma cantidad, mismos ids y mismos ticket_id tras el rebuild'
+      );
+      assert.deepEqual(
+        result.children.after.attachments,
+        result.children.before.attachments,
+        'ticket_attachments: misma cantidad, mismos ids y mismos ticket_id tras el rebuild'
+      );
+      assert.deepEqual(
+        result.children.after.history,
+        result.children.before.history,
+        'ticket_history: misma cantidad, mismos ids y mismos ticket_id tras el rebuild'
+      );
+      assert.deepEqual(
+        result.children.after.kb_ticket_articles,
+        result.children.before.kb_ticket_articles,
+        'kb_ticket_articles: mismas claves (article_id/ticket_id) tras el rebuild'
+      );
+      assert.deepEqual(
+        result.children.afterIds,
+        result.children.beforeIds,
+        'los ids de tickets y de las tablas hijas no cambian con el rebuild'
+      );
+
+      // Contenidos concretos: los registros sembrados siguen existiendo.
+      assert.equal(result.children.after.comments.count, 2);
+      assert.deepEqual(result.children.after.comments.ids, [1, 2]);
+      assert.deepEqual(result.children.after.comments.ticketIds, [1, 2]);
+      assert.equal(result.children.after.attachments.count, 1);
+      assert.deepEqual(result.children.after.attachments.ids, [1]);
+      assert.deepEqual(result.children.after.attachments.ticketIds, [1]);
+      assert.equal(result.children.after.history.count, 2);
+      assert.deepEqual(result.children.after.history.ids, [1, 2]);
+      assert.deepEqual(result.children.after.history.ticketIds, [1, 2]);
+      assert.equal(result.children.after.kb_ticket_articles.count, 2);
+      assert.deepEqual(result.children.after.kb_ticket_articles.entries, ['1/1', '1/2']);
+      assert.deepEqual(result.children.after.kb_ticket_articles.ticketIds, [1, 2]);
+      assert.deepEqual(result.children.after.kb_ticket_articles.articleIds, [1, 1]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('un fallo inducido durante el rebuild hace rollback y deja todo utilizable', () => {
+    const { dir, result } = runLegacy({ INDUCE_REBUILD_FAILURE: '1' });
+    try {
+      assert.equal(result.induce, true);
+      assert.equal(result.rollback.thrown, true, 'el rebuild debe abortar por el huérfano preexistente');
+      assert.match(result.migrationError, /foreign_key_check/, 'el error debe venir de foreign_key_check');
+
+      // Rollback completo: PRAGMA foreign_keys vuelve a ON, sin tabla temporal
+      // huérfana, y los datos originales siguen ahí.
+      assert.equal(result.rollback.fkOn, true, 'PRAGMA foreign_keys termina ON');
+      assert.equal(result.rollback.ticketsExists, true, 'la tabla tickets sigue existiendo');
+      assert.equal(result.rollback.rebuildTableGone, true, 'no queda tickets_rebuild huérfana');
+      assert.equal(result.rollback.originalTickets, 2, 'los tickets originales se conservan');
+      assert.ok(
+        result.rollback.originalNumbers.includes('OLD-000001') && result.rollback.originalNumbers.includes('OLD-000002'),
+        'se conservan los números y filas originales'
+      );
+
+      // Las filas hijas preexistentes sobreviven al rollback (el huérfano de
+      // prueba incluido: era el dato corrupto que disparó el fallo).
+      assert.equal(result.rollback.childrenAfterRollback.comments.count, 3);
+      assert.deepEqual(result.rollback.childrenAfterRollback.comments.ids, [1, 2, 3]);
+      assert.ok(
+        result.rollback.childrenAfterRollback.comments.ticketIds.includes(999999),
+        'el comentario huérfano que indujo el fallo sigue presente (el rollback no lo inventa ni lo borra)'
+      );
+
+      // La base sigue utilizable: se inserta y lee un ticket nuevo sin error.
+      assert.equal(result.rollback.usable, true, 'tickets sigue aceptando operaciones');
+      assert.equal(result.rollback.insertError, null);
+
+      // El único fallo residual es justamente el dato corrupto preexistente.
+      assert.equal(result.rollback.foreignKeyViolationsAfter, 1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// BLOQUEANTE 1: un `CREATE UNIQUE INDEX` explícito sobre ticket_number puede
+// sobrevivir a la migración (la migración anterior solo buscaba autoindexes de
+// constraint, origin 'u'). Aquí el UNIQUE global llega como índice explícito
+// (origin 'c'): debe eliminarse con DROP INDEX sin reconstruir la tabla y la
+// numeración por organización debe quedar operativa, incluso al rearrancar.
+describe('UNIQUE global explícito sobre ticket_number (BLOQUEANTE 1)', () => {
+  function legacyPath() {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-unique-explicito-'));
+    const db = path.join(dir, 'legacy.db');
+    return { dir, db };
+  }
+
+  it('existe antes de migrar, la migración lo elimina y el mismo número vale en dos orgs', () => {
+    const { dir, db } = legacyPath();
+    try {
+      const r = runOn(db, { LEGACY_EXPLICIT_GLOBAL_UNIQUE: '1' });
+      assert.deepEqual(
+        r.globalUnique.before.map((i) => ({ name: i.name, origin: i.origin })),
+        [{ name: 'legacy_ticket_number_unique', origin: 'c' }],
+        '1) el índice UNIQUE global explícito existe antes de la migración'
+      );
+      assert.deepEqual(r.globalUnique.after, [], '2) la migración elimina el UNIQUE global explícito');
+      assert.equal(r.globalUnique.compositeIndex, true, '8) el compuesto UNIQUE(organization_id, ticket_number) sigue presente');
+      assert.equal(r.perOrg.aOk, true, '3) ORG_A acepta TCK-000001');
+      assert.equal(r.perOrg.bOk, true, '4) ORG_B acepta TCK-000001');
+      assert.equal(r.perOrg.dupAThrows, true, '5) ORG_A no acepta un segundo TCK-000001');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('segundo arranque sobre la misma base: el índice global no reaparece y el compuesto sigue', () => {
+    const { dir, db } = legacyPath();
+    try {
+      const first = runOn(db, { LEGACY_EXPLICIT_GLOBAL_UNIQUE: '1' });
+      const second = runOn(db, { LEGACY_EXPLICIT_GLOBAL_UNIQUE: '1' });
+      assert.deepEqual(second.globalUnique.before, [], '6) segundo arranque funciona y nada vuelve a aparecer');
+      assert.deepEqual(second.globalUnique.after, [], '7) el índice global no reaparece tras el segundo arranque');
+      assert.equal(second.globalUnique.compositeIndex, true, '8) el compuesto sigue presente tras el segundo arranque');
+      assert.deepEqual(second.perOrg, first.perOrg, 'la numeración por organización es idempotente');
+      assert.deepEqual(second.counts, first.counts, 'no se pierden ni duplican datos al rearrancar');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('cuando el UNIQUE global proviene de constraint + índice explícito, el rebuild no lo restaura', () => {
+    const { dir, db } = legacyPath();
+    try {
+      const r = runOn(db, { LEGACY_REBUILD_EXPLICIT: '1' });
+      const origins = r.globalUnique.before.map((i) => i.origin).sort();
+      assert.deepEqual(origins, ['c', 'u'], 'antes conviven el autoindex de constraint (u) y el índice explícito (c)');
+      assert.deepEqual(r.globalUnique.after, [], 'el rebuild elimina AMBOS y no restaura el UNIQUE global');
+      assert.equal(r.globalUnique.compositeIndex, true, 'el compuesto UNIQUE(organization_id, ticket_number) queda creado');
+      assert.equal(r.perOrg.aOk, true, 'ORG_A acepta TCK-000001 tras el rebuild');
+      assert.equal(r.perOrg.bOk, true, 'ORG_B acepta TCK-000001 tras el rebuild');
+      assert.equal(r.perOrg.dupAThrows, true, 'ORG_A no acepta un segundo TCK-000001');
+      assert.equal(r.rebuild.fkCheckOk, true, 'el rebuild quedó íntegro pese a no restaurar el índice');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

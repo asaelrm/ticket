@@ -338,6 +338,130 @@ describe('SUPERADMIN sin bypass accidental (ETAPA 2)', () => {
   });
 });
 
+// BLOQUEANTE 2: el bypass `if (org && ...)` dejaba al SUPERADMIN sin
+// organización (organization_id NULL) fuera del aislamiento. Un SUPERADMIN
+// global NO debe poder tocar usuarios de ninguna organización por las rutas
+// tenant normales (editar, activar/desactivar, resetear contraseña): responde
+// 404 para no revelar recursos ajenos. Una organización SOLO se gestiona desde
+// la propia org de la sesión.
+describe('Rutas tenant de usuarios: SUPERADMIN y admins de organización (ETAPA 3)', () => {
+  let cSuper;
+  let cA;
+  let cB;
+  before(() => {
+    cSuper = createClient();
+    cA = createClient();
+    cB = createClient();
+  });
+
+  it('el SUPERADMIN sin org no modifica usuarios de A ni de B (PATCH, incluso con org forjada)', async () => {
+    await cSuper.login('super_aisl', pass('super_aisl'));
+    assert.equal((await cSuper.patch(`/api/users/${userA}`, { name: 'Intruso' })).status, 404);
+    assert.equal((await cSuper.patch(`/api/users/${userB}`, { name: 'Intruso' })).status, 404);
+    // El contexto de organización SIEMPRE sale de la sesión. La organización
+    // forjada en el BODY se rechaza (400, nunca da contexto) y la forjada en
+    // la QUERY se ignora (el objetivo sigue siendo 404 para un SUPERADMIN sin
+    // organización).
+    assert.equal(
+      (await cSuper.patch(`/api/users/${userA}`, { name: 'Intruso', organization_id: ids.orgA })).status,
+      400
+    );
+    assert.equal(
+      (await cSuper.patch(`/api/users/${userA}?organization_id=${ids.orgA}`, { name: 'Intruso' })).status,
+      404
+    );
+
+    const a = db.prepare('SELECT name, active FROM users WHERE id = ?').get(userA);
+    const b = db.prepare('SELECT name, active FROM users WHERE id = ?').get(userB);
+    assert.notEqual(a.name, 'Intruso', 'el intento no cambia nada');
+    assert.notEqual(b.name, 'Intruso', 'el intento no cambia nada');
+  });
+
+  it('el SUPERADMIN sin org no activa/desactiva ni resetea contraseñas de A ni de B', async () => {
+    await cSuper.login('super_aisl', pass('super_aisl'));
+    assert.equal((await cSuper.patch(`/api/users/${userA}/status`, { active: true })).status, 404);
+    assert.equal((await cSuper.patch(`/api/users/${userB}/status`, { active: true })).status, 404);
+    assert.equal((await cSuper.post(`/api/users/${userA}/reset-password`, {})).status, 404);
+    assert.equal((await cSuper.post(`/api/users/${userB}/reset-password`, {})).status, 404);
+
+    for (const [id, what] of [[userA, 'A'], [userB, 'B']]) {
+      const row = db.prepare('SELECT active, password_reset_token FROM users WHERE id = ?').get(id);
+      assert.equal(row.active, 1, `el usuario ${what} sigue activo`);
+      assert.equal(row.password_reset_token, null, `no se generó token de reset para ${what}`);
+    }
+  });
+
+  it('ADMIN A edita, activa y resetea a A; siempre 404 con B', async () => {
+    await cA.login('admin_aisl_a', pass('admin_aisl_a'));
+
+    const edit = await cA.patch(`/api/users/${userA}`, { name: 'UsuarioA Etapa3' });
+    assert.equal(edit.status, 200, JSON.stringify(edit.body));
+    assert.equal(edit.body.user.name, 'UsuarioA Etapa3');
+
+    assert.equal((await cA.patch(`/api/users/${userB}`, { name: 'Intruso' })).status, 404);
+    assert.equal((await cA.patch(`/api/users/${userA}/status`, { active: true })).status, 200);
+    assert.equal((await cA.patch(`/api/users/${userB}/status`, { active: false })).status, 404);
+    assert.equal((await cA.post(`/api/users/${userA}/reset-password`, {})).status, 200);
+    assert.equal((await cA.post(`/api/users/${userB}/reset-password`, {})).status, 404);
+
+    const b = db.prepare('SELECT active FROM users WHERE id = ?').get(userB);
+    assert.equal(b.active, 1, 'el admin A no pudo desactivar a B');
+  });
+
+  it('ADMIN B edita, activa y resetea a B; siempre 404 con A', async () => {
+    await cB.login('admin_aisl_b', pass('admin_aisl_b'));
+
+    const edit = await cB.patch(`/api/users/${userB}`, { name: 'UsuarioB Etapa3' });
+    assert.equal(edit.status, 200, JSON.stringify(edit.body));
+    assert.equal(edit.body.user.name, 'UsuarioB Etapa3');
+
+    assert.equal((await cB.patch(`/api/users/${userA}`, { name: 'Intruso' })).status, 404);
+    assert.equal((await cB.patch(`/api/users/${userB}/status`, { active: true })).status, 200);
+    assert.equal((await cB.patch(`/api/users/${userA}/status`, { active: false })).status, 404);
+    assert.equal((await cB.post(`/api/users/${userB}/reset-password`, {})).status, 200);
+    assert.equal((await cB.post(`/api/users/${userA}/reset-password`, {})).status, 404);
+
+    const a = db.prepare('SELECT active FROM users WHERE id = ?').get(userA);
+    assert.equal(a.active, 1, 'el admin B no pudo desactivar a A');
+  });
+
+  it('GET /api/roles: conteos solo por organización; SUPERADMIN sin org ve 0 en todos', async () => {
+    await cA.login('admin_aisl_a', pass('admin_aisl_a'));
+    await cB.login('admin_aisl_b', pass('admin_aisl_b'));
+    await cSuper.login('super_aisl', pass('super_aisl'));
+
+    const resA = await cA.get('/api/roles');
+    const resB = await cB.get('/api/roles');
+    const resS = await cSuper.get('/api/roles');
+    assert.equal(resA.status, 200);
+    assert.equal(resB.status, 200);
+    assert.equal(resS.status, 200);
+
+    const count = (roleCode, org) =>
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM users WHERE role_id = (SELECT id FROM roles WHERE code = ?) AND organization_id = ?`
+        )
+        .get(roleCode, org).n;
+
+    const adminRoleA = resA.body.roles.find((r) => r.code === 'ADMIN');
+    const adminRoleB = resB.body.roles.find((r) => r.code === 'ADMIN');
+    const empRoleA = resA.body.roles.find((r) => r.code === 'EMPLOYEE');
+    const empRoleB = resB.body.roles.find((r) => r.code === 'EMPLOYEE');
+    assert.equal(adminRoleA.users, count('ADMIN', ids.orgA), 'ADMIN A cuenta solo su organización');
+    assert.equal(adminRoleB.users, count('ADMIN', ids.orgB), 'ADMIN B cuenta solo su organización');
+    assert.equal(empRoleA.users, count('EMPLOYEE', ids.orgA));
+    assert.equal(empRoleB.users, count('EMPLOYEE', ids.orgB));
+
+    // SUPERADMIN sin contexto de organización: NO obtiene los conteos globales.
+    for (const r of resS.body.roles) {
+      assert.equal(r.users, 0, `el SUPERADMIN sin org reporta 0 para ${r.code}, nunca el global`);
+    }
+    // Los roles siguen siendo plantillas globales: sin organization_id alguna.
+    assert.equal(Object.prototype.hasOwnProperty.call(resS.body.roles[0], 'organization_id'), false);
+  });
+});
+
 describe('El directorio preserva la organización (ETAPA 2)', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-aislamiento-'));
   const file = path.join(tmp, 'directory.json');

@@ -5,10 +5,76 @@
 // seed actuales sobre ella y devuelve por stdout un JSON con el resultado de la
 // verificación. No importa app.js ni toca la base de las demás pruebas: usa su
 // propio DB_FILE, que llega por entorno.
+//
+// Modos (por entorno):
+//   LEGACY_EXPLICIT_GLOBAL_UNIQUE=1  → ticket_number NOP UNIQUE de columna y se
+//     crea `CREATE UNIQUE INDEX legacy_ticket_number_unique` explícito (el
+//     vector del BLOQUEANTE 1 que la auditoría detectó).
+//   INDUCE_REBUILD_FAILURE=1         → se inserta una fila huérfana en
+//     ticket_comments con foreign_keys OFF y se espera que el rebuild falle en
+//     foreign_key_check; la prueba verifica rollback y supervivencia de datos.
 
+import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
 const dbFile = process.env.DB_FILE;
+const explicitGlobalUnique = process.env.LEGACY_EXPLICIT_GLOBAL_UNIQUE === '1';
+// Rebuild con el UNIQUE de columna Y un CREATE UNIQUE INDEX explícito
+// coexistiendo: verifica que el rebuild no restaura el índice explícito.
+const rebuildWithExplicit = process.env.LEGACY_REBUILD_EXPLICIT === '1';
+const induceFailure = process.env.INDUCE_REBUILD_FAILURE === '1';
+
+const q = (s) => JSON.stringify(s);
+
+function uniqueOnTicketNumber(conn) {
+  const out = [];
+  for (const idx of conn.prepare('PRAGMA index_list("tickets")').all()) {
+    if (!idx.unique) continue;
+    const cols = conn.prepare(`PRAGMA index_info(${q(idx.name)})`).all();
+    if (cols.length === 1 && cols[0].name === 'ticket_number') {
+      out.push({ name: idx.name, origin: idx.origin });
+    }
+  }
+  return out;
+}
+
+function idsOf(conn, sql) {
+  return conn.prepare(sql).all().map((r) => r.id);
+}
+
+function childSnapshot(conn) {
+  const comments = conn.prepare('SELECT id, ticket_id FROM ticket_comments ORDER BY id').all();
+  const attachments = conn.prepare('SELECT id, ticket_id FROM ticket_attachments ORDER BY id').all();
+  const history = conn.prepare('SELECT id, ticket_id FROM ticket_history ORDER BY id').all();
+  const kbLinks = conn.prepare('SELECT article_id, ticket_id FROM kb_ticket_articles ORDER BY article_id, ticket_id').all();
+  return {
+    comments: {
+      count: comments.length,
+      ids: comments.map((c) => c.id),
+      ticketIds: comments.map((c) => c.ticket_id),
+    },
+    attachments: {
+      count: attachments.length,
+      ids: attachments.map((a) => a.id),
+      ticketIds: attachments.map((a) => a.ticket_id),
+    },
+    history: {
+      count: history.length,
+      ids: history.map((h) => h.id),
+      ticketIds: history.map((h) => h.ticket_id),
+    },
+    kb_ticket_articles: {
+      count: kbLinks.length,
+      entries: kbLinks.map((k) => `${k.article_id}/${k.ticket_id}`),
+      articleIds: kbLinks.map((k) => k.article_id),
+      ticketIds: kbLinks.map((k) => k.ticket_id),
+    },
+  };
+}
+
+function idsAll(conn, table) {
+  return idsOf(conn, `SELECT id FROM ${table} ORDER BY id`);
+}
 
 // 1) Base legacy: mismas tablas que una instalación anterior a ETAPA 1A/3, SIN
 //    organization_id. Se incluyen los índices que db.js/schema.sql vuelven a
@@ -92,7 +158,7 @@ const legacyDdl = `
   );
   CREATE TABLE tickets (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticket_number     TEXT NOT NULL UNIQUE,
+    ticket_number     TEXT NOT NULL${explicitGlobalUnique && !rebuildWithExplicit ? '' : ' UNIQUE'},
     title             TEXT NOT NULL,
     description       TEXT NOT NULL,
     reporter_id       INTEGER NOT NULL REFERENCES users(id),
@@ -226,13 +292,16 @@ const legacyDdl = `
   INSERT INTO tickets (ticket_number, title, description, reporter_id, assigned_team_id, category_id, priority, status)
   VALUES ('OLD-000002', 'Ticket legacy 2', 'asignado a equipo legacy', 1, 1, 2, 'HIGH', 'ASSIGNED');
   INSERT INTO ticket_comments (ticket_id, user_id, message) VALUES (1, 1, 'Comentario legacy');
+  INSERT INTO ticket_comments (ticket_id, user_id, message) VALUES (2, 1, 'Comentario del segundo ticket');
   INSERT INTO ticket_history (ticket_id, user_id, action, description) VALUES (1, 1, 'CREATED', 'legacy');
+  INSERT INTO ticket_history (ticket_id, user_id, action, description) VALUES (2, 1, 'ASSIGNED', 'legacy');
   INSERT INTO ticket_attachments (ticket_id, original_name, stored_name, mime_type, size_bytes)
   VALUES (1, 'captura.png', 'legacy-captura.png', 'image/png', 2048);
   INSERT INTO kb_categories (name, description, color, active) VALUES ('Temas Legacy', 'historico', '#64748b', 1);
   INSERT INTO kb_articles (title, summary, description, solution, category_id, status, author_id)
   VALUES ('Articulo Legacy', 'resumen', 'descripcion', 'solucion', 1, 'PUBLISHED', 1);
   INSERT INTO kb_ticket_articles (article_id, ticket_id, created_by) VALUES (1, 1, 1);
+  INSERT INTO kb_ticket_articles (article_id, ticket_id, created_by) VALUES (1, 2, 1);
   INSERT INTO sequences (name, value) VALUES ('ticket_number', 3);
 
   -- Los índices que db.js/schema.sql van a pedir de nuevo ya existen en base
@@ -253,23 +322,96 @@ const legacyDdl = `
   BEGIN
     UPDATE tickets SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = NEW.id;
   END;
+  -- BLOQUEANTE 1: un índice UNIQUE global explícito heredado de la era
+  -- pre-multiempresa. Debe desaparecer con la migración.
+  ${explicitGlobalUnique || rebuildWithExplicit ? 'CREATE UNIQUE INDEX legacy_ticket_number_unique ON tickets(ticket_number);' : ''}
 `;
 
-// El esquema legacy solo se construye sobre una base sin migrar. Si la base ya
-// tiene tickets.organization_id (primer arranque completado), se omite y se
-// pasa directamente a migración + seed: el MISMO fixture es idempotente y
-// admite el doble arranque sobre el mismo archivo.
 const alreadyOrg = legacy
   .prepare('PRAGMA table_info(tickets)')
   .all()
   .some((c) => c.name === 'organization_id');
-if (!alreadyOrg) legacy.exec(legacyDdl);
+if (!alreadyOrg) {
+  legacy.exec(legacyDdl);
+  if (induceFailure) {
+    // Datos corruptos preexistentes: una fila hija que referencia un ticket
+    // inexistente. El rebuild tropezará en foreign_key_check y deberá
+    // deshacer TODO (el DDL es transaccional).
+    legacy.exec('PRAGMA foreign_keys = OFF');
+    legacy.exec("INSERT INTO ticket_comments (ticket_id, user_id, message) VALUES (999999, 1, 'huerfano preexistente')");
+    legacy.exec('PRAGMA foreign_keys = ON');
+  }
+}
+// Estado inmediatamente anterior a las migraciones (en un doble arranque,
+// coincide con el estado ya migrado).
+const beforeUnique = uniqueOnTicketNumber(legacy);
+const beforeChildren = childSnapshot(legacy);
+const beforeIds = {
+  tickets: idsAll(legacy, 'tickets'),
+  comments: idsAll(legacy, 'ticket_comments'),
+  attachments: idsAll(legacy, 'ticket_attachments'),
+  history: idsAll(legacy, 'ticket_history'),
+};
 legacy.close();
 
 // 2) Migraciones y seed reales sobre esa base (DB_FILE ya está fijado).
 const { runMigrations } = await import('../../src/db.js');
+
+let migrationError = null;
+try {
+  runMigrations();
+} catch (e) {
+  migrationError = String((e && e.message) || e);
+}
+
+if (induceFailure) {
+  const db = (await import('../../src/db.js')).default;
+  const fkRow = db.prepare('PRAGMA foreign_keys').get();
+  const ticketsExists = Boolean(
+    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='tickets'").get()
+  );
+  const rebuildTableGone = !db.prepare(
+    "SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='tickets_rebuild'"
+  ).get();
+  const originalTickets = db.prepare('SELECT COUNT(*) AS n FROM tickets').get().n;
+  const originalNumbers = db
+    .prepare('SELECT ticket_number FROM tickets ORDER BY id')
+    .all()
+    .map((r) => r.ticket_number);
+  let usable = false;
+  let insertError = null;
+  try {
+    db.prepare(
+      "INSERT INTO tickets (ticket_number, title, description, reporter_id) VALUES ('POST-ROLLBACK', 'usuario tras rollback', 'prueba', 1)"
+    ).run();
+    const read = db.prepare("SELECT ticket_number FROM tickets WHERE ticket_number = 'POST-ROLLBACK'").get();
+    usable = Boolean(read);
+  } catch (e) {
+    insertError = String((e && e.message) || e);
+  }
+  fs.writeSync(
+    1,
+    JSON.stringify({
+      induce: true,
+      migrationError,
+      rollback: {
+        thrown: Boolean(migrationError),
+        fkOn: fkRow.foreign_keys === 1,
+        ticketsExists,
+        rebuildTableGone,
+        originalTickets,
+        originalNumbers,
+        usable,
+        insertError,
+        childrenAfterRollback: childSnapshot(db),
+        foreignKeyViolationsAfter: db.prepare('PRAGMA foreign_key_check').all().length,
+      },
+    })
+  );
+  process.exit(0);
+}
+
 const { seed } = await import('../../src/seed.js');
-runMigrations();
 seed();
 seed(); // idempotencia
 
@@ -363,6 +505,18 @@ db.prepare('DELETE FROM tickets WHERE title LIKE ?').run('Duplicado %');
 db.exec("UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM tickets) WHERE name = 'tickets'");
 db.prepare('DELETE FROM organizations WHERE id = ?').run(newOrgId);
 
+// BLOQUEANTE 1: numeración por organización verificada con el número canónico
+// TCK-000001. ORG_A lo acepta, ORG_B acepta el MISMO número y ORG_A no acepta
+// un segundo TCK-000001. Se limpia todo para no ensuciar los conteos.
+const orgATickOk = tryInsertTicket('TCK-000001', uceId);
+const orgBId = db.prepare('INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1) RETURNING id')
+  .get('PRUEBA_ORG_B', 'Organización B para numeración', 'prueba').id;
+const orgBTickOk = tryInsertTicket('TCK-000001', orgBId);
+const dupOrgATickThrows = !tryInsertTicket('TCK-000001', uceId);
+db.prepare('DELETE FROM tickets WHERE ticket_number = ?').run('TCK-000001');
+db.exec("UPDATE sqlite_sequence SET seq = (SELECT MAX(id) FROM tickets) WHERE name = 'tickets'");
+db.prepare('DELETE FROM organizations WHERE id = ?').run(orgBId);
+
 // Continuidad de numeración: la secuencia legacy (3) se hereda a la clave por
 // organización de UCE; el siguiente ticket debe ser 4. La comprobación es de
 // LECTURA pura: nextTicketNumber() CONSUME la secuencia (persiste el +1) y
@@ -410,6 +564,17 @@ console.log(JSON.stringify({
     dupSameOrgThrows,
     dupOtherOrgAllowed,
   },
+  globalUnique: {
+    // BLOQUEANTE 1: antes/después de la migración, por origen.
+    before: beforeUnique.map((i) => ({ name: i.name, origin: i.origin })),
+    after: uniqueOnTicketNumber(db).map((i) => ({ name: i.name, origin: i.origin })),
+    compositeIndex: Boolean(numberOrgIndex),
+  },
+  perOrg: {
+    aOk: orgATickOk,
+    bOk: orgBTickOk,
+    dupAThrows: dupOrgATickThrows,
+  },
   rebuild: {
     idsKept,
     attachmentsTotal,
@@ -418,5 +583,16 @@ console.log(JSON.stringify({
     triggerWorks,
     fkCheckOk,
     seqOk,
+  },
+  children: {
+    before: beforeChildren,
+    after: childSnapshot(db),
+    beforeIds,
+    afterIds: {
+      tickets: idsAll(db, 'tickets'),
+      comments: idsAll(db, 'ticket_comments'),
+      attachments: idsAll(db, 'ticket_attachments'),
+      history: idsAll(db, 'ticket_history'),
+    },
   },
 }));

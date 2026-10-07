@@ -17,17 +17,21 @@ router.get('/', requirePermission('role.manage'), (req, res) => {
   }
   // ETAPA 2: los roles son plantillas globales, pero el conteo de cuántos
   // usuarios tiene cada rol es dato de la organización del solicitante. Un
-  // admin de ORG_A no debe conocer la masa de usuarios de ORG_B. El SUPERADMIN
-  // (org NULL) sí ve el conteo global, que es su responsabilidad.
+  // admin de ORG_A no debe conocer la masa de usuarios de ORG_B.
+  // ETAPA 3: un SUPERADMIN sin contexto de organización (organization_id NULL)
+  // NO obtiene conteos globales de usuarios tenant aquí: sin organización el
+  // conteo es 0 (compatibilidad de API: el campo `users` sigue presente). Los
+  // roles permanecen como plantillas globales; nunca se les añade
+  // organization_id.
   const org = currentOrgId(req.user);
   const countUsers = org
     ? db.prepare('SELECT COUNT(*) AS n FROM users WHERE role_id = ? AND organization_id = ?')
-    : db.prepare('SELECT COUNT(*) AS n FROM users WHERE role_id = ?');
+    : null;
   res.json({
     roles: roles.map((r) => ({
       ...r,
       permissions: map[r.id] || [],
-      users: org ? countUsers.get(r.id, org).n : countUsers.get(r.id).n,
+      users: countUsers ? countUsers.get(r.id, org).n : 0,
     })),
   });
 });

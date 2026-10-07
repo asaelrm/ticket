@@ -285,9 +285,13 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
   }
 
-  // ETAPA 2: un usuario de otra organización no es gestionable (404).
+  // ETAPA 3: la ruta es TENANT. El objetivo debe pertenecer a la organización
+  // de la sesión (404 para recursos ajenos, sin revelar su existencia). Un
+  // SUPERADMIN sin contexto de organización (organization_id NULL) no puede
+  // modificar usuarios de ninguna organización por aquí: NULL nunca significa
+  // "todas las organizaciones".
   const org = currentOrgId(req.user);
-  if (org && existing.organization_id !== org) {
+  if (existing.organization_id !== org) {
     return res.status(404).json({ error: 'Usuario no encontrado' });
   }
 
@@ -397,9 +401,11 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
   }
 
-  // ETAPA 2: un usuario de otra organización no es gestionable (404).
+  // ETAPA 3: ruta TENANT: el objetivo debe pertenecer a la organización de la
+  // sesión (404 en caso contrario). Un SUPERADMIN sin contexto no activa ni
+  // desactiva usuarios de ninguna organización por esta ruta.
   const org = currentOrgId(req.user);
-  if (org && existing.organization_id !== org) {
+  if (existing.organization_id !== org) {
     return res.status(404).json({ error: 'Usuario no encontrado' });
   }
 
@@ -434,9 +440,11 @@ router.post('/:id/reset-password', requirePermission('user.manage'), (req, res) 
     return res.status(403).json({ error: 'Solo un superadministrador puede administrar cuentas SUPERADMIN' });
   }
 
-  // ETAPA 2: un usuario de otra organización no es gestionable (404).
+  // ETAPA 3: ruta TENANT. Un SUPERADMIN sin contexto de organización (NULL) no
+  // puede resetear contraseñas de usuarios de ninguna organización: debe ser
+  // la organización de la sesión, o 404.
   const org = currentOrgId(req.user);
-  if (org && targetRole && targetRole.organization_id !== org) {
+  if (!targetRole || targetRole.organization_id !== org) {
     return res.status(404).json({ error: 'Usuario no encontrado o inactivo' });
   }
 
