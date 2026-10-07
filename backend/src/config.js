@@ -14,6 +14,22 @@ function int(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+export function requestedDbClient(v) {
+  const client = String(v || 'sqlite').trim().toLowerCase();
+  if (!['sqlite', 'mssql'].includes(client)) {
+    throw new Error(`DB_CLIENT no soportado: "${client}". Se admite "sqlite" o "mssql".`);
+  }
+  return client;
+}
+
+// M1 has MSSQL infrastructure, but db.js has not selected it yet. Keep the
+// effective runtime backend explicit so DB_CLIENT=mssql cannot be mistaken for
+// a live migration.
+export function dbClient(v) {
+  requestedDbClient(v);
+  return 'sqlite';
+}
+
 const rootDir = path.resolve(__dirname, '..');
 
 // ---------------------------------------------------------------------------
@@ -168,6 +184,24 @@ export function assertStartupConfig(env = process.env) {
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: int(process.env.PORT, 4000),
+  // M1: solo preparación. db.js continúa usando SQLite hasta que los
+  // consumidores hayan migrado explícitamente al contrato async.
+  requestedDbClient: requestedDbClient(process.env.DB_CLIENT),
+  dbClient: dbClient(process.env.DB_CLIENT),
+  mssqlRuntimeEnabled: false,
+  mssql: {
+    server: (process.env.DB_SERVER || '').trim(),
+    port: process.env.DB_PORT ? int(process.env.DB_PORT, 1433) : undefined,
+    database: (process.env.DB_DATABASE || '').trim(),
+    user: (process.env.DB_USER || '').trim(),
+    password: process.env.DB_PASSWORD || '',
+    options: {
+      encrypt: bool(process.env.DB_ENCRYPT, true),
+      trustServerCertificate: bool(process.env.DB_TRUST_SERVER_CERTIFICATE, false),
+      useUTC: true,
+      instanceName: (process.env.DB_INSTANCE || '').trim() || undefined,
+    },
+  },
   dataDir: path.resolve(rootDir, process.env.DATA_DIR || 'data'),
   uploadDir: path.resolve(rootDir, process.env.UPLOAD_DIR || 'uploads'),
   dbFile: process.env.DB_FILE || null,
