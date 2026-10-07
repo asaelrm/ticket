@@ -46,8 +46,11 @@ export function createClient() {
       .join('; ');
   }
 
-  async function get(url, { timeout } = {}) {
-    const req = request(app).get(url).set('Cookie', cookieStr());
+  async function get(url, { timeout, headers } = {}) {
+    let req = request(app).get(url).set('Cookie', cookieStr());
+    // Cabeceras extra (p. ej. probar que x-organization-id se IGNORA): nunca
+    // deben cambiar el contexto de sesión, que es la única fuente de org.
+    for (const [k, v] of Object.entries(headers || {})) req = req.set(k, v);
     // Timeout opcional: hay rutas cuyo defecto es justamente no responder
     // nunca, y sin esto la suite se quedaría colgada en lugar de fallar.
     if (timeout) req.timeout({ response: timeout, deadline: timeout });
