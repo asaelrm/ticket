@@ -1,6 +1,6 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient } from './helpers.js';
+import { createClient, createSuperadminClient } from './helpers.js';
 
 const IMG_JPG = {
   name: 'foto.jpg',
@@ -58,16 +58,25 @@ async function ticketCerrado(client = adminC) {
  * pase lo que pase. Los permisos se releen en cada petición, así que la sesión
  * ya abierta ve el cambio. Sirve para probar el caso "tiene ticket.update.any
  * pero NO ticket.reopen", que ningún rol del seed cubre.
+ * V2: la matriz de permisos es global (compartida entre organizaciones), así
+ * que este canal está reservado al SUPERADMIN.
  */
+let superadminCache = null;
+async function superadminClient() {
+  if (!superadminCache) superadminCache = await createSuperadminClient();
+  return superadminCache;
+}
+
 async function conPermisos(permisos, fn) {
+  const sa = await superadminClient();
   const roles = (await adminC.get('/api/roles')).body.roles;
   const original = roles.find((r) => r.id === tecnicoRoleId).permissions;
   try {
-    const patch = await adminC.patch(`/api/roles/${tecnicoRoleId}/permissions`, { permissions: permisos });
+    const patch = await sa.patch(`/api/roles/${tecnicoRoleId}/permissions`, { permissions: permisos });
     assert.equal(patch.status, 200);
     await fn();
   } finally {
-    const restore = await adminC.patch(`/api/roles/${tecnicoRoleId}/permissions`, { permissions: original });
+    const restore = await sa.patch(`/api/roles/${tecnicoRoleId}/permissions`, { permissions: original });
     assert.equal(restore.status, 200);
   }
 }

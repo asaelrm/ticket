@@ -590,8 +590,10 @@ router.get('/counters', (req, res) => {
 // Opciones configurables del flujo de resolución (listas editables en Configuración)
 // ---------------------------------------------------------------------------
 
-router.get('/options', (req, res) => {
-  res.json(getWorkflowOptions());
+router.get('/options', async (req, res) => {
+  // V1: las opciones (listas, SLA, reglas, CSAT) son de la organización del
+  // usuario en sesión; un SUPERADMIN global ve la capa por defecto.
+  res.json(await getWorkflowOptions(currentOrgId(req.user)));
 });
 
 // ---------------------------------------------------------------------------
@@ -606,7 +608,7 @@ router.post(
   requireOrg,
   uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
-  (req, res) => {
+  async (req, res) => {
     const body = req.body || {};
     // ETAPA 3: la organización del ticket la decide el servidor (sesión),
     // jamás el cliente.
@@ -646,11 +648,11 @@ router.post(
     const filesCheck = validateFiles(req.files);
     if (!filesCheck.ok) return res.status(400).json({ error: filesCheck.reason });
 
-    const number = nextTicketNumber(org);
+    const number = await nextTicketNumber(org);
     const info = db.prepare(
       `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, department_id, priority, sla_due_at, organization_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(number, title, description, req.user.id, categoryId, departmentId, priority, computeSlaDue(priority), org);
+    ).run(number, title, description, req.user.id, categoryId, departmentId, priority, await computeSlaDue(priority, new Date(), org), org);
     const ticketId = info.lastInsertRowid;
 
     let attachments = [];
@@ -668,7 +670,7 @@ router.post(
     // Avisa al personal de soporte de la MISMA organización (quien puede ver
     // todos los tickets de esa org) de que llegó un ticket nuevo.
     const created = getTicket(ticketId);
-    notifyStaff({
+    await notifyStaff({
       type: 'NEW_TICKET',
       title: `Nuevo ticket: ${created.ticket_number}`,
       body: `${PRIORITY_LABEL[created.priority] || created.priority} · ${created.title}`,
@@ -679,7 +681,7 @@ router.post(
     });
 
     // Confirmación al reportante de que su solicitud fue registrada.
-    notifyCreated(created);
+    await notifyCreated(created);
 
     emitTicketEvent(ticketId, 'refresh');
     return res.status(201).json({ ticket: created, attachments });
@@ -975,7 +977,7 @@ router.post('/:id/typing', (req, res) => {
   res.json({ ok: true });
 });
 
-router.patch('/:id', (req, res) => {
+router.patch('/:id', async (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
   // Misma regla que GET /:id: si el actor no puede ver el ticket, tampoco puede
@@ -1066,7 +1068,7 @@ router.patch('/:id', (req, res) => {
       sets.push({ col: 'priority = ?', val: body.priority });
       // Recalcula la fecha límite de SLA con la nueva prioridad.
       if (!['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status)) {
-        sets.push({ col: 'sla_due_at = ?', val: computeSlaDue(body.priority) });
+        sets.push({ col: 'sla_due_at = ?', val: await computeSlaDue(body.priority, new Date(), ticket.organization_id) });
       }
       entries.push({ action: 'PRIORITY_CHANGED', desc: historyDesc('priority', ticket, body.priority), old: ticket.priority, new: body.priority });
     }
@@ -1146,12 +1148,12 @@ router.patch('/:id', (req, res) => {
     && !['RESOLVED', 'CLOSED', 'CANCELLED'].includes(updated.status)
     && updated.reporter_id !== req.user.id
   ) {
-    notifyStatusChanged(updated, ticket.status, `${req.user.name} ${req.user.last_name}`);
+    await notifyStatusChanged(updated, ticket.status, `${req.user.name} ${req.user.last_name}`);
   }
 
   if (changedAssign) {
-    notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
-    notifyTicketParticipants(updated, {
+    await notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
+    await notifyTicketParticipants(updated, {
       type: 'ASSIGNED',
       actorId: req.user.id,
       titleForReporter: `Ticket asignado: ${updated.ticket_number}`,
@@ -1159,16 +1161,16 @@ router.patch('/:id', (req, res) => {
     });
   }
   if (updated.status === 'CANCELLED') {
-    notifyCancelled(updated, `${req.user.name} ${req.user.last_name}`, updated.cancel_reason);
-    notifyTicketCancelled(updated, req.user.id, updated.cancel_reason);
+    await notifyCancelled(updated, `${req.user.name} ${req.user.last_name}`, updated.cancel_reason);
+    await notifyTicketCancelled(updated, req.user.id, updated.cancel_reason);
   } else if (updated.status === 'CLOSED') {
-    notifyTicketClosed(updated, req.user.id, null);
+    await notifyTicketClosed(updated, req.user.id, null);
   }
   emitTicketEvent(id, 'refresh');
   res.json({ ticket: updated });
 });
 
-function processComment(req, res, attachOnly) {
+async function processComment(req, res, attachOnly) {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) {
@@ -1267,9 +1269,9 @@ function processComment(req, res, attachOnly) {
   emitTicketEvent(ticket.id, 'comment', { comment, attachments });
 
   if (!isInternal) {
-    notifyComment(ticket, comment, `${req.user.name} ${req.user.last_name}`);
+    await notifyComment(ticket, comment, `${req.user.name} ${req.user.last_name}`);
     const title = `Nuevo comentario: ${ticket.ticket_number}`;
-    notifyTicketParticipants(ticket, {
+    await notifyTicketParticipants(ticket, {
       type: 'COMMENT',
       actorId: req.user.id,
       titleForReporter: title,
@@ -1307,7 +1309,7 @@ router.post(
   requireTicketWriteAccess,
   uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
-  (req, res) => processComment(req, res, false)
+  async (req, res) => processComment(req, res, false)
 );
 
 router.post(
@@ -1315,10 +1317,10 @@ router.post(
   requireTicketWriteAccess,
   uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
-  (req, res) => processComment(req, res, true)
+  async (req, res) => processComment(req, res, true)
 );
 
-router.post('/:id/assign', (req, res) => {
+router.post('/:id/assign', async (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
@@ -1362,8 +1364,8 @@ router.post('/:id/assign', (req, res) => {
 
   const updated = getTicket(id);
   if (updates.some((u) => u.col.startsWith('assigned_to_id'))) {
-    notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
-    notifyTicketParticipants(updated, {
+    await notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
+    await notifyTicketParticipants(updated, {
       type: 'ASSIGNED',
       actorId: req.user.id,
       titleForReporter: `Ticket asignado: ${updated.ticket_number}`,
@@ -1378,13 +1380,13 @@ router.post('/:id/assign', (req, res) => {
 // Flujo de resolución: resolver / cerrar / reabrir
 // ---------------------------------------------------------------------------
 
-function notifyTicketClosed(ticket, actorId, note) {
+async function notifyTicketClosed(ticket, actorId, note) {
   const link = `/app/tickets/${ticket.id}`;
   const ids = [];
   const suffix = note ? ` ${note}` : '';
   if (ticket.reporter_id && Number(ticket.reporter_id) !== Number(actorId)) {
     ids.push(
-      createNotification({
+      await createNotification({
         userId: ticket.reporter_id,
         ticketId: ticket.id,
         type: 'CLOSED',
@@ -1396,7 +1398,7 @@ function notifyTicketClosed(ticket, actorId, note) {
   }
   if (ticket.assigned_to_id && Number(ticket.assigned_to_id) !== Number(actorId)) {
     ids.push(
-      createNotification({
+      await createNotification({
         userId: ticket.assigned_to_id,
         ticketId: ticket.id,
         type: 'CLOSED',
@@ -1406,9 +1408,9 @@ function notifyTicketClosed(ticket, actorId, note) {
       })
     );
   }
-  if (ticket.reporter_id && isCsatEnabled()) {
+  if (ticket.reporter_id && (await isCsatEnabled(ticket.organization_id))) {
     ids.push(
-      createNotification({
+      await createNotification({
         userId: ticket.reporter_id,
         ticketId: ticket.id,
         type: 'CSAT',
@@ -1421,12 +1423,12 @@ function notifyTicketClosed(ticket, actorId, note) {
   return ids;
 }
 
-function notifyTicketCancelled(ticket, actorId, reason) {
+async function notifyTicketCancelled(ticket, actorId, reason) {
   const link = `/app/tickets/${ticket.id}`;
   const ids = [];
   if (ticket.reporter_id && Number(ticket.reporter_id) !== Number(actorId)) {
     ids.push(
-      createNotification({
+      await createNotification({
         userId: ticket.reporter_id,
         ticketId: ticket.id,
         type: 'CANCELLED',
@@ -1438,7 +1440,7 @@ function notifyTicketCancelled(ticket, actorId, reason) {
   }
   if (ticket.assigned_to_id && Number(ticket.assigned_to_id) !== Number(actorId)) {
     ids.push(
-      createNotification({
+      await createNotification({
         userId: ticket.assigned_to_id,
         ticketId: ticket.id,
         type: 'CANCELLED',
@@ -1460,7 +1462,7 @@ router.post(
   requirePermission('ticket.resolve'),
   uploadMiddleware().array('files', config.uploads.maxFilesPerTicket),
   uploadSizeError,
-  (req, res) => {
+  async (req, res) => {
     const id = parseIntSafe(req.params.id);
     const ticket = getTicket(id);
     if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
@@ -1533,10 +1535,10 @@ router.post(
         'COMMENT_ADDED',
         `${req.user.name} ${req.user.last_name} notificó la resolución al usuario`
       );
-      notifyResolved(ticket, `${req.user.name} ${req.user.last_name}`, resolution);
+      await notifyResolved(ticket, `${req.user.name} ${req.user.last_name}`, resolution);
     }
     if (ticket.reporter_id && Number(ticket.reporter_id) !== Number(req.user.id)) {
-      createNotification({
+      await createNotification({
         userId: ticket.reporter_id,
         ticketId: id,
         type: 'RESOLVED',
@@ -1551,14 +1553,14 @@ router.post(
   }
 );
 
-router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
+router.post('/:id/close', requirePermission('ticket.close'), async (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (ticket.status === 'CLOSED') return res.status(400).json({ error: 'El ticket ya está cerrado' });
   if (ticket.status === 'CANCELLED') return res.status(400).json({ error: 'No puede cerrar un ticket cancelado' });
 
-  if (requireResolutionToClose() && ticket.status !== 'CANCELLED' && !ticket.resolved_at && !ticket.resolution) {
+  if (await requireResolutionToClose(ticket.organization_id) && ticket.status !== 'CANCELLED' && !ticket.resolved_at && !ticket.resolution) {
     return res.status(400).json({ error: 'Debe registrar una resolución antes de cerrar el ticket.' });
   }
 
@@ -1577,15 +1579,15 @@ router.post('/:id/close', requirePermission('ticket.close'), (req, res) => {
     'CLOSED'
   );
   const updated = getTicket(id);
-  notifyTicketClosed(updated, req.user.id, note);
+  await notifyTicketClosed(updated, req.user.id, note);
   // Correo de cierre al reportante (salvo que el propio reportante lo cierre).
-  if (updated.reporter_id !== req.user.id) notifyClosed(updated);
+  if (updated.reporter_id !== req.user.id) await notifyClosed(updated);
   emitTicketEvent(id, 'refresh');
   res.json({ ticket: updated });
 });
 
 // Cancelar con motivo obligatorio: notifica al reportante y audita la acción.
-router.post('/:id/cancel', (req, res) => {
+router.post('/:id/cancel', async (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
@@ -1620,14 +1622,14 @@ router.post('/:id/cancel', (req, res) => {
   touchTicket(id);
 
   const updated = getTicket(id);
-  notifyCancelled(updated, `${req.user.name} ${req.user.last_name}`, reason);
-  notifyTicketCancelled(updated, req.user.id, reason);
+  await notifyCancelled(updated, `${req.user.name} ${req.user.last_name}`, reason);
+  await notifyTicketCancelled(updated, req.user.id, reason);
   emitTicketEvent(id, 'refresh');
   res.json({ ticket: updated });
 });
 
 // Encuesta de satisfacción (solo el reportante, una vez por ticket).
-router.post('/:id/csat', (req, res) => {
+router.post('/:id/csat', async (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
@@ -1640,7 +1642,7 @@ router.post('/:id/csat', (req, res) => {
   if (ticket.csat_answered_at) {
     return res.status(400).json({ error: 'Ya calificó este ticket' });
   }
-  if (!isCsatEnabled()) {
+  if (!(await isCsatEnabled(ticket.organization_id))) {
     return res.status(400).json({ error: 'La encuesta de satisfacción está desactivada' });
   }
 
@@ -1663,7 +1665,7 @@ router.post('/:id/csat', (req, res) => {
   );
 
   if (ticket.resolved_by) {
-    createNotification({
+    await createNotification({
       userId: ticket.resolved_by,
       ticketId: id,
       type: 'CSAT_RATED',
@@ -1678,7 +1680,7 @@ router.post('/:id/csat', (req, res) => {
   res.json({ ticket: updated });
 });
 
-router.post('/:id/reopen', requirePermission('ticket.reopen'), (req, res) => {
+router.post('/:id/reopen', requirePermission('ticket.reopen'), async (req, res) => {
   const id = parseIntSafe(req.params.id);
   const ticket = getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
@@ -1701,7 +1703,7 @@ router.post('/:id/reopen', requirePermission('ticket.reopen'), (req, res) => {
            sla_due_at = ?, updated_at = ?,
            csat_rating = NULL, csat_comment = NULL, csat_answered_at = NULL
      WHERE id = ?`
-  ).run(now, req.user.id, reason, computeSlaDue(ticket.priority), now, id);
+  ).run(now, req.user.id, reason, await computeSlaDue(ticket.priority, new Date(), ticket.organization_id), now, id);
 
   recordHistory(
     id,

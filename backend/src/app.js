@@ -9,6 +9,7 @@ import { ensureCsrfCookie, csrfProtect } from './middleware/csrf.js';
 import { rateLimit } from './utils/rateLimit.js';
 import { resolveTrustProxy, shouldSendHsts } from './transportSecurity.js';
 import { errorHandler } from './middleware/errors.js';
+import { wrapAsyncRouter } from './middleware/asyncHandler.js';
 
 import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
@@ -26,6 +27,7 @@ import reportsRoutes from './routes/reports.js';
 import settingsRoutes from './routes/settings.js';
 import notificationsRoutes from './routes/notifications.js';
 import auditRoutes from './routes/audit.js';
+import organizationsRoutes from './routes/organizations.js';
 
 export function createApp(options = {}) {
   const app = express();
@@ -130,22 +132,31 @@ export function createApp(options = {}) {
   app.get('/api/health', (req, res) => res.json({ ok: true, env: config.env, time: new Date().toISOString() }));
 
   app.use('/api', ensureCsrfCookie, csrfProtect, rateLimit({ windowMs: 60_000, max: 600 }));
-  app.use('/api/auth', authRoutes);
-  app.use('/api/users', usersRoutes);
-  app.use('/api/roles', rolesRoutes);
-  app.use('/api/tickets', ticketsRoutes);
-  app.use('/api/categories', categoriesRoutes);
-  app.use('/api/departments', departmentsRoutes);
-  app.use('/api/teams', teamsRoutes);
-  app.use('/api/canned-responses', cannedResponsesRoutes);
-  app.use('/api/kb-articles', kbArticlesRoutes);
-  app.use('/api/kb-categories', kbCategoriesRoutes);
-  app.use('/api/files', filesRoutes);
-  app.use('/api/dashboard', dashboardRoutes);
-  app.use('/api/reports', reportsRoutes);
-  app.use('/api/settings', settingsRoutes);
-  app.use('/api/notifications', notificationsRoutes);
-  app.use('/api/audit', auditRoutes);
+  // wrapAsyncRouter: Express 4 ignora las promesas rechazadas de los
+  // manejadores async; al envolver cada router en su punto de montaje, un
+  // error async dentro de cualquier ruta llega a errorHandler en lugar de
+  // dejar la petición colgada. Es idempotente y no cambia el comportamiento
+  // de los manejadores síncronos.
+  app.use('/api/auth', wrapAsyncRouter(authRoutes));
+  app.use('/api/users', wrapAsyncRouter(usersRoutes));
+  app.use('/api/roles', wrapAsyncRouter(rolesRoutes));
+  app.use('/api/tickets', wrapAsyncRouter(ticketsRoutes));
+  app.use('/api/categories', wrapAsyncRouter(categoriesRoutes));
+  app.use('/api/departments', wrapAsyncRouter(departmentsRoutes));
+  app.use('/api/teams', wrapAsyncRouter(teamsRoutes));
+  app.use('/api/canned-responses', wrapAsyncRouter(cannedResponsesRoutes));
+  app.use('/api/kb-articles', wrapAsyncRouter(kbArticlesRoutes));
+  app.use('/api/kb-categories', wrapAsyncRouter(kbCategoriesRoutes));
+  app.use('/api/files', wrapAsyncRouter(filesRoutes));
+  app.use('/api/dashboard', wrapAsyncRouter(dashboardRoutes));
+  app.use('/api/reports', wrapAsyncRouter(reportsRoutes));
+  app.use('/api/settings', wrapAsyncRouter(settingsRoutes));
+  app.use('/api/notifications', wrapAsyncRouter(notificationsRoutes));
+  app.use('/api/audit', wrapAsyncRouter(auditRoutes));
+  // V4: administración de organizaciones. Canal exclusivo del SUPERADMIN
+  // (requirePermission('organization.manage') + requireSuperadmin dentro del
+  // router); un administrador de empresa o un empleado reciben 403.
+  app.use('/api/organizations', wrapAsyncRouter(organizationsRoutes));
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 

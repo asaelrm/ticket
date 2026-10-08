@@ -1,8 +1,8 @@
-import db, { transaction } from '../db.js';
+import db from '../db/runtime.js';
 
 // Prefijo configurable desde Configuración (clave ticket_prefix). Por defecto TCK.
-function getPrefix() {
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'ticket_prefix'").get();
+async function getPrefix() {
+  const row = await db.queryOne("SELECT value FROM settings WHERE key = 'ticket_prefix'");
   const prefix = row ? String(row.value || '').trim() : '';
   return (prefix || 'TCK').toUpperCase();
 }
@@ -13,14 +13,16 @@ function getPrefix() {
 // organización de UCE para que la numeración continúe tras la migración).
 // El prefijo (settings.ticket_prefix) permanece global: es configuración del
 // sistema, decisión documentada para la etapa MSSQL.
-export function nextTicketNumber(organizationId = null) {
-  return transaction(() => {
+export async function nextTicketNumber(organizationId = null) {
+  return db.transaction(async () => {
     const key = organizationId == null ? 'ticket_number' : `ticket_number:${organizationId}`;
-    const row = db.prepare('SELECT value FROM sequences WHERE name = ?').get(key);
+    const row = await db.queryOne('SELECT value FROM sequences WHERE name = ?', key);
     const value = (row ? row.value : 0) + 1;
-    db.prepare(
-      'INSERT INTO sequences (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value'
-    ).run(key, value);
-    return `${getPrefix()}-${String(value).padStart(6, '0')}`;
+    await db.execute(
+      'INSERT INTO sequences (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value',
+      key,
+      value,
+    );
+    return `${await getPrefix()}-${String(value).padStart(6, '0')}`;
   });
 }

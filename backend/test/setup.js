@@ -21,6 +21,13 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pruebas-'));
 // ruta relativa.
 process.env.DATA_DIR = dir;
 process.env.UPLOAD_DIR = path.join(dir, 'uploads');
+// La suite corre SIEMPRE sobre SQLite: los fixtures escriben con db.prepare y
+// runMigrations()/seed() son síncronos. DB_CLIENT solo elige el motor de
+// ejecución de src/db/runtime.js, que aquí se fija en sqlite para que un .env
+// con DB_CLIENT=mssql no intente abrir SQL Server durante las pruebas.
+// (Se asigna después de que --env-file cargue el .env: el orden garantiza que
+// esta línea gana.)
+process.env.DB_CLIENT = 'sqlite';
 // La instantánea del directorio se resuelve contra la raíz del backend, no
 // contra DATA_DIR: si no se indica, la suite escribiría backend/directory.json.
 process.env.DIRECTORY_SNAPSHOT_FILE = path.join(dir, 'directory.json');

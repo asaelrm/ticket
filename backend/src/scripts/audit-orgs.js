@@ -5,7 +5,7 @@ import { auditOrganizationConsistency } from '../orgPolicy.js';
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   runMigrations();
-  const issues = auditOrganizationConsistency();
+  const issues = await auditOrganizationConsistency();
   if (issues.length === 0) {
     console.log('Auditoría de organizaciones: sin inconsistencias.');
   } else {

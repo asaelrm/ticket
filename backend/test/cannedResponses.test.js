@@ -1,6 +1,6 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient } from './helpers.js';
+import { createClient, createSuperadminClient } from './helpers.js';
 import {
   TEMPLATE_VARIABLES,
   TEMPLATE_VARIABLE_KEYS,
@@ -53,16 +53,26 @@ async function makeTeam(name, memberIds) {
  * Aplica unos permisos temporales a un rol y los restaura pase lo que pase.
  * Los permisos se releen en cada petición, así que las sesiones ya abiertas
  * ven el cambio sin volver a iniciar sesión.
+ * V2: `roles`/`role_permissions` son tablas globales compartidas por todas las
+ * organizaciones, así que este canal está reservado al SUPERADMIN y ya no puede
+ * ejercerse desde un administrador de organización.
  */
+let superadminCache = null;
+async function superadminClient() {
+  if (!superadminCache) superadminCache = await createSuperadminClient();
+  return superadminCache;
+}
+
 async function withRolePermissions(roleId, permissions, fn) {
+  const sa = await superadminClient();
   const roles = (await admin.get('/api/roles')).body.roles;
   const original = roles.find((r) => r.id === roleId).permissions;
   try {
-    const patch = await admin.patch(`/api/roles/${roleId}/permissions`, { permissions });
+    const patch = await sa.patch(`/api/roles/${roleId}/permissions`, { permissions });
     assert.equal(patch.status, 200);
     await fn(original);
   } finally {
-    const restore = await admin.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
+    const restore = await sa.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
     assert.equal(restore.status, 200);
   }
 }
@@ -328,8 +338,9 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
     // ninguna personal ajena, ni con el listado sin filtro de ámbito.
     const roles = (await admin.get('/api/roles')).body.roles;
     const original = roles.find((r) => r.id === techRoleId).permissions;
+    const sa = await superadminClient();
     try {
-      const patch = await admin.patch(`/api/roles/${techRoleId}/permissions`, {
+      const patch = await sa.patch(`/api/roles/${techRoleId}/permissions`, {
         permissions: [...original, 'team.manage'],
       });
       assert.equal(patch.status, 200);
@@ -341,7 +352,7 @@ describe('visibilidad y aislamiento entre usuarios y equipos', () => {
         'el cuerpo de una personal ajena no puede aparecer en /manage'
       );
     } finally {
-      await admin.patch(`/api/roles/${techRoleId}/permissions`, { permissions: original });
+      await sa.patch(`/api/roles/${techRoleId}/permissions`, { permissions: original });
     }
   });
 });
@@ -396,8 +407,9 @@ describe('permisos de administración por ámbito', () => {
   it('sin ticket.comment ni ticket.note no hay acceso al selector ni creación', async () => {
     const roles = (await admin.get('/api/roles')).body.roles;
     const original = roles.find((r) => r.id === empRoleId).permissions;
+    const sa = await superadminClient();
     try {
-      const patch = await admin.patch(`/api/roles/${empRoleId}/permissions`, {
+      const patch = await sa.patch(`/api/roles/${empRoleId}/permissions`, {
         permissions: original.filter((c) => c !== 'ticket.comment'),
       });
       assert.equal(patch.status, 200);
@@ -407,7 +419,7 @@ describe('permisos de administración por ámbito', () => {
       const create = await emp.post('/api/canned-responses', { title: 'X', body: 'Y', scope: 'PERSONAL' });
       assert.equal(create.status, 403);
     } finally {
-      await admin.patch(`/api/roles/${empRoleId}/permissions`, { permissions: original });
+      await sa.patch(`/api/roles/${empRoleId}/permissions`, { permissions: original });
     }
     assert.equal((await emp.get('/api/canned-responses')).status, 200);
   });

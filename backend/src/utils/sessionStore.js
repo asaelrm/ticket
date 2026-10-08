@@ -1,11 +1,13 @@
 import { Store } from 'express-session';
-import db from '../db.js';
+import db from '../db/runtime.js';
 
-// Store de sesiones respaldado por SQLite (tabla `sessions`).
+// Store de sesiones respaldado por la base de datos (tabla `sessions`).
+// La API de express-session es de callbacks, así que las firmas no cambian:
+// solo el cuerpo pasa a ser async y usar la fachada de runtime.
 export default class SqliteSessionStore extends Store {
-  get(sid, callback) {
+  async get(sid, callback) {
     try {
-      const row = db.prepare('SELECT sess FROM sessions WHERE sid = ? AND expire > ?').get(sid, Date.now());
+      const row = await db.queryOne('SELECT sess FROM sessions WHERE sid = ? AND expire > ?', sid, Date.now());
       if (!row) return callback(null, null);
       let sess;
       try {
@@ -19,43 +21,46 @@ export default class SqliteSessionStore extends Store {
     }
   }
 
-  set(sid, session, callback) {
+  async set(sid, session, callback) {
     try {
       const expire = this.#expiry(session);
-      db.prepare(
+      await db.execute(
         `INSERT INTO sessions (sid, sess, expire) VALUES (?, ?, ?)
-         ON CONFLICT(sid) DO UPDATE SET sess = excluded.sess, expire = excluded.expire`
-      ).run(sid, JSON.stringify(session), expire);
-      db.prepare('DELETE FROM sessions WHERE expire <= ?').run(Date.now());
+         ON CONFLICT(sid) DO UPDATE SET sess = excluded.sess, expire = excluded.expire`,
+        sid,
+        JSON.stringify(session),
+        expire,
+      );
+      await db.execute('DELETE FROM sessions WHERE expire <= ?', Date.now());
       return callback(null);
     } catch (err) {
       return callback(err);
     }
   }
 
-  destroy(sid, callback) {
+  async destroy(sid, callback) {
     try {
-      db.prepare('DELETE FROM sessions WHERE sid = ?').run(sid);
+      await db.execute('DELETE FROM sessions WHERE sid = ?', sid);
       return callback(null);
     } catch (err) {
       return callback(err);
     }
   }
 
-  touch(sid, session, callback) {
+  async touch(sid, session, callback) {
     try {
       const expire = this.#expiry(session);
-      db.prepare('UPDATE sessions SET expire = ? WHERE sid = ?').run(expire, sid);
+      await db.execute('UPDATE sessions SET expire = ? WHERE sid = ?', expire, sid);
       return callback(null);
     } catch (err) {
       return callback(err);
     }
   }
 
-  length(callback) {
+  async length(callback) {
     try {
-      const { n } = db.prepare('SELECT COUNT(*) AS n FROM sessions').get();
-      return callback(null, n);
+      const row = await db.queryOne('SELECT COUNT(*) AS n FROM sessions');
+      return callback(null, row.n);
     } catch (err) {
       return callback(err);
     }
@@ -68,6 +73,6 @@ export default class SqliteSessionStore extends Store {
   }
 }
 
-export function destroyUserSessions(userId) {
-  db.prepare("DELETE FROM sessions WHERE json_extract(sess, '$.userId') = ?").run(userId);
+export async function destroyUserSessions(userId) {
+  await db.execute("DELETE FROM sessions WHERE json_extract(sess, '$.userId') = ?", userId);
 }

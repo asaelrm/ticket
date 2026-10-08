@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import db from '../db.js';
+import db from '../db/runtime.js';
 import { runMigrations } from '../db.js';
 import { seed } from '../seed.js';
 import { hashPassword } from '../utils/password.js';
@@ -15,7 +15,7 @@ function boolEnv(value) {
 
 // Inputs de la primera cuenta SUPERADMIN. Nunca se imprime la contraseña y el
 // script falla en lugar de degradarse a un valor por defecto.
-export function bootstrapSuperadmin({
+export async function bootstrapSuperadmin({
   username,
   email,
   name,
@@ -34,9 +34,10 @@ export function bootstrapSuperadmin({
   runMigrations();
   seed();
 
-  const existing = db
-    .prepare('SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = ?')
-    .get(SUPERADMIN_ROLE_CODE);
+  const existing = await db.queryOne(
+    'SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = ?',
+    SUPERADMIN_ROLE_CODE,
+  );
   if (existing) {
     throw new Error(
       `ya existe un ${SUPERADMIN_ROLE_CODE}; el bootstrap solo crea la PRIMERA cuenta global. ` +
@@ -64,18 +65,23 @@ export function bootstrapSuperadmin({
     throw new Error(`datos inválidos para la primera cuenta ${SUPERADMIN_ROLE_CODE}: ${JSON.stringify(errors)}`);
   }
 
-  const role = db.prepare('SELECT id FROM roles WHERE code = ?').get(SUPERADMIN_ROLE_CODE);
+  const role = await db.queryOne('SELECT id FROM roles WHERE code = ?', SUPERADMIN_ROLE_CODE);
   if (!role) throw new Error(`el rol ${SUPERADMIN_ROLE_CODE} no existe tras el seed`);
 
   // Un SUPERADMIN es global: nace sin organización.
-  const info = db
-    .prepare(
-      `INSERT INTO users (name, last_name, username, email, password_hash, role_id, active, last_password_change_at, organization_id)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, NULL)`
-    )
-    .run(safeStr(name) || 'Superadministrador', safeStr(lastName) || 'Global', body.username, body.email, hashPassword(pwd), role.id, new Date().toISOString());
+  const info = await db.insertAndGetId(
+    `INSERT INTO users (name, last_name, username, email, password_hash, role_id, active, last_password_change_at, organization_id)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, NULL)`,
+    safeStr(name) || 'Superadministrador',
+    safeStr(lastName) || 'Global',
+    body.username,
+    body.email,
+    hashPassword(pwd),
+    role.id,
+    new Date().toISOString(),
+  );
 
-  return { id: info.lastInsertRowid, username: body.username, role: SUPERADMIN_ROLE_CODE };
+  return { id: info.id, username: body.username, role: SUPERADMIN_ROLE_CODE };
 }
 
 function readStdin() {
@@ -91,7 +97,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     process.env.BOOTSTRAP_SUPERADMIN_PASSWORD ||
     (process.argv.includes('--password-stdin') ? readStdin() : '');
   try {
-    const created = bootstrapSuperadmin({
+    const created = await bootstrapSuperadmin({
       username: process.env.BOOTSTRAP_SUPERADMIN_USERNAME || '',
       email: process.env.BOOTSTRAP_SUPERADMIN_EMAIL || '',
       name: process.env.BOOTSTRAP_SUPERADMIN_NAME || '',

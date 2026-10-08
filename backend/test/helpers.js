@@ -8,6 +8,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
 process.env.DB_FILE = path.join(tmp, 'test.db');
 process.env.DATA_DIR = tmp;
+// Mismo criterio que test/setup.js: la suite es SQLite; DB_CLIENT no debe
+// arrancar el pool de SQL Server al importar config.js.
+process.env.DB_CLIENT = 'sqlite';
 process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
 process.env.SESSION_SECRET = 'test-secret';
 process.env.NODE_ENV = 'test';
@@ -18,9 +21,10 @@ process.env.SEED_DEMO_ACCOUNTS = 'true';
 process.env.SEED_DEMO_PASSWORD = 'Empleado1234!';
 process.env.SEED_TECH_PASSWORD = 'Tecnico1234!';
 
-const { runMigrations } = await import('../src/db.js');
+const { default: db, runMigrations, nowIso } = await import('../src/db.js');
 const { seed } = await import('../src/seed.js');
 const { createApp } = await import('../src/app.js');
+const { hashPassword } = await import('../src/utils/password.js');
 
 runMigrations();
 seed();
@@ -126,4 +130,35 @@ export function createClient() {
   }
 
   return { get, post, patch, put, del, postForm, postMultipart, login };
+}
+
+// Crea (si hace falta) una cuenta SUPERADMIN global de prueba y devuelve un
+// cliente YA autenticado con ella. Los canales reservados al SUPERADMIN no
+// deben depender de que otra suite haya creado la cuenta: cada archivo de
+// pruebas corre en su propio proceso con su propia base, y el seed no crea
+// ninguna cuenta SUPERADMIN.
+const SUPERADMIN_TEST_PASSWORD = 'SuperClave123!';
+export async function createSuperadminClient(username = 'super_roles_test') {
+  const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+  if (!existing) {
+    const role = db.prepare("SELECT id FROM roles WHERE code = 'SUPERADMIN'").get();
+    db.prepare(
+      `INSERT INTO users (name, last_name, username, email, password_hash, role_id, active, last_password_change_at, organization_id)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, NULL)`
+    ).run(
+      'Super',
+      'Global',
+      username,
+      `${username}@organizacion.test`,
+      hashPassword(SUPERADMIN_TEST_PASSWORD),
+      role.id,
+      nowIso()
+    );
+  }
+  const client = createClient();
+  const login = await client.login(username, SUPERADMIN_TEST_PASSWORD);
+  if (login.status !== 200) {
+    throw new Error(`No se pudo iniciar sesión como SUPERADMIN de prueba (${login.status})`);
+  }
+  return client;
 }

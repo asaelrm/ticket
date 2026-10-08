@@ -1,6 +1,6 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient } from './helpers.js';
+import { createClient, createSuperadminClient } from './helpers.js';
 import db, { runMigrations } from '../src/db.js';
 import { seed, PERMISSIONS } from '../src/seed.js';
 import {
@@ -47,16 +47,25 @@ async function createUser({ username, roleId }) {
  * Aplica permisos temporales a un rol y los restaura pase lo que pase. Los
  * permisos se releen en cada petición, así que las sesiones ya abiertas ven el
  * cambio sin volver a iniciar sesión.
+ * V2: la matriz de permisos es global (compartida entre organizaciones), así
+ * que este canal está reservado al SUPERADMIN.
  */
+let superadminCache = null;
+async function superadminClient() {
+  if (!superadminCache) superadminCache = await createSuperadminClient();
+  return superadminCache;
+}
+
 async function withRolePermissions(roleId, permissions, fn) {
+  const sa = await superadminClient();
   const roles = (await admin.get('/api/roles')).body.roles;
   const original = roles.find((r) => r.id === roleId).permissions;
   try {
-    const patch = await admin.patch(`/api/roles/${roleId}/permissions`, { permissions });
+    const patch = await sa.patch(`/api/roles/${roleId}/permissions`, { permissions });
     assert.equal(patch.status, 200);
     await fn(original);
   } finally {
-    const restore = await admin.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
+    const restore = await sa.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
     assert.equal(restore.status, 200);
   }
 }

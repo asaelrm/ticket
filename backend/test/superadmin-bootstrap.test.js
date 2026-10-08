@@ -38,19 +38,19 @@ function insertUser({ username, email, roleCode, password, organizationId }) {
 }
 
 describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
-  it('orgStateError aplica la regla de consistencia', () => {
-    assert.ok(orgStateError({ roleCode: 'EMPLOYEE', organizationId: null }), 'normal sin org es inválido');
-    assert.ok(orgStateError({ roleCode: 'EMPLOYEE', organizationId: 999999 }), 'normal con org inexistente es inválido');
-    assert.ok(orgStateError({ roleCode: SUPERADMIN_ROLE_CODE, organizationId: uceId() }), 'súper con org es inválido');
-    assert.equal(orgStateError({ roleCode: SUPERADMIN_ROLE_CODE, organizationId: null }), null);
-    assert.equal(orgStateError({ roleCode: 'EMPLOYEE', organizationId: uceId() }), null);
+  it('orgStateError aplica la regla de consistencia', async () => {
+    assert.ok(await orgStateError({ roleCode: 'EMPLOYEE', organizationId: null }), 'normal sin org es inválido');
+    assert.ok(await orgStateError({ roleCode: 'EMPLOYEE', organizationId: 999999 }), 'normal con org inexistente es inválido');
+    assert.ok(await orgStateError({ roleCode: SUPERADMIN_ROLE_CODE, organizationId: uceId() }), 'súper con org es inválido');
+    assert.equal(await orgStateError({ roleCode: SUPERADMIN_ROLE_CODE, organizationId: null }), null);
+    assert.equal(await orgStateError({ roleCode: 'EMPLOYEE', organizationId: uceId() }), null);
   });
 
-  it('el bootstrap se niega a ejecutarse en producción sin autorización explícita', () => {
+  it('el bootstrap se niega a ejecutarse en producción sin autorización explícita', async () => {
     const before = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
     const save = process.env.BOOTSTRAP_SUPERADMIN_PROD_ALLOWED;
     delete process.env.BOOTSTRAP_SUPERADMIN_PROD_ALLOWED;
-    assert.throws(
+    await assert.rejects(
       () =>
         bootstrapSuperadmin({
           username: 'prod_lock',
@@ -66,9 +66,9 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, before, 'el fallo no debe crear nada');
   });
 
-  it('rechaza datos inválidos y no crea nada', () => {
+  it('rechaza datos inválidos y no crea nada', async () => {
     const before = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-    assert.throws(
+    await assert.rejects(
       () =>
         bootstrapSuperadmin({
           username: 'x',
@@ -79,7 +79,7 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
         }),
       /datos inválidos/
     );
-    assert.throws(
+    await assert.rejects(
       () =>
         bootstrapSuperadmin({
           username: 'boot_corto',
@@ -90,7 +90,7 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
         }),
       /datos inválidos/
     );
-    assert.throws(
+    await assert.rejects(
       () =>
         bootstrapSuperadmin({
           username: 'boot_sinemail',
@@ -112,7 +112,7 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
     console.error = (...args) => output.push(args.join(' '));
     let created;
     try {
-      created = bootstrapSuperadmin({
+      created = await bootstrapSuperadmin({
         username: 'bootstrap_super',
         email: 'bootstrap_super@empresa.com',
         name: 'Rafa',
@@ -147,8 +147,8 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
     assert.equal(me.body.user.organization_id, null);
   });
 
-  it('se niega a crear una segunda cuenta: el bootstrap es solo para la primera', () => {
-    assert.throws(
+  it('se niega a crear una segunda cuenta: el bootstrap es solo para la primera', async () => {
+    await assert.rejects(
       () =>
         bootstrapSuperadmin({
           username: 'segundo_super',
@@ -266,16 +266,16 @@ describe('ETAPA 1B: Consistencia de organización en la API', () => {
 });
 
 describe('ETAPA 1B: Auditoría de organizaciones (solo lectura)', () => {
-  it('sobre datos consistentes no detecta nada y no modifica nada', () => {
+  it('sobre datos consistentes no detecta nada y no modifica nada', async () => {
     const usersBefore = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
     const orgsBefore = db.prepare('SELECT COUNT(*) AS n FROM organizations').get().n;
-    const issues = auditOrganizationConsistency();
+    const issues = await auditOrganizationConsistency();
     assert.equal(issues.length, 0, JSON.stringify(issues));
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, usersBefore);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM organizations').get().n, orgsBefore);
   });
 
-  it('detecta los cuatro tipos de inconsistencia', () => {
+  it('detecta los cuatro tipos de inconsistencia', async () => {
     const stamp = Date.now();
     insertUser({
       username: `audit.sinorg.${stamp}`,
@@ -318,7 +318,7 @@ describe('ETAPA 1B: Auditoría de organizaciones (solo lectura)', () => {
       db.exec('PRAGMA foreign_keys = ON');
     }
 
-    const issues = auditOrganizationConsistency();
+    const issues = await auditOrganizationConsistency();
     const types = issues.map((i) => [i.type, i.username]);
     assert.ok(types.some(([t, u]) => t === 'USUARIO_SIN_ORGANIZACION' && u === `audit.sinorg.${stamp}`));
     assert.ok(types.some(([t, u]) => t === 'SUPERADMIN_CON_ORGANIZACION' && u === `audit.superorg.${stamp}`));
@@ -328,6 +328,6 @@ describe('ETAPA 1B: Auditoría de organizaciones (solo lectura)', () => {
 
     db.prepare(`DELETE FROM users WHERE username LIKE 'audit.%.${stamp}'`).run();
     db.prepare('DELETE FROM organizations WHERE id = ?').run(inactiveOrg);
-    assert.equal(auditOrganizationConsistency().length, 0, 'la auditoría sobre datos limpios no reporta');
+    assert.equal((await auditOrganizationConsistency()).length, 0, 'la auditoría sobre datos limpios no reporta');
   });
 });

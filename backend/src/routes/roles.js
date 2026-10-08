@@ -1,7 +1,7 @@
 import express from 'express';
 import db from '../db.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { currentOrgId } from '../middleware/org.js';
+import { currentOrgId, requireSuperadmin } from '../middleware/org.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -40,7 +40,14 @@ router.get('/permissions', requirePermission('role.manage'), (req, res) => {
   res.json({ permissions: db.prepare('SELECT * FROM permissions ORDER BY id').all() });
 });
 
-router.patch('/:id/permissions', requirePermission('role.manage'), (req, res) => {
+// V2 (aislamiento multiempresa): `roles` y `role_permissions` son tablas
+// GLOBALES sin `organization_id`, así que un cambio aquí alcanza a las
+// organizaciones de todas las empresas. El permiso `role.manage` lo tienen los
+// administradores de cada organización, de modo que por sí solo no basta para
+// proteger este canal: solo el SUPERADMIN global puede modificar la matriz de
+// permisos. El guard interno sobre el rol SUPERADMIN se conserva por
+// redundancia (defensa en profundidad).
+router.patch('/:id/permissions', requirePermission('role.manage'), requireSuperadmin, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const role = db.prepare('SELECT id, code FROM roles WHERE id = ?').get(id);
   if (!role) return res.status(404).json({ error: 'Rol no encontrado' });

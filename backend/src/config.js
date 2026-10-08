@@ -22,12 +22,30 @@ export function requestedDbClient(v) {
   return client;
 }
 
-// M1 has MSSQL infrastructure, but db.js has not selected it yet. Keep the
-// effective runtime backend explicit so DB_CLIENT=mssql cannot be mistaken for
-// a live migration.
-export function dbClient(v) {
-  requestedDbClient(v);
-  return 'sqlite';
+// Motor que pide el entorno (lo consumen los scripts de migración y la
+// validación de arranque). `DB_CLIENT=mssql` NO implica por sí solo que el
+// proceso vaya a hablar con SQL Server: eso lo decide `dbClient`.
+export function mssqlRuntimeRequested(env = process.env) {
+  return requestedDbClient(env.DB_CLIENT) === 'mssql';
+}
+
+// Activación explícita del runtime MSSQL. Sin `MSSQL_RUNTIME=true` el proceso
+// sigue sobre SQLite aunque `DB_CLIENT=mssql`, porque la migración por fases aún
+// no ha convertido todos los módulos ni se ha aplicado el esquema MSSQL. Es la
+// puerta que la fase de cutover abrirá cuando el runtime esté completo.
+export function mssqlRuntimeActivated(env = process.env) {
+  return bool(env.MSSQL_RUNTIME, false);
+}
+
+// Motor real de ejecución. Solo devuelve 'mssql' cuando además de pedirlo se ha
+// activado explícitamente; en cualquier otro caso el runtime usa SQLite, que es
+// donde vive la única fuente de verdad mientras no se complete el cutover. Un
+// valor inválido de DB_CLIENT detiene el arranque en el import de la
+// configuración, antes de abrir ninguna conexión.
+export function dbClient(v, env = process.env) {
+  const requested = requestedDbClient(v);
+  if (requested === 'mssql' && !mssqlRuntimeActivated(env)) return 'sqlite';
+  return requested;
 }
 
 const rootDir = path.resolve(__dirname, '..');
@@ -184,11 +202,12 @@ export function assertStartupConfig(env = process.env) {
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: int(process.env.PORT, 4000),
-  // M1: solo preparación. db.js continúa usando SQLite hasta que los
-  // consumidores hayan migrado explícitamente al contrato async.
+  // Motor de ejecución: `sqlite` (node:sqlite, por defecto) o `mssql` (pool de
+  // SQL Server, solo con MSSQL_RUNTIME=true). La traducción de dialecto vive en
+  // src/db/dialect.js y el cambio de motor en src/db/runtime.js.
   requestedDbClient: requestedDbClient(process.env.DB_CLIENT),
-  dbClient: dbClient(process.env.DB_CLIENT),
-  mssqlRuntimeEnabled: false,
+  dbClient: dbClient(process.env.DB_CLIENT, process.env),
+  mssqlRuntimeEnabled: dbClient(process.env.DB_CLIENT, process.env) === 'mssql',
   mssql: {
     server: (process.env.DB_SERVER || '').trim(),
     port: process.env.DB_PORT ? int(process.env.DB_PORT, 1433) : undefined,

@@ -47,6 +47,15 @@ router.post('/login', authRateLimit(), (req, res) => {
   if (!user.active) {
     return res.status(403).json({ error: 'Su cuenta está desactivada. Contacte a un administrador.' });
   }
+  // V4: una organización desactivada no admite nuevos inicios de sesión. En
+  // loadUser ya se bloquea cualquier sesión existente; aquí se corta también el
+  // alta de nuevas sesiones para no devolver un usuario "logueado" inútil.
+  if (user.organization_id != null) {
+    const org = db.prepare('SELECT active FROM organizations WHERE id = ?').get(user.organization_id);
+    if (org && !org.active) {
+      return res.status(403).json({ error: 'La organización está desactivada. Contacte al administrador del sistema.' });
+    }
+  }
 
   touchLastLogin(user.id);
 
@@ -110,7 +119,7 @@ router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
-router.post('/change-password', requireAuth, (req, res) => {
+router.post('/change-password', requireAuth, async (req, res) => {
   const current = String(req.body.current_password || '');
   const next = String(req.body.new_password || '');
 
@@ -130,12 +139,12 @@ router.post('/change-password', requireAuth, (req, res) => {
     nowIso(),
     req.user.id
   );
-  saveDirectorySnapshot();
-  destroyUserSessions(req.user.id);
+  await saveDirectorySnapshot();
+  await destroyUserSessions(req.user.id);
   return res.json({ ok: true });
 });
 
-router.post('/reset-password', (req, res) => {
+router.post('/reset-password', async (req, res) => {
   const token = safeStr(req.body.token);
   const next = String(req.body.password || '');
 
@@ -155,8 +164,8 @@ router.post('/reset-password', (req, res) => {
     `UPDATE users SET password_hash = ?, password_reset_token = NULL, password_reset_expires = NULL,
      last_password_change_at = ?, updated_at = ? WHERE id = ?`
   ).run(hashPassword(next), nowIso(), nowIso(), row.id);
-  saveDirectorySnapshot();
-  destroyUserSessions(row.id);
+  await saveDirectorySnapshot();
+  await destroyUserSessions(row.id);
 
   return res.json({ ok: true });
 });

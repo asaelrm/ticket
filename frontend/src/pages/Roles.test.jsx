@@ -1,9 +1,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Roles from './Roles';
 import { api } from '../lib/api';
+import { AuthProvider } from '../context/AuthContext';
 import { renderWithProviders } from '../test/utils';
 
 vi.mock('../lib/api', async () => {
@@ -290,5 +291,114 @@ describe('Roles', () => {
       expect(args).toBeDefined();
       expect(args[1].permissions).toContain('kb.view');
     });
+  });
+});
+
+// V2: la matriz de permisos (roles / role_permissions) no pertenece a ninguna
+// organización, así que modificarla alcanza a todas las empresas. El backend ya
+// devuelve 403 a los administradores de organización; aquí se comprueba que la
+// interfaz no les ofrezca los controles y que sí los ofrezca al SUPERADMIN.
+const ORG_ADMIN = {
+  id: 10,
+  username: 'admin_org_a',
+  is_superadmin: false,
+  organization_id: 7,
+  permissions: ['role.manage', 'user.view'],
+};
+const SUPERADMIN = {
+  id: 1,
+  username: 'root',
+  is_superadmin: true,
+  organization_id: null,
+  permissions: ['role.manage', 'organization.manage'],
+};
+
+function mockApiWith(user) {
+  api.get.mockImplementation((url) => {
+    if (url === '/api/auth/me') return Promise.resolve({ user });
+    if (url === '/api/settings') return Promise.resolve({ data: {} });
+    if (url === '/api/roles') return Promise.resolve({ roles: ROLES });
+    if (url === '/api/roles/permissions') return Promise.resolve({ permissions: PERMS });
+    return Promise.reject(new Error(`404 ${url}`));
+  });
+}
+
+function renderWithAuth() {
+  return renderWithProviders(<AuthProvider><Roles /></AuthProvider>, { route: '/app/roles' });
+}
+
+describe('Roles: la edición de la matriz global', () => {
+  it('un administrador de organización la consulta en modo solo lectura', async () => {
+    mockApiWith(ORG_ADMIN);
+    renderWithAuth();
+
+    expect(await screen.findByText('Empleado')).toBeInTheDocument();
+    expect(screen.getByText(/Vista de solo lectura/i)).toBeInTheDocument();
+
+    const boxes = screen.getAllByRole('checkbox');
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) expect(box).toBeDisabled();
+
+    fireEvent.click(within(cardFor('Empleado')).getByRole('checkbox', { name: 'Asignar tickets' }));
+    await waitFor(() => expect(api.patch).not.toHaveBeenCalled());
+  });
+
+  it('sin sesión identificada la interfaz también queda en solo lectura', async () => {
+    mockApiWith(null);
+    renderWithAuth();
+
+    expect(await screen.findByText('Empleado')).toBeInTheDocument();
+    expect(screen.getByText(/Vista de solo lectura/i)).toBeInTheDocument();
+    for (const box of screen.getAllByRole('checkbox')) expect(box).toBeDisabled();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it('el superadministrador sí ve los controles activos y edita', async () => {
+    const user = userEvent.setup();
+    mockApiWith(SUPERADMIN);
+    renderWithAuth();
+
+    expect(await screen.findByText('Empleado')).toBeInTheDocument();
+    expect(screen.queryByText(/Vista de solo lectura/i)).not.toBeInTheDocument();
+
+    const box = within(cardFor('Empleado')).getByRole('checkbox', { name: 'Asignar tickets' });
+    expect(box).toBeEnabled();
+    await user.click(box);
+
+    await waitFor(() =>
+      expect(api.patch).toHaveBeenCalledWith(
+        '/api/roles/2/permissions',
+        expect.objectContaining({ permissions: expect.arrayContaining(['ticket.assign']) })
+      )
+    );
+  });
+
+  it('la lectura de roles y permisos sigue funcionando para el administrador de org', async () => {
+    mockApiWith(ORG_ADMIN);
+    renderWithAuth();
+
+    expect(await screen.findByText('Administrador')).toBeInTheDocument();
+    expect(screen.getByText('Acceso total')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/api/roles');
+    expect(api.get).toHaveBeenCalledWith('/api/roles/permissions');
+    // Los permisos se muestran completos, no recortados por el modo lectura.
+    expect(screen.getAllByText('Crear tickets')).toHaveLength(2);
+    expect(screen.getAllByText('Gestionar roles')).toHaveLength(2);
+  });
+
+  it('muestra el 403 del backend si de todas formas se intenta guardar', async () => {
+    const user = userEvent.setup();
+    api.patch.mockRejectedValueOnce(new Error('Solo un superadministrador puede realizar esta acción'));
+    mockApiWith(SUPERADMIN);
+    renderWithAuth();
+
+    expect(await screen.findByText('Empleado')).toBeInTheDocument();
+    await user.click(within(cardFor('Empleado')).getByRole('checkbox', { name: 'Asignar tickets' }));
+
+    // La interfaz es sólo una cortesía: si el servidor rechaza, el motivo real
+    // es el que se muestra, no un genérico.
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Solo un superadministrador puede realizar esta acción'
+    );
   });
 });

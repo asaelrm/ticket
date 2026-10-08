@@ -1,6 +1,8 @@
 import nodemailer from 'nodemailer';
-import db, { nowIso } from '../db.js';
+import db from '../db/runtime.js';
+import { nowIso } from '../db.js';
 import config from '../config.js';
+import { getSetting } from './settingsStore.js';
 
 // Correos "enviados" por el transporte de desarrollo (sin SMTP). La misma
 // instancia del módulo es compartida por rutas y tests, lo que permite
@@ -33,29 +35,26 @@ function statusText(status) {
   const key = String(status || '').toUpperCase();
   return STATUS_TEXT[key] || ucFirst(status);
 }
-
-function getSetting(key) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : null;
-}
-
 // ETAPA 3 (defensa central de correo): el destinatario de un correo de ticket
 // debe pertenecer a la MISMA organización del ticket. Un ticket legacy
 // corrupto (org A con reportante/asignado de org B) no puede filtrar correo
 // hacia otra organización. Los correos no ligados a tickets (password reset)
 // no pasan por aquí: cada función de este módulo solo lo usa con contexto de
 // ticket.
-function recipientInTicketOrg(userId, ticket) {
+async function recipientInTicketOrg(userId, ticket) {
   if (!ticket || ticket.organization_id == null) return false;
   if (!userId) return false;
-  const row = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(userId);
+  const row = await db.queryOne('SELECT organization_id FROM users WHERE id = ?', userId);
   return !!row && row.organization_id != null && Number(row.organization_id) === Number(ticket.organization_id);
 }
 
-export function isNotifyEnabled(kind) {
+export async function isNotifyEnabled(kind, organizationId = null) {
   const key = NOTIFY_KEYS[kind];
   if (!key) return true;
-  const raw = getSetting(key);
+  // V1: los interruptores notify_on_* son configuración POR ORGANIZACIÓN. Cada
+  // disparador pasa la organización del ticket que origina el correo, de modo
+  // que desactivar el correo al asignar en A no apaga el de B.
+  const raw = await getSetting(key, organizationId);
   if (raw === null || raw === undefined || raw === '') return true;
   return !['0', 'false', 'no', 'off'].includes(String(raw).toLowerCase());
 }
@@ -137,12 +136,16 @@ export async function sendMail({ to, subject, text = '', html = '', kind = 'gene
       // envió (o se registró en dev) y la operación principal no debe caerse.
       let logId = null;
       try {
-        const info = db
-          .prepare(
-            'INSERT INTO email_logs (kind, to_email, subject, ticket_id, status, error) VALUES (?, ?, ?, ?, ?, ?)'
-          )
-          .run(row.kind, row.to, row.subject, row.ticket_id, row.status, row.error);
-        logId = info.lastInsertRowid;
+        const info = await db.insertAndGetId(
+          'INSERT INTO email_logs (kind, to_email, subject, ticket_id, status, error) VALUES (?, ?, ?, ?, ?, ?)',
+          row.kind,
+          row.to,
+          row.subject,
+          row.ticket_id,
+          row.status,
+          row.error,
+        );
+        logId = info.id;
       } catch (err) {
         console.error(`[mail] No se pudo registrar el correo en email_logs: ${safeError(err)}`);
       }
@@ -208,14 +211,15 @@ function ucFirst(v) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 }
 
-export function notifyAssigned(ticket, actorName) {
-  if (!isNotifyEnabled('assign')) return;
+export async function notifyAssigned(ticket, actorName) {
+  if (!(await isNotifyEnabled('assign', ticket?.organization_id))) return;
   if (!ticket.assigned_to_id) return;
   if (ticket.assigned_to_id === ticket.reporter_id) return;
-  if (!recipientInTicketOrg(ticket.assigned_to_id, ticket)) return;
-  const assignee = db
-    .prepare('SELECT id, name, last_name, email FROM users WHERE id = ? AND active = 1')
-    .get(ticket.assigned_to_id);
+  if (!(await recipientInTicketOrg(ticket.assigned_to_id, ticket))) return;
+  const assignee = await db.queryOne(
+    'SELECT id, name, last_name, email FROM users WHERE id = ? AND active = 1',
+    ticket.assigned_to_id,
+  );
   if (!assignee || !assignee.email) return;
 
   const subject = `[${ticket.ticket_number}] Ticket asignado a usted: ${ticket.title}`;
@@ -243,16 +247,14 @@ export function notifyAssigned(ticket, actorName) {
   });
 }
 
-export function notifyComment(ticket, comment, actorName) {
-  if (!isNotifyEnabled('comment')) return;
+export async function notifyComment(ticket, comment, actorName) {
+  if (!(await isNotifyEnabled('comment', ticket?.organization_id))) return;
   const recipients = [];
-  if (ticket.reporter_id !== comment.user_id && recipientInTicketOrg(ticket.reporter_id, ticket)) {
+  if (ticket.reporter_id !== comment.user_id && (await recipientInTicketOrg(ticket.reporter_id, ticket))) {
     recipients.push(ticket.reporter_email);
   }
-  if (ticket.assigned_to_id && ticket.assigned_to_id !== comment.user_id && recipientInTicketOrg(ticket.assigned_to_id, ticket)) {
-    const assignee = db
-      .prepare('SELECT email FROM users WHERE id = ? AND active = 1')
-      .get(ticket.assigned_to_id);
+  if (ticket.assigned_to_id && ticket.assigned_to_id !== comment.user_id && (await recipientInTicketOrg(ticket.assigned_to_id, ticket))) {
+    const assignee = await db.queryOne('SELECT email FROM users WHERE id = ? AND active = 1', ticket.assigned_to_id);
     if (assignee?.email) recipients.push(assignee.email);
   }
   const unique = [...new Set(recipients.map((e) => String(e).toLowerCase()))];
@@ -276,11 +278,11 @@ export function notifyComment(ticket, comment, actorName) {
   });
 }
 
-export function notifyResolved(ticket, resolverName, resolution) {
-  if (!isNotifyEnabled('resolve')) return;
+export async function notifyResolved(ticket, resolverName, resolution) {
+  if (!(await isNotifyEnabled('resolve', ticket?.organization_id))) return;
   if (!ticket.reporter_email) return;
   if (ticket.reporter_id === null) return;
-  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
+  if (!(await recipientInTicketOrg(ticket.reporter_id, ticket))) return;
 
   const subject = `[${ticket.ticket_number}] Su ticket fue resuelto: ${ticket.title}`;
   const text = [
@@ -302,11 +304,11 @@ export function notifyResolved(ticket, resolverName, resolution) {
   });
 }
 
-export function notifyCancelled(ticket, actorName, reason) {
-  if (!isNotifyEnabled('resolve')) return;
+export async function notifyCancelled(ticket, actorName, reason) {
+  if (!(await isNotifyEnabled('resolve', ticket?.organization_id))) return;
   if (!ticket.reporter_email) return;
   if (ticket.reporter_id === null) return;
-  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
+  if (!(await recipientInTicketOrg(ticket.reporter_id, ticket))) return;
 
   const subject = `[${ticket.ticket_number}] Su ticket fue cancelado: ${ticket.title}`;
   const text = [
@@ -352,11 +354,11 @@ export function notifyPasswordReset(user, token, resetUrlBase) {
 }
 
 // Confirmación al reportante de que su requerimiento fue creado.
-export function notifyCreated(ticket) {
-  if (!isNotifyEnabled('create')) return;
+export async function notifyCreated(ticket) {
+  if (!(await isNotifyEnabled('create', ticket?.organization_id))) return;
   if (!ticket?.reporter_email) return;
   if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
-  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
+  if (!(await recipientInTicketOrg(ticket.reporter_id, ticket))) return;
 
   const greeting = ticket.reporter_name ? `Hola ${ticket.reporter_name}:` : 'Hola:';
   const subject = `[${ticket.ticket_number}] Hemos recibido su ticket: ${ticket.title}`;
@@ -384,11 +386,11 @@ export function notifyCreated(ticket) {
 
 // Cambio de estado NO terminal. No debe usarse para RESOLVED/CLOSED/CANCELLED:
 // esas transiciones ya tienen su propia notificación y generarían duplicados.
-export function notifyStatusChanged(ticket, oldStatus, actor) {
-  if (!isNotifyEnabled('status')) return;
+export async function notifyStatusChanged(ticket, oldStatus, actor) {
+  if (!(await isNotifyEnabled('status', ticket?.organization_id))) return;
   if (!ticket?.reporter_email) return;
   if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
-  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
+  if (!(await recipientInTicketOrg(ticket.reporter_id, ticket))) return;
 
   const oldLabel = statusText(oldStatus);
   const newLabel = statusText(ticket.status);
@@ -415,11 +417,11 @@ export function notifyStatusChanged(ticket, oldStatus, actor) {
 }
 
 // Cierre del ticket: se avisa explícitamente al reportante.
-export function notifyClosed(ticket) {
-  if (!isNotifyEnabled('close')) return;
+export async function notifyClosed(ticket) {
+  if (!(await isNotifyEnabled('close', ticket?.organization_id))) return;
   if (!ticket?.reporter_email) return;
   if (ticket.reporter_id === null || ticket.reporter_id === undefined) return;
-  if (!recipientInTicketOrg(ticket.reporter_id, ticket)) return;
+  if (!(await recipientInTicketOrg(ticket.reporter_id, ticket))) return;
 
   const subject = `[${ticket.ticket_number}] Su ticket fue cerrado: ${ticket.title}`;
   const text = [

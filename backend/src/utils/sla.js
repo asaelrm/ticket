@@ -1,8 +1,14 @@
-import db from '../db.js';
+import { getSetting } from './settingsStore.js';
+import { DEFAULT_SLA } from './settings.js';
 
 // Regla de SLA por defecto (horas para resolver según prioridad).
-// Se puede sobrescribir desde Configuración (tabla settings, claves sla_*_hours).
-const DEFAULT_SLA_HOURS = { CRITICAL: 4, HIGH: 24, MEDIUM: 48, LOW: 72 };
+// Se puede sobrescribir desde Configuración: claves sla_*_hours, ahora POR
+// ORGANIZACIÓN (V1). `organizationId` es contexto de servidor: la organización
+// del ticket que se está creando/modificando, nunca un dato del cliente.
+//
+// Los valores por defecto viven en utils/settings.js (hoja sin importaciones)
+// para no cerrar el ciclo settings → sla → settingsStore → settings.
+export { DEFAULT_SLA };
 
 const SLA_KEYS = {
   sla_critical_hours: 'CRITICAL',
@@ -11,25 +17,20 @@ const SLA_KEYS = {
   sla_low_hours: 'LOW',
 };
 
-export function getSlaHours() {
-  const rows = db
-    .prepare(`SELECT key, value FROM settings WHERE key IN (${Object.keys(SLA_KEYS).map(() => '?').join(',')})`)
-    .all(...Object.keys(SLA_KEYS));
-  const hours = { ...DEFAULT_SLA_HOURS };
-  for (const row of rows) {
-    const key = SLA_KEYS[row.key];
-    const value = parseInt(String(row.value), 10);
-    if (key && Number.isFinite(value) && value >= 0) hours[key] = value;
+export async function getSlaHours(organizationId = null) {
+  const hours = { ...DEFAULT_SLA };
+  for (const [key, priority] of Object.entries(SLA_KEYS)) {
+    const value = parseInt(String((await getSetting(key, organizationId)) ?? ''), 10);
+    if (Number.isFinite(value) && value >= 0) hours[priority] = value;
   }
   return hours;
 }
 
-export const DEFAULT_SLA = { ...DEFAULT_SLA_HOURS };
-
-// Devuelve la fecha límite (ISO) calculada desde `from` según la prioridad.
-export function computeSlaDue(priority, from = new Date()) {
-  const hours = getSlaHours()[priority];
-  const effHours = Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_SLA_HOURS.MEDIUM;
+// Devuelve la fecha límite (ISO) calculada desde `from` según la prioridad y
+// las horas SLA de la organización del ticket.
+export async function computeSlaDue(priority, from = new Date(), organizationId = null) {
+  const hours = (await getSlaHours(organizationId))[priority];
+  const effHours = Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_SLA.MEDIUM;
   return new Date(from.getTime() + effHours * 60 * 60 * 1000).toISOString();
 }
 

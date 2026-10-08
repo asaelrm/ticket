@@ -101,7 +101,7 @@ router.get('/roles', requirePermission('user.view'), (req, res) => {
   });
 });
 
-router.post('/', requirePermission('user.manage'), (req, res) => {
+router.post('/', requirePermission('user.manage'), async (req, res) => {
   const body = req.body || {};
   const rejected = rejectClientOrg(body);
   if (rejected) return res.status(400).json({ error: rejected });
@@ -139,7 +139,7 @@ router.post('/', requirePermission('user.manage'), (req, res) => {
 
   // Regla de consistencia: usuario normal exige organización válida y activa;
   // SUPERADMIN exige organization_id NULL. El contexto sale de la sesión.
-  const stateError = orgStateError({ roleCode: role.code, organizationId });
+  const stateError = await orgStateError({ roleCode: role.code, organizationId });
   if (stateError) return res.status(400).json({ error: stateError });
 
   // ETAPA 2: el departamento debe pertenecer a la organización del usuario.
@@ -267,7 +267,7 @@ router.get('/:id', requirePermission('user.view'), (req, res) => {
   res.json({ user: publicUser(row) });
 });
 
-router.patch('/:id', requirePermission('user.manage'), (req, res) => {
+router.patch('/:id', requirePermission('user.manage'), async (req, res) => {
   const id = parseIntSafe(req.params.id);
   const rejected = rejectClientOrg(req.body || {});
   if (rejected) return res.status(400).json({ error: rejected });
@@ -349,7 +349,7 @@ router.patch('/:id', requirePermission('user.manage'), (req, res) => {
       error: 'Convertir un SUPERADMIN a un rol de organización requiere aprovisionar una organización; no disponible todavía',
     });
   } else {
-    const stateError = orgStateError({ roleCode: role.code, organizationId: existing.organization_id });
+    const stateError = await orgStateError({ roleCode: role.code, organizationId: existing.organization_id });
     if (stateError) return res.status(400).json({ error: stateError });
   }
 
@@ -431,7 +431,7 @@ router.patch('/:id/status', requirePermission('user.manage'), (req, res) => {
   res.json({ user: publicUser(row) });
 });
 
-router.post('/:id/reset-password', requirePermission('user.manage'), (req, res) => {
+router.post('/:id/reset-password', requirePermission('user.manage'), async (req, res) => {
   const id = parseIntSafe(req.params.id);
   const targetRole = db
     .prepare('SELECT r.code, u.organization_id FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?')
@@ -466,7 +466,7 @@ router.post('/:id/reset-password', requirePermission('user.manage'), (req, res) 
   // usuario. Sin esto, quien hubiera robado la cookie conserva el acceso
   // durante toda la vigencia de la sesión, incluso después de que el
   // propietario haya cambiado su contraseña.
-  destroyUserSessions(id);
+  await destroyUserSessions(id);
 
   res.json({
     ok: true,

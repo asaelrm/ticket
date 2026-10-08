@@ -7,11 +7,11 @@ import { api } from '../lib/api';
 import { renderWithProviders, pickOption } from '../test/utils';
 
 const { authState } = vi.hoisted(() => ({
-  authState: { setAppName: vi.fn() },
+  authState: { setAppName: vi.fn(), user: undefined },
 }));
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ setAppName: authState.setAppName }),
+  useAuth: () => ({ setAppName: authState.setAppName, user: authState.user }),
   can: (user, permission) => !!user?.permissions?.includes(permission),
 }));
 
@@ -79,6 +79,9 @@ function fieldFor(labelText, tag, scope = screen) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Por defecto no hay sesión: los campos globales quedan editables y las
+  // pruebas antiguas no cambian de comportamiento.
+  authState.user = undefined;
   setup();
 });
 
@@ -481,5 +484,53 @@ describe('Settings', () => {
     const form = screen.getByRole('button', { name: 'Guardar configuración' }).closest('form');
     expect(within(form).getAllByRole('spinbutton').length).toBe(6);
     expect(within(form).getAllByRole('checkbox').length).toBe(8);
+  });
+
+  // V1: `app_name` y `ticket_prefix` son globales. Para un administrador de
+  // organización el formulario no ofrece lo que el servidor rechazaría con 403.
+  describe('claves globales según quién tiene la sesión', () => {
+    it('un administrador de organización ve los campos globales en solo lectura', async () => {
+      authState.user = { id: 7, username: 'admin_org', is_superadmin: false };
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByText('Configuración del sistema');
+
+      expect(fieldFor('Nombre del sistema', 'input')).toBeDisabled();
+      expect(fieldFor('Prefijo de tickets', 'input')).toBeDisabled();
+      // El resto de la configuración SÍ es de su organización.
+      expect(fieldFor('Nombre de la empresa', 'input')).toBeEnabled();
+      expect(fieldFor('Texto del pie de página', 'input')).toBeEnabled();
+      expect(screen.getByText(/Configuración global de la plataforma/)).toBeInTheDocument();
+      expect(screen.getByText(/sólo lo cambia un superadministrador/)).toBeInTheDocument();
+    });
+
+    it('aun así puede guardar la configuración de su organización', async () => {
+      authState.user = { id: 7, username: 'admin_org', is_superadmin: false };
+      const user = userEvent.setup();
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByText('Configuración del sistema');
+
+      const company = fieldFor('Nombre de la empresa', 'input');
+      await user.clear(company);
+      await user.type(company, 'Acme Sur');
+      await user.click(screen.getByRole('button', { name: 'Guardar configuración' }));
+
+      await waitFor(() =>
+        expect(api.patch).toHaveBeenCalledWith('/api/settings', expect.objectContaining({ company_name: 'Acme Sur' }))
+      );
+      expect(await screen.findByText('Configuración guardada correctamente.')).toBeInTheDocument();
+    });
+
+    it('un superadministrador sí puede editar los campos globales', async () => {
+      authState.user = { id: 9, username: 'super', is_superadmin: true };
+
+      renderWithProviders(<Settings />, { route: '/app/settings' });
+      await screen.findByText('Configuración del sistema');
+
+      expect(fieldFor('Nombre del sistema', 'input')).toBeEnabled();
+      expect(fieldFor('Prefijo de tickets', 'input')).toBeEnabled();
+      expect(screen.queryByText(/Configuración global de la plataforma/)).not.toBeInTheDocument();
+    });
   });
 });

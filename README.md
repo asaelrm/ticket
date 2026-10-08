@@ -2,6 +2,10 @@
 
 Sistema empresarial de gestión de tickets e incidencias. Backend `Node.js (Express)` + `SQLite`, frontend `React (Vite) + Tailwind`.
 
+> Entrega a infraestructura (requisitos, variables de entorno, migración MSSQL,
+> seguridad multiempresa, health check y limitaciones):
+> [`ENTREGA-INFRAESTRUCTURA.md`](ENTREGA-INFRAESTRUCTURA.md).
+
 ## Características
 
 - **Autenticación** por sesión con cookies `httpOnly`, hash de contraseñas con bcrypt, protección CSRF (double-submit) y rate limiting.
@@ -19,6 +23,10 @@ Sistema empresarial de gestión de tickets e incidencias. Backend `Node.js (Expr
 - **Filtros combinados** (fecha, período, categoría, departamento, usuario, prioridad, estado, búsqueda).
 - **Exportación CSV, Excel (XLSX) y PDF** de tickets y reportes CSV.
 - Recuperación de contraseña por token (en modo desarrollo se muestra el token en pantalla).
+- **Multiempresa**: organizaciones con usuarios, roles, catálogos, tickets,
+  notificaciones, configuración y trabajos de escalación aislados por
+  `organization_id`. API de organizaciones (`/api/organizations`) exclusiva de
+  SUPERADMIN: alta, edición y desactivación (sin borrado físico).
 
 ## Requisitos
 
@@ -328,5 +336,5 @@ Los valores se configuran en **Configuración → Escalación automática** (`0`
 
 ## Extensibilidad
 
-La arquitectura queda lista para: flujos de aprobación, encuestas avanzadas, inventario, integración LDAP/AD y multiempresa sin rehacer el núcleo.
+La arquitectura queda lista para: flujos de aprobación, encuestas avanzadas, inventario e integración LDAP/AD. El multiempresa ya está implementado (ver arriba).
 <!-- Prueba auto-push 09/20/2026 23:18:30 -->

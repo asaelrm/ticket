@@ -231,7 +231,7 @@ describe('Jobs de escalación automática', () => {
     const t = await newTicket(empC, { priority: 'LOW' });
     db.prepare("UPDATE tickets SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(t.id);
 
-    const result = runMaintenance();
+    const result = await runMaintenance();
     assert.ok(Number.isFinite(result.escalated));
 
     const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(t.id);
@@ -251,7 +251,7 @@ describe('Jobs de escalación automática', () => {
     try {
       const t = await newTicket(empC, { priority: 'LOW' });
       db.prepare("UPDATE tickets SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(t.id);
-      runMaintenance();
+      await runMaintenance();
       const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(t.id);
       assert.equal(ticket.priority, 'LOW');
     } finally {

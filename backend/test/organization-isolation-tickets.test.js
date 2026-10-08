@@ -507,14 +507,14 @@ describe('Defensa central y aislamiento global (ETAPA 3)', () => {
       reporter_email: `emp_isl3_b@organizacion.test`,
       assigned_to_id: techB,
     };
-    assert.equal(notifyCreated(cross), undefined, 'no hay correo de creación para un reportante de otra org');
-    assert.equal(notifyAssigned(cross, 'admin'), undefined, 'no hay correo de asignación para un técnico de otra org');
+    assert.equal(await notifyCreated(cross), undefined, 'no hay correo de creación para un reportante de otra org');
+    assert.equal(await notifyAssigned(cross, 'admin'), undefined, 'no hay correo de asignación para un técnico de otra org');
     await notifyComment(cross, { user_id: adminA, message: 'contexto cruzado' }, 'admin');
 
     // Notificaciones in-app: el mismo filtro central.
-    assert.equal(createNotification({ userId: empB, ticketId: ids.ticketA, type: 'TEST', title: 'X' }), null,
+    assert.equal(await createNotification({ userId: empB, ticketId: ids.ticketA, type: 'TEST', title: 'X' }), null,
       'la notificación de un usuario de B sobre un ticket de A se descarta');
-    assert.ok(createNotification({ userId: empA, ticketId: ids.ticketA, type: 'TEST', title: 'X' }),
+    assert.ok(await createNotification({ userId: empA, ticketId: ids.ticketA, type: 'TEST', title: 'X' }),
       'la notificación al usuario de la misma organización sí se crea');
 
     // Sin efectos secundarios: ninguna fila nueva en la bitácora, ninguna

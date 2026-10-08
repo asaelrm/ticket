@@ -288,6 +288,23 @@ CREATE TABLE IF NOT EXISTS settings (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
+-- V1: sobrescritura de configuración POR ORGANIZACIÓN (claves ORG_KEYS).
+-- `settings` sigue siendo la capa global/platform: los valores que aquí no se
+-- sobreescriben son los que hereda una organización que aún no ha configurado
+-- nada, de modo que una instalación existente conserva su comportamiento.
+-- Espejo de dbo.org_settings (src/db/mssql/schema.sql); el migrador
+-- sqlite-to-mssql ya la incluye en su lista de tablas.
+CREATE TABLE IF NOT EXISTS org_settings (
+  organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  key             TEXT NOT NULL,
+  value           TEXT NOT NULL,
+  updated_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  updated_at      TEXT,
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (organization_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_org_settings_organization ON org_settings(organization_id);
+
 -- 7. Bitácora de correos enviados (notificaciones)
 CREATE TABLE IF NOT EXISTS email_logs (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
