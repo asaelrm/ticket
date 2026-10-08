@@ -5,8 +5,9 @@ import fs from 'node:fs';
 import process from 'node:process';
 import config from '../src/config.js';
 import {
-  TABLES, SKIPPED_TABLES, IDENTITY_TABLES, assertTargetGuard, buildManifest, legacyOrganizationPlan, resolveSourcePath, summarizeValidationErrors, transformRow, validateSource,
+  TABLES, assertTargetGuard, buildManifest, legacyOrganizationPlan, resolveSourcePath, summarizeValidationErrors, validateSource,
 } from './migration/sqlite-to-mssql.js';
+import { createMssqlDriver, runApply } from './migration/mssql-apply.js';
 
 const mode = process.argv.includes('--apply') ? 'apply' : process.argv.includes('--dry-run') ? 'dry-run' : null;
 if (!mode) throw new Error('Uso: node scripts/migrate-sqlite-to-mssql.js --dry-run|--apply');
@@ -38,23 +39,8 @@ const target = assertTargetGuard(process.env);
 const { default: sql } = await import('mssql');
 const pool = await sql.connect({ server: target.server, database: target.database, options: { instanceName: target.instance, trustServerCertificate: false }, user: process.env.DB_USER, password: process.env.DB_PASSWORD });
 try {
-  const count = await pool.request().query(`SELECT SUM(rows) AS count FROM sys.partitions WHERE index_id IN (0,1) AND object_id IN (${TABLES.filter((x) => !SKIPPED_TABLES.has(x)).map((x) => `OBJECT_ID('dbo.${x}')`).join(',')})`);
-  if (Number(count.recordset[0].count || 0) !== 0) throw new Error('Destino no está vacío; APPLY se niega a continuar.');
-  const tx = new sql.Transaction(pool); await tx.begin();
-  try {
-    for (const table of TABLES) {
-      if (SKIPPED_TABLES.has(table)) continue;
-      const rows = source[table] || []; if (!rows.length) continue;
-      const usesIdentity = IDENTITY_TABLES.has(table);
-      if (usesIdentity) await new sql.Request(tx).query(`SET IDENTITY_INSERT dbo.${table} ON`);
-      try {
-        for (const row of rows) { const data = transformRow(table, row, source, legacyOrganization); const request = new sql.Request(tx); const columns = Object.keys(data); columns.forEach((key) => request.input(key, data[key])); await request.query(`INSERT dbo.${table} (${columns.map((c) => `[${c}]`).join(',')}) VALUES (${columns.map((c) => `@${c}`).join(',')})`); manifest.tables[table].inserted_count += 1; }
-      } finally {
-        // IDENTITY_INSERT is session-scoped; turn it off even when a row fails.
-        if (usesIdentity) await new sql.Request(tx).query(`SET IDENTITY_INSERT dbo.${table} OFF`);
-      }
-    }
-    await tx.commit();
-  } catch (error) { try { await tx.rollback(); } finally { throw error; } }
+  // Toda la escritura vive en runApply: chequeo de vacuidad con bloqueo, IDs,
+  // organización legacy, secuencias y rollback vía el puerto del driver.
+  await runApply({ source, legacyOrganization, manifest, driver: createMssqlDriver(sql, pool) });
 } finally { await pool.close(); }
 manifest.finished_at = new Date().toISOString(); console.log(JSON.stringify(manifest, null, 2));
