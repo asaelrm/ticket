@@ -11,6 +11,52 @@ export const LEGACY_SEQUENCE_NAME = 'ticket_number';
 // lo comparten, y APPLY se niega a escribir si cualquier tabla tiene filas.
 export const EMPTY_TARGET_ERROR = 'Destino no está vacío; APPLY se niega a continuar.';
 
+// Política de cuentas globales, en paridad con src/orgPolicy.js. MSSQL permite
+// users.organization_id NULL, pero esa apertura NO convierte a `users` en tabla
+// global (no está en GLOBAL_TABLES): solo una cuenta SUPERADMIN puede ocupar el
+// NULL y el precheck lo exige antes de aceptarla.
+export const SUPERADMIN_ROLE_CODE = 'SUPERADMIN';
+// Permiso que src/seed.js asigna a todos los roles y excluye expresamente de
+// ADMIN: identifica al rol global sin depender de su id ni de su nombre.
+export const SUPERADMIN_GLOBAL_PERMISSION = 'organization.manage';
+
+export function roleFor(source, roleId) {
+  if (roleId == null) return null;
+  return (source.roles || []).find((role) => role.id === roleId) || null;
+}
+
+export function roleHasPermission(source, roleId, permissionCode) {
+  if (roleId == null) return false;
+  const granted = new Set((source.role_permissions || [])
+    .filter((link) => link.role_id === roleId).map((link) => link.permission_id));
+  return (source.permissions || []).some((permission) => permission.code === permissionCode && granted.has(permission.id));
+}
+
+export function isSuperadminRole(source, row) {
+  const role = roleFor(source, row?.role_id);
+  return !!role && role.code === SUPERADMIN_ROLE_CODE;
+}
+
+// Regla única de organización para una fila de `users`. Devuelve el mensaje de
+// rechazo (sin datos personales) o null si el estado es válido:
+//   - SUPERADMIN global: organization_id NULL + permiso global + sin departamento.
+//   - Cualquier otro usuario: organization_id obligatorio.
+export function userOrganizationError(row, source, organizationId) {
+  const label = `users#${row?.id ?? '?'}`;
+  const role = roleFor(source, row?.role_id);
+  const isSuperadmin = !!role && role.code === SUPERADMIN_ROLE_CODE;
+  if (!isSuperadmin) {
+    if (organizationId == null) return `${label}: un usuario normal debe pertenecer a una organización`;
+    return null;
+  }
+  if (organizationId != null) return `${label}: un SUPERADMIN es global; organization_id debe ser NULL`;
+  if (!roleHasPermission(source, role.id, SUPERADMIN_GLOBAL_PERMISSION)) {
+    return `${label}: el rol SUPERADMIN no tiene el permiso global ${SUPERADMIN_GLOBAL_PERMISSION}`;
+  }
+  if (row?.department_id != null) return `${label}: una cuenta global no puede pertenecer a un departamento`;
+  return null;
+}
+
 export function resolveSourcePath(runtimeDbFile, explicitSource = undefined) {
   if (explicitSource !== undefined) {
     if (!explicitSource || typeof explicitSource !== 'string') throw new Error('--source requiere una ruta de archivo SQLite.');
@@ -21,14 +67,19 @@ export function resolveSourcePath(runtimeDbFile, explicitSource = undefined) {
 }
 
 export function legacyOrganizationPlan(source, { code, name } = {}) {
+  // Una cuenta SUPERADMIN global (organization_id NULL) no es un dato legacy:
+  // no dispara la creación del tenant ni se asocia a él. El resto de tablas se
+  // evalúan igual que siempre (ninguna fila con organización propia).
+  const legacyRows = (table) => (source[table] || [])
+    .filter((row) => !(table === 'users' && isSuperadminRole(source, row)));
   const hasLegacyTenantRows = ['departments', 'categories', 'users', 'teams', 'tickets', 'canned_responses', 'kb_categories', 'kb_articles']
-    .some((table) => (source[table] || []).length > 0 && !(source[table] || []).some((row) => row.organization_id != null));
+    .some((table) => { const rows = legacyRows(table); return rows.length > 0 && !rows.some((row) => row.organization_id != null); });
   if (!hasLegacyTenantRows) return null;
   if (!code) throw new Error('Legacy tenant requiere --legacy-org-code explícito.');
   if (!LEGACY_ORG_CODE.test(code)) throw new Error('legacy_org_code inválido; use A-Z, 0-9, _ o -, comenzando por letra.');
   const affectedTables = Object.fromEntries(
     ['departments', 'categories', 'users', 'teams', 'tickets', 'canned_responses', 'ticket_comments', 'ticket_attachments', 'ticket_history', 'notifications', 'kb_categories', 'kb_articles', 'kb_article_history']
-      .map((table) => [table, (source[table] || []).length]).filter(([, count]) => count > 0),
+      .map((table) => [table, legacyRows(table).length]).filter(([, count]) => count > 0),
   );
   const emailLogs = (source.email_logs || []).filter((row) => row.ticket_id != null).length;
   if (emailLogs) affectedTables.email_logs = emailLogs;
@@ -312,10 +363,20 @@ export function sourceFingerprint(rowsByTable) {
 
 export function organizationFor(table, row, source, legacyOrganization = null) {
   if (GLOBAL_TABLES.has(table) || table === 'organizations') return row.organization_id ?? null;
+  // Una cuenta SUPERADMIN global no hereda nunca la organización legacy:
+  // organization_id NULL es su estado válido y lo decide el rol, no el dato.
+  if (table === 'users' && row.organization_id == null) {
+    return isSuperadminRole(source, row) ? null : (legacyOrganization?.resolvedId ?? legacyOrganization?.marker ?? null);
+  }
   if (table === 'email_logs') {
-    if (row.organization_id != null) return row.organization_id;
-    const ticket = (source.tickets || []).find((r) => r.id === row.ticket_id);
-    return ticket ? organizationFor('tickets', ticket, source, legacyOrganization) : null;
+    // El ticket es la fuente de verdad: el log notifica sobre un ticket, así que
+    // su organización es la de ese ticket (etiquetada o legacy).
+    const ticket = row.ticket_id == null ? null : (source.tickets || []).find((r) => r.id === row.ticket_id);
+    if (ticket) return organizationFor('tickets', ticket, source, legacyOrganization);
+    // Sin ticket solo vale una organización explícita del propio registro; la
+    // legacy NUNCA se asigna aquí, porque sería decidir a qué tenant pertenece
+    // un correo huérfano.
+    return row.organization_id ?? null;
   }
   if (row.organization_id != null) return row.organization_id;
   const parent = PARENT[table];
@@ -340,10 +401,62 @@ export function transformRow(table, row, source, legacyOrganization = null) {
   }
   if (!GLOBAL_TABLES.has(table) && table !== 'organizations') {
     output.organization_id = organizationFor(table, row, source, legacyOrganization);
-    if (output.organization_id == null) throw new Error(`${table}#${row.id ?? '?'}: organization_id requiere decisión explícita`);
+    // `users` es la única tabla que puede quedar con organization_id NULL y
+    // solo si el rol y los permisos demuestran que es una cuenta global.
+    if (table === 'users') {
+      const error = userOrganizationError(row, source, output.organization_id);
+      if (error) throw new Error(error);
+      return output;
+    }
+    if (output.organization_id == null) {
+      if (table === 'email_logs') {
+        // Mensaje sanitizado: identifica la fila sin volcar destinatario,
+        // asunto ni cuerpo del correo.
+        const detail = row.ticket_id != null
+          ? 'el ticket referenciado no existe en el origen, no se puede derivar organization_id'
+          : 'sin ticket_id ni organization_id explícito; se requiere decisión explícita';
+        throw new Error(`email_logs#${row.id ?? '?'}: ${detail}`);
+      }
+      throw new Error(`${table}#${row.id ?? '?'}: organization_id requiere decisión explícita`);
+    }
   }
   return output;
 }
+
+// Restricciones PRIMARY KEY y UNIQUE de src/db/mssql/schema.sql, con la forma en
+// que el precheck las cubre. `exempt` documenta las que NO generan chequeo y por
+// qué; test/migrate-schema-parity.test.js exige paridad exacta con el DDL, de
+// modo que una restricción nueva en el esquema obliga a declararla aquí.
+//   - Las claves que llevan organization_id se comparan contra la organización
+//     DERIVADA (marcador legacy o ID real), nunca contra la columna cruda.
+//   - UQ_(organization_id, id) queda exenta: su duplicado implicaría dos filas
+//     con el mismo id, ya cubierto por la PK global de la tabla.
+export const UNIQUE_KEYS = {
+  organizations: [{ columns: ['id'] }, { columns: ['code'] }],
+  roles: [{ columns: ['id'] }, { columns: ['code'] }],
+  permissions: [{ columns: ['id'] }, { columns: ['code'] }],
+  role_permissions: [{ columns: ['role_id', 'permission_id'] }],
+  departments: [{ columns: ['id'] }, { columns: ['organization_id', 'name'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  categories: [{ columns: ['id'] }, { columns: ['organization_id', 'name'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  users: [{ columns: ['id'] }, { columns: ['username'] }, { columns: ['email'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  teams: [{ columns: ['id'] }, { columns: ['organization_id', 'name'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  team_members: [{ columns: ['team_id', 'user_id'] }],
+  tickets: [{ columns: ['id'] }, { columns: ['organization_id', 'ticket_number'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  canned_responses: [{ columns: ['id'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  ticket_comments: [{ columns: ['id'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  ticket_attachments: [{ columns: ['id'] }, { columns: ['stored_name'] }],
+  ticket_history: [{ columns: ['id'] }],
+  sessions: [{ columns: ['sid'], exempt: 'tabla no migrada (SKIPPED_TABLES)' }],
+  sequences: [{ columns: ['name'] }],
+  settings: [{ columns: ['key'] }],
+  org_settings: [{ columns: ['organization_id', 'key'] }],
+  email_logs: [{ columns: ['id'] }],
+  notifications: [{ columns: ['id'] }],
+  kb_categories: [{ columns: ['id'] }, { columns: ['organization_id', 'name'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  kb_articles: [{ columns: ['id'] }, { columns: ['organization_id', 'id'], exempt: 'implicada por la PK id' }],
+  kb_ticket_articles: [{ columns: ['article_id', 'ticket_id'] }],
+  kb_article_history: [{ columns: ['id'] }],
+};
 
 export function validateSource(source, legacyOrganization = null) {
   const errors = [];
@@ -366,8 +479,18 @@ export function validateSource(source, legacyOrganization = null) {
     // de su padre, ni por columna propia ni por el marcador/ID resuelto.
     const childOrganization = organizationFor(table, row, source, legacyOrganization);
     const parentOrganization = organizationFor(parent, parentRow, source, legacyOrganization);
-    if (childOrganization == null || parentOrganization == null || childOrganization === parentOrganization) continue;
+    // Un hijo etiquetado no puede apuntar a un padre SIN organización (una
+    // cuenta global): la FK compuesta (organization_id, id) del destino no
+    // encontraría la clave y APPLY fallaría a mitad de escritura.
     const key = `${table}#${row.id ?? '?'}`;
+    if (childOrganization != null && parentOrganization == null) {
+      if (!isolationReported.has(key)) {
+        isolationReported.add(key);
+        errors.push({ table, id: row.id ?? null, error: `aislamiento: ${table}#${row.id ?? '?'} referencia ${parent}#${parentRow.id} sin organización` });
+      }
+      continue;
+    }
+    if (childOrganization == null || childOrganization === parentOrganization) continue;
     if (isolationReported.has(key)) continue;
     isolationReported.add(key);
     errors.push({ table, id: row.id ?? null, error: `aislamiento: organization_id ${childOrganization} difiere de ${parent}#${parentRow.id} (${parentOrganization})` });
@@ -383,17 +506,39 @@ export function validateSource(source, legacyOrganization = null) {
       }
     }
   }
+  // email_logs: la organización derivada del ticket manda. Si el registro trae
+  // además una organization_id explícita, debe coincidir con la del ticket;
+  // si no, el dato es ambiguo y se rechaza (nunca se reasila en silencio).
+  for (const row of source.email_logs || []) {
+    if (row.ticket_id == null || row.organization_id == null) continue;
+    const ticket = (source.tickets || []).find((r) => r.id === row.ticket_id);
+    if (!ticket) continue; // ya reportado como FK inexistente
+    const ticketOrganization = organizationFor('tickets', ticket, source, legacyOrganization);
+    if (ticketOrganization != null && ticketOrganization !== row.organization_id) {
+      errors.push({ table: 'email_logs', id: row.id ?? null, error: `organization_id ${row.organization_id} difiere de la organización del ticket ${row.ticket_id} (${ticketOrganization})` });
+    }
+  }
   const duplicate = (table, columns) => {
     const seen = new Set(); for (const row of source[table] || []) {
       // La unicidad es POR ORGANIZACIÓN: se compara la organización derivada
       // (marcador legacy o ID real), no la columna cruda, vacía en el legacy.
-      const key = columns.map((c) => (c === 'organization_id'
+      const values = columns.map((c) => (c === 'organization_id'
         ? (organizationFor(table, row, source, legacyOrganization) ?? row.organization_id ?? null)
-        : row[c])).join('\u0000'); if (seen.has(key)) errors.push({ table, id: row.id ?? null, error: `duplicado ${columns.join('+')}` }); seen.add(key); }
+        : row[c]));
+      // Una clave incompleta no demuestra nada: la fila ya se rechaza por su
+      // propio error de transformación, no por un duplicado inventado.
+      if (values.some((value) => value == null)) continue;
+      // SQL Server aplica una colación case-insensitive por defecto: dos claves
+      // que solo difieren en mayúsculas también chocan en el destino.
+      const key = values.map((value) => (typeof value === 'string' ? value.toLowerCase() : value)).join('\u0000');
+      if (seen.has(key)) errors.push({ table, id: row.id ?? null, error: `duplicado ${columns.join('+')}` }); seen.add(key); }
   };
-  duplicate('tickets', ['organization_id', 'ticket_number']);
-  duplicate('org_settings', ['organization_id', 'key']);
-  for (const table of ['departments', 'categories', 'teams', 'kb_categories']) duplicate(table, ['organization_id', 'name']);
+  // Cada restricción UNIQUE/PK de src/db/mssql/schema.sql, declarada en
+  // UNIQUE_KEYS y verificada contra el DDL por test/migrate-schema-parity.test.js.
+  for (const [table, keys] of Object.entries(UNIQUE_KEYS)) {
+    if (SKIPPED_TABLES.has(table)) continue;
+    for (const key of keys) if (!key.exempt) duplicate(table, key.columns);
+  }
   return errors;
 }
 

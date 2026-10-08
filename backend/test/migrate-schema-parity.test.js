@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { COLUMNS, IDENTITY_TABLES, TABLES, TENANT_FKS } from '../scripts/migration/sqlite-to-mssql.js';
+import { COLUMNS, IDENTITY_TABLES, TABLES, TENANT_FKS, UNIQUE_KEYS } from '../scripts/migration/sqlite-to-mssql.js';
 
 // Paridad entre la allowlist del migrador y src/db/mssql/schema.sql: si alguien
 // cambia el esquema destino sin actualizar COLUMNS/TENANT_FKS/IDENTITY_TABLES,
@@ -80,4 +80,53 @@ test('M5 cada FK compuesta exige la misma organización y las simples solo exist
   }
   const plain = TENANT_FKS.filter(([, , , sameOrg]) => !sameOrg).map(([table, column]) => `${table}.${column}`);
   assert.deepEqual(sorted(plain), sorted(['role_permissions.role_id', 'role_permissions.permission_id', 'users.role_id', 'settings.updated_by', 'org_settings.updated_by']));
+});
+
+// Restricciones PRIMARY KEY y UNIQUE reales del DDL, normalizadas a columnas.
+function parseUniqueKeys() {
+  const keys = {};
+  const table = /CREATE TABLE dbo\.(\w+)\s*\(([\s\S]*?)\n\);/g;
+  let match;
+  while ((match = table.exec(ddl))) {
+    const body = match[2];
+    const found = [];
+    for (const pattern of [
+      /CONSTRAINT\s+\w+\s+PRIMARY KEY CLUSTERED\s*\(([^)]+)\)/g,
+      /CONSTRAINT\s+\w+\s+UNIQUE\s*\(([^)]+)\)/g,
+    ]) {
+      let key;
+      while ((key = pattern.exec(body))) {
+        found.push(key[1].split(',').map((column) => column.trim().replace(/[[\]]/g, '')).join('+'));
+      }
+    }
+    keys[match[1]] = sorted(found);
+  }
+  return keys;
+}
+
+test('M5 UNIQUE_KEYS cubre exactamente las restricciones UNIQUE y PRIMARY KEY de schema.sql', () => {
+  const schemaKeys = parseUniqueKeys();
+  assert.deepEqual(sorted(Object.keys(schemaKeys)), sorted(TABLES), 'el DDL declara claves para cada tabla');
+  for (const table of TABLES) {
+    const declared = sorted((UNIQUE_KEYS[table] || []).map((key) => key.columns.join('+')));
+    assert.deepEqual(declared, schemaKeys[table],
+      `${table}: UNIQUE_KEYS no coincide con las restricciones del esquema`);
+    for (const key of UNIQUE_KEYS[table] || []) {
+      assert.ok(key.exempt || key.columns.length > 0, `${table}: clave sin decidir`);
+    }
+  }
+  const checked = Object.entries(UNIQUE_KEYS)
+    .filter(([table]) => table !== 'sessions')
+    .flatMap(([table, keys]) => keys.filter((key) => !key.exempt).map((key) => `${table}(${key.columns.join('+')})`));
+  assert.ok(checked.includes('roles(code)') && checked.includes('permissions(code)'),
+    'roles.code y permissions.code deben estar cubiertos por el precheck');
+  assert.ok(checked.includes('users(username)') && checked.includes('users(email)'),
+    'las unicidades globales de users también');
+  assert.ok(checked.includes('ticket_attachments(stored_name)'), 'stored_name es UNIQUE global en el esquema');
+});
+
+test('M5 el esquema define color solo con CHECK, nunca con UNIQUE', () => {
+  assert.match(ddl, /CK_categories_color CHECK/, 'categories.color tiene restricción de formato');
+  assert.match(ddl, /CK_kb_categories_color CHECK/, 'kb_categories.color tiene restricción de formato');
+  assert.doesNotMatch(ddl, /CONSTRAINT\s+\w+\s+UNIQUE\s*\(\s*color\s*\)/i, 'ninguna tabla declara UNIQUE(color)');
 });
