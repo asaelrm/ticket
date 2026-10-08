@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import process from 'node:process';
 import config from '../src/config.js';
 import {
-  TABLES, assertTargetGuard, buildManifest, legacyOrganizationPlan, resolveSourcePath, summarizeValidationErrors, validateSource,
+  TABLES, assertTargetGuard, buildManifest, legacyOrganizationPlan, mssqlConnectionConfig, resolveSourcePath, summarizeValidationErrors, validateSource,
 } from './migration/sqlite-to-mssql.js';
 import { createMssqlDriver, runApply } from './migration/mssql-apply.js';
 
@@ -37,10 +37,13 @@ if (errors.length) throw new Error(`Precheck falló con ${errors.length} error(e
 
 const target = assertTargetGuard(process.env);
 const { default: sql } = await import('mssql');
-const pool = await sql.connect({ server: target.server, database: target.database, options: { instanceName: target.instance, trustServerCertificate: false }, user: process.env.DB_USER, password: process.env.DB_PASSWORD });
+const pool = await sql.connect(mssqlConnectionConfig(target, process.env));
+const onDiagnostic = process.env.MIGRATION_DIAGNOSTICS === '1'
+  ? ({ stage, table, spid }) => console.error(`[M5 diagnostic] stage=${stage} table=${table ?? '-'} spid=${spid ?? '?'}`)
+  : null;
 try {
   // Toda la escritura vive en runApply: chequeo de vacuidad con bloqueo, IDs,
   // organización legacy, secuencias y rollback vía el puerto del driver.
-  await runApply({ source, legacyOrganization, manifest, driver: createMssqlDriver(sql, pool) });
+  await runApply({ source, legacyOrganization, manifest, driver: createMssqlDriver(sql, pool, { onDiagnostic }) });
 } finally { await pool.close(); }
 manifest.finished_at = new Date().toISOString(); console.log(JSON.stringify(manifest, null, 2));

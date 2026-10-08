@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import sql from 'mssql';
 import {
   COLUMNS, EMPTY_TARGET_ERROR, TABLES, assertAllowedColumns, buildManifest, legacyOrganizationPlan,
   sanitizeManifest, summarizeValidationErrors,
@@ -14,25 +15,37 @@ const planFor = (source, code = 'CMUCE') => legacyOrganizationPlan(source, { cod
 
 // Doble mínimo de la API de node-mssql: registra cada sentencia y devuelve las
 // respuestas que el driver real espera del servidor.
-function fakeMssql({ lockResult = 0, totalRows = 0, organizationId = 42 } = {}) {
-  const state = { queries: [], begun: 0, committed: 0, rolledBack: 0 };
+function fakeMssql({ lockResult = 0, totalRows = 0, organizationId = 42, failInsertTable = null, failIdentityOffTable = null } = {}) {
+  const state = { queries: [], batches: [], begun: 0, committed: 0, rolledBack: 0, sessions: new Set(), directRequestCalls: 0 };
   class FakeRequest {
-    constructor(scope) { this.transaction = scope; this.values = {}; }
+    constructor(scope) { this.transaction = scope; this.session = scope?.session; this.values = {}; }
     input(name, value) { this.values[name] = value; return this; }
+    async batch(text) { state.batches.push({ text, session: this.session }); return this.query(text); }
     async query(text) {
-      state.queries.push({ text, values: { ...this.values }, inTransaction: Boolean(this.transaction) });
+      state.queries.push({ text, values: { ...this.values }, inTransaction: Boolean(this.transaction), session: this.session });
+      if (this.session) state.sessions.add(this.session);
       if (text.includes('sp_getapplock')) return { recordset: [{ lock_result: lockResult }] };
+      if (text.includes('@@SPID')) return { recordset: [{ spid: 712 }] };
       if (text.includes('COUNT(*)')) return { recordset: [{ count: totalRows }] };
       if (text.includes('OUTPUT INSERTED.id')) return { recordset: [{ id: organizationId }] };
+      const table = /^INSERT dbo\.(\w+)/.exec(text)?.[1] || null;
+      if (table && table === failInsertTable) throw new Error(`fallo primario en ${table}`);
+      const identityOff = /^SET IDENTITY_INSERT dbo\.(\w+) OFF$/.exec(text)?.[1] || null;
+      if (identityOff && identityOff === failIdentityOffTable) throw new Error(`fallo de limpieza en ${identityOff}`);
       return { recordset: [] };
     }
   }
   class FakeTransaction {
+    constructor() { this.session = Symbol('pinned-session'); }
     async begin() { state.begun += 1; }
     async commit() { state.committed += 1; }
     async rollback() { state.rolledBack += 1; }
+    request() { return new FakeRequest(this); }
   }
-  return { state, sql: { Request: FakeRequest, Transaction: FakeTransaction } };
+  class ForbiddenDirectRequest {
+    constructor() { state.directRequestCalls += 1; throw new Error('el driver debe usar transaction.request()'); }
+  }
+  return { state, sql: { Request: ForbiddenDirectRequest, Transaction: FakeTransaction } };
 }
 
 async function applyWithFakeMssql(options, source = legacySource()) {
@@ -84,6 +97,11 @@ test('M5 el driver real emite bloqueo, recuento, IDENTITY emparejado y parámetr
   assert.match(state.queries[0].text, /sp_getapplock/, 'primer paso: bloqueo');
   assert.match(state.queries[1].text, /COUNT\(\*\)/, 'segundo paso: destino vacío dentro de la transacción');
   assert.equal(state.queries.every((query) => query.inTransaction), true, 'todas las sentencias van en la transacción');
+  assert.equal(state.sessions.size, 1, 'ON, INSERT y OFF comparten una sola sesión física retenida por la transacción');
+  assert.equal(state.directRequestCalls, 0, 'no se construyen Request sueltos fuera de transaction.request()');
+  const identityBatches = state.batches.filter(({ text }) => text.startsWith('SET IDENTITY_INSERT'));
+  assert.ok(identityBatches.length > 0, 'IDENTITY_INSERT se emite por batch(), fuera del alcance de sp_executesql');
+  assert.equal(identityBatches.every(({ session }) => session === [...state.sessions][0]), true, 'los batches de identidad usan la sesión retenida');
 
   const inserts = state.queries.filter((query) => query.text.startsWith('INSERT'));
   assert.ok(inserts.length > 0);
@@ -106,6 +124,34 @@ test('M5 el driver real emite bloqueo, recuento, IDENTITY emparejado y parámetr
   assert.ok(state.queries.some((query) => /OUTPUT INSERTED\.id/.test(query.text)), 'la organización legacy se crea leyendo el ID real');
 });
 
+test('M5 usa la API real node-mssql Transaction.request para fijar la sesión', () => {
+  // No abre red ni base: verifica directamente el contrato del driver instalado.
+  const transaction = new sql.Transaction({});
+  const first = transaction.request();
+  const second = transaction.request();
+  assert.equal(first.parent, transaction);
+  assert.equal(second.parent, transaction);
+  assert.notEqual(first, second, 'cada sentencia puede tener su Request, pero ambos pertenecen a la misma Transaction');
+});
+
+test('M5 diagnóstico opt-in prueba ON, INSERT y OFF de roles en el mismo SPID sin exponer filas', async () => {
+  const source = legacySource();
+  const plan = planFor(source);
+  const manifest = buildManifest(source, { instance: 'SIFHADEV', database: 'VALIDACION' }, plan);
+  const fake = fakeMssql();
+  const events = [];
+  await runApply({
+    source,
+    legacyOrganization: plan,
+    manifest,
+    driver: createMssqlDriver(fake.sql, {}, { onDiagnostic: (event) => events.push(event) }),
+  });
+  const roles = events.filter((event) => event.table === 'roles');
+  assert.deepEqual(roles.map((event) => event.stage), ['identity_on:before', 'identity_on:after', 'insert:before', 'insert:after', 'identity_off:before', 'identity_off:after']);
+  assert.deepEqual(new Set(roles.map((event) => event.spid)), new Set([712]));
+  assert.equal(Object.keys(roles[0]).sort().join(','), 'spid,stage,table', 'el diagnóstico no incluye valores de filas');
+});
+
 test('M5 el driver real se niega si el destino no está vacío y no escribe nada', async () => {
   const { state, error } = await applyWithFakeMssql({ totalRows: 2 });
   assert.ok(error instanceof Error);
@@ -123,6 +169,15 @@ test('M5 el driver real revierte si el bloqueo de migración no se concede', asy
   assert.equal(state.committed, 0);
   assert.equal(state.rolledBack, 1);
   assert.equal(state.queries.length, 1, 'se corta antes del recuento');
+});
+
+test('M5 preserva el error primario si también falla IDENTITY_INSERT OFF', async () => {
+  const { state, error } = await applyWithFakeMssql({ failInsertTable: 'roles', failIdentityOffTable: 'roles' });
+  assert.ok(error instanceof Error);
+  assert.match(error.message, /fallo primario en roles/);
+  assert.match(error.identityInsertCleanupError?.message || '', /fallo de limpieza en roles/);
+  assert.equal(state.rolledBack, 1);
+  assert.equal(state.committed, 0);
 });
 
 test('M5 el manifest solo publica campos de la allowlist y enmascara nombres sensibles', () => {

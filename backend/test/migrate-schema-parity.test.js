@@ -10,6 +10,7 @@ import { COLUMNS, IDENTITY_TABLES, TABLES, TENANT_FKS, UNIQUE_KEYS } from '../sc
 // las pruebas fallan antes de que APPLY toque el servidor.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ddl = fs.readFileSync(path.join(here, '..', 'src', 'db', 'mssql', 'schema.sql'), 'utf8');
+const preflight = fs.readFileSync(path.join(here, '..', 'scripts', 'migration', 'verify-m5-validation.js'), 'utf8');
 const COLUMN_TYPE = /^(\[?\w+\]?)\s+(identity|bigint|int|nvarchar|varchar|bit|datetime2|decimal|varbinary|date|time|uniqueidentifier|float|real|smallint|tinyint|text|ntext)\b/i;
 
 function parseSchema() {
@@ -59,6 +60,18 @@ test('M5 COLUMNS replica exactamente las columnas de cada tabla en schema.sql', 
 
 test('M5 IDENTITY_TABLES coincide con las tablas IDENTITY del esquema', () => {
   assert.deepEqual(sorted(IDENTITY_TABLES), sorted(schema.identities));
+});
+
+test('M5 preflight obtiene seed e increment desde sys.identity_columns', () => {
+  const match = /const identityCols = await pool\.request\(\)\.query\(`([\s\S]*?)`\);/.exec(preflight);
+  assert.ok(match, 'el preflight declara una consulta de metadatos IDENTITY');
+  const identityQuery = match[1];
+  assert.match(identityQuery, /FROM\s+sys\.identity_columns\s+AS\s+ic/i);
+  assert.match(identityQuery, /INNER\s+JOIN\s+sys\.columns\s+AS\s+c[\s\S]*?c\.column_id\s*=\s*ic\.column_id/i);
+  assert.match(identityQuery, /INNER\s+JOIN\s+sys\.tables\s+AS\s+t/i);
+  assert.match(identityQuery, /ic\.seed_value/i);
+  assert.match(identityQuery, /ic\.increment_value/i);
+  assert.doesNotMatch(identityQuery, /\bc\.(?:seed_value|increment_value)\b/i);
 });
 
 test('M5 TENANT_FKS se deriva de todas las FKs definidas en schema.sql', () => {

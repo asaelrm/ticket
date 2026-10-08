@@ -45,6 +45,30 @@ export function appLockStatement() {
   return `DECLARE @lock_result INT; EXEC @lock_result = sp_getapplock @Resource = N'${MIGRATION_APPLOCK}', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = ${MIGRATION_APPLOCK_TIMEOUT_MS}; SELECT @lock_result AS lock_result;`;
 }
 
+export async function withIdentityInsert(driver, table, write) {
+  await driver.setIdentityInsert(table, true);
+  let primaryError = null;
+  try {
+    return await write();
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    try {
+      await driver.setIdentityInsert(table, false);
+    } catch (cleanupError) {
+      // La limpieza no debe ocultar el INSERT/FK/CHECK que originó el rollback.
+      if (primaryError) {
+        if (typeof primaryError === 'object' || typeof primaryError === 'function') {
+          primaryError.identityInsertCleanupError = cleanupError;
+        }
+      } else {
+        throw cleanupError;
+      }
+    }
+  }
+}
+
 // Secuencia completa de APPLY. Cualquier fallo revierte la transacción entera:
 // no hay truncate, merge ni reanudación.
 export async function runApply({ source, legacyOrganization, manifest, driver }) {
@@ -62,16 +86,13 @@ export async function runApply({ source, legacyOrganization, manifest, driver })
     //    y el contador continúa desde el máximo real, de modo que la organización
     //    legacy que se cree después nunca colisiona con un ID existente.
     if ((source.organizations || []).length) {
-      await driver.setIdentityInsert('organizations', true);
-      try {
+      await withIdentityInsert(driver, 'organizations', async () => {
         for (const row of source.organizations) {
           const data = transformRow('organizations', row, source, legacyOrganization);
           await driver.insertRow('organizations', Object.keys(data), data);
           manifest.tables.organizations.inserted_count += 1;
         }
-      } finally {
-        await driver.setIdentityInsert('organizations', false);
-      }
+      });
     }
     // 3. Organización legacy: se reutiliza la existente con ese código o se crea
     //    y se toma el ID real que devuelve el destino (nunca un valor supuesto).
@@ -95,17 +116,15 @@ export async function runApply({ source, legacyOrganization, manifest, driver })
         : (source[table] || []);
       if (!rows.length) continue;
       const usesIdentity = IDENTITY_TABLES.has(table);
-      if (usesIdentity) await driver.setIdentityInsert(table, true);
-      try {
+      const writeRows = async () => {
         for (const row of rows) {
           const data = transformRow(table, row, source, activeLegacy);
           await driver.insertRow(table, Object.keys(data), data);
           manifest.tables[table].inserted_count += 1;
         }
-      } finally {
-        // IDENTITY_INSERT es de sesión: se apaga aunque falle una fila.
-        if (usesIdentity) await driver.setIdentityInsert(table, false);
-      }
+      };
+      if (usesIdentity) await withIdentityInsert(driver, table, writeRows);
+      else await writeRows();
     }
     await driver.commit();
   } catch (error) {
@@ -116,9 +135,23 @@ export async function runApply({ source, legacyOrganization, manifest, driver })
 }
 
 // Driver real sobre node-mssql. Único punto que emite SQL contra el servidor.
-export function createMssqlDriver(sql, pool) {
+export function createMssqlDriver(sql, pool, { onDiagnostic = null } = {}) {
   let transaction = null;
-  const request = () => new sql.Request(transaction);
+  // IDENTITY_INSERT es estado de SESIÓN, no de transacción lógica. La API
+  // documentada de node-mssql para tomar la petición de la conexión retenida
+  // por una Transaction es transaction.request(); no se debe crear una
+  // petición desde el pool ni una conexión independiente entre ON/INSERT/OFF.
+  const request = () => {
+    if (!transaction) throw new Error('La transacción MSSQL no está iniciada.');
+    return transaction.request();
+  };
+  // Diagnóstico opt-in para investigar estado de sesión sin serializar filas,
+  // parámetros ni secretos. Cada lectura de @@SPID también usa la Transaction.
+  const diagnose = async (stage, table = null) => {
+    if (typeof onDiagnostic !== 'function') return;
+    const result = await request().query('SELECT @@SPID AS spid');
+    onDiagnostic({ stage, table, spid: Number(result.recordset?.[0]?.spid) || null });
+  };
   return {
     async begin() { transaction = new sql.Transaction(pool); await transaction.begin(); },
     async lockAndAssertTargetEmpty() {
@@ -137,11 +170,23 @@ export function createMssqlDriver(sql, pool) {
         .query(organizationInsertStatement());
       return created.recordset[0].id;
     },
-    async setIdentityInsert(table, enabled) { await request().query(identityInsertStatement(table, enabled)); },
+    async setIdentityInsert(table, enabled) {
+      const stage = `identity_${enabled ? 'on' : 'off'}`;
+      await diagnose(`${stage}:before`, table);
+      // query() se ejecuta mediante sp_executesql. IDENTITY_INSERT activado
+      // dentro de ese alcance dinámico no queda disponible para el INSERT
+      // parametrizado del request siguiente. batch() emite el SET en la sesión
+      // física retenida por la Transaction; los valores de filas siguen yendo
+      // por query() con parámetros.
+      await request().batch(identityInsertStatement(table, enabled));
+      await diagnose(`${stage}:after`, table);
+    },
     async insertRow(table, columns, data) {
+      await diagnose('insert:before', table);
       const statement = request();
       for (const column of columns) statement.input(column, data[column] ?? null);
       await statement.query(insertStatement(table, columns));
+      await diagnose('insert:after', table);
     },
     async commit() { await transaction.commit(); },
     async rollback() { if (transaction) await transaction.rollback(); },

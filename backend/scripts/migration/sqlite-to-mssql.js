@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 
 export const FORBIDDEN_INSTANCE_TOKENS = ['HPWJA', 'ZZZSQL'];
 export const FORBIDDEN_DATABASES = ['master', 'tempdb', 'model', 'msdb', 'SIFHA_Tickets_DEV'];
+export const VALIDATION_DATABASE_WITH_TRUSTED_SELF_SIGNED_CERT = 'SIFHA_Tickets_M5_Validation';
 export const SESSION_POLICY = 'REQUIRES_DECISION';
 export const LEGACY_ORG_CODE = /^[A-Z][A-Z0-9_-]{1,63}$/;
 // Clave global de numeración usada por el SQLite legacy. La numeración
@@ -323,6 +324,33 @@ export function assertTargetGuard(env) {
   if (!database || FORBIDDEN_DATABASES.map((x) => x.toUpperCase()).includes(database.toUpperCase())) throw new Error('Destino rechazado: base no permitida.');
   if (!env.MIGRATION_TARGET_DATABASE || env.MIGRATION_TARGET_DATABASE !== database) throw new Error('Defina MIGRATION_TARGET_DATABASE exactamente igual a DB_DATABASE.');
   return { server, instance, database };
+}
+
+// La migración siempre usa TLS. Aceptar un certificado autofirmado es una
+// excepción deliberada y limitada al entorno M5 de validación; no debe
+// convertirse en una opción implícita para otros destinos.
+export function mssqlConnectionConfig(target, env = process.env) {
+  const parseBoolean = (value, fallback) => {
+    if (value === undefined || value === null || value === '') return fallback;
+    return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+  };
+  const encrypt = parseBoolean(env.DB_ENCRYPT, true);
+  if (!encrypt) throw new Error('APPLY requiere DB_ENCRYPT=true; TLS no se puede desactivar.');
+  const trustServerCertificate = parseBoolean(env.DB_TRUST_SERVER_CERTIFICATE, false);
+  if (trustServerCertificate && String(target.database).toLowerCase() !== VALIDATION_DATABASE_WITH_TRUSTED_SELF_SIGNED_CERT.toLowerCase()) {
+    throw new Error('DB_TRUST_SERVER_CERTIFICATE=true solo se permite para SIFHA_Tickets_M5_Validation.');
+  }
+  return {
+    server: target.server,
+    database: target.database,
+    user: env.DB_USER,
+    password: env.DB_PASSWORD,
+    options: {
+      instanceName: target.instance,
+      encrypt: true,
+      trustServerCertificate,
+    },
+  };
 }
 
 export function toBit(value, label) {
