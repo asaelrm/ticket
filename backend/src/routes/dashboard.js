@@ -91,18 +91,24 @@ router.get('/sla', async (req, res) => {
     ...scope.params, ...OPEN_STATUSES, in24Iso
   )).n;
   const top = await runtime.queryMany(
-    `SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.sla_due_at,
-            (t.sla_due_at < ?) AS is_overdue,
-            r.name || ' ' || r.last_name AS reporter_name
-     FROM tickets t
-     LEFT JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id
-     WHERE ${scope.sql} AND ${inClause}
-     ORDER BY is_overdue DESC, t.sla_due_at ASC
-     LIMIT 6`,
+    slaTopSql(scope.sql, inClause),
     nowIso, ...scope.params, ...OPEN_STATUSES
   );
   res.json({ overdue, atRisk, healthy, top });
 });
+
+// La expresión CASE conserva 0/1 en SQLite y evita proyectar una condición
+// booleana, sintaxis que T-SQL no admite en una lista SELECT.
+export function slaTopSql(scopeSql, inClause) {
+  return `SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.sla_due_at,
+            CASE WHEN t.sla_due_at < ? THEN 1 ELSE 0 END AS is_overdue,
+            r.name || ' ' || r.last_name AS reporter_name
+     FROM tickets t
+     LEFT JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id
+     WHERE ${scopeSql} AND ${inClause}
+     ORDER BY is_overdue DESC, t.sla_due_at ASC
+     LIMIT 6`;
+}
 
 router.get('/by-priority', async (req, res) => {
   const scope = dashboardScope(req);
@@ -296,14 +302,14 @@ const ATTENTION_REASONS = [
 // (misma org), nunca del FK crudo. Una asignación legacy cross-org se considera
 // inválida: `assigned_to_id` y `technician_name` salen NULL y el ticket cuenta
 // como sin dueño, sin ocultar el ticket (que pertenece legítimamente a la org).
-function attentionFlaggedSql(openPh, ticketCond) {
+export function attentionFlaggedSql(openPh, ticketCond) {
   return `WITH flagged AS (
     SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.sla_due_at,
            u.id AS assigned_to_id, t.created_at, t.category_id, t.organization_id,
-           (t.sla_due_at IS NOT NULL AND t.sla_due_at < ?) AS is_overdue,
-           (t.priority = 'CRITICAL') AS is_critical,
-           (t.sla_due_at IS NOT NULL AND t.sla_due_at >= ? AND t.sla_due_at < ?) AS is_due_soon,
-           (u.id IS NULL) AS is_unassigned
+           CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ? THEN 1 ELSE 0 END AS is_overdue,
+           CASE WHEN t.priority = 'CRITICAL' THEN 1 ELSE 0 END AS is_critical,
+           CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at >= ? AND t.sla_due_at < ? THEN 1 ELSE 0 END AS is_due_soon,
+           CASE WHEN u.id IS NULL THEN 1 ELSE 0 END AS is_unassigned
     FROM tickets t
     LEFT JOIN users u ON u.id = t.assigned_to_id AND u.organization_id = t.organization_id
     WHERE ${ticketCond} AND t.status IN (${openPh})
@@ -312,8 +318,8 @@ function attentionFlaggedSql(openPh, ticketCond) {
 
 // Un ticket entra si cumple AL MENOS una condición. Es el mismo conjunto que
 // devuelve /needs-attention, sin el corte de presentación.
-const ATTENTION_FILTER =
-  'WHERE is_overdue OR is_critical OR is_due_soon OR is_unassigned';
+export const ATTENTION_FILTER =
+  'WHERE is_overdue = 1 OR is_critical = 1 OR is_due_soon = 1 OR is_unassigned = 1';
 
 router.get('/needs-attention', async (req, res) => {
   // ETAPA 4A: el CTE está acotado a la organización de la sesión, así que ni el
@@ -341,10 +347,10 @@ router.get('/needs-attention', async (req, res) => {
             f.assigned_to_id, f.created_at,
             f.is_overdue, f.is_critical, f.is_due_soon, f.is_unassigned,
             CASE
-              WHEN f.is_overdue    THEN 0
-              WHEN f.is_critical   THEN 1
-              WHEN f.is_due_soon   THEN 2
-              WHEN f.is_unassigned THEN 3
+              WHEN f.is_overdue = 1    THEN 0
+              WHEN f.is_critical = 1   THEN 1
+              WHEN f.is_due_soon = 1   THEN 2
+              WHEN f.is_unassigned = 1 THEN 3
               ELSE 9
             END AS urgency,
             u.name || ' ' || u.last_name AS technician_name,
@@ -387,10 +393,10 @@ router.get('/needs-attention', async (req, res) => {
   const totals = await runtime.queryOne(
     `${flaggedSql}
      SELECT COUNT(*) AS total,
-            COALESCE(SUM(CASE WHEN is_overdue THEN 1 ELSE 0 END), 0) AS overdue,
-            COALESCE(SUM(CASE WHEN is_critical THEN 1 ELSE 0 END), 0) AS critical,
-            COALESCE(SUM(CASE WHEN is_due_soon THEN 1 ELSE 0 END), 0) AS dueSoon,
-            COALESCE(SUM(CASE WHEN is_unassigned THEN 1 ELSE 0 END), 0) AS unassigned
+            COALESCE(SUM(CASE WHEN is_overdue = 1 THEN 1 ELSE 0 END), 0) AS overdue,
+            COALESCE(SUM(CASE WHEN is_critical = 1 THEN 1 ELSE 0 END), 0) AS critical,
+            COALESCE(SUM(CASE WHEN is_due_soon = 1 THEN 1 ELSE 0 END), 0) AS dueSoon,
+            COALESCE(SUM(CASE WHEN is_unassigned = 1 THEN 1 ELSE 0 END), 0) AS unassigned
      FROM flagged
      ${ATTENTION_FILTER}`,
     now, now, in24, ...scope.params, ...OPEN_STATUSES
