@@ -132,14 +132,14 @@ describe('Profile', () => {
     await screen.findByText('Cambiar contraseña');
 
     await user.type(passwordField('Contraseña actual'), 'vieja123');
-    await user.type(passwordField('Nueva contraseña'), 'nueva123');
-    await user.type(passwordField('Confirmar nueva'), 'nueva123');
+    await user.type(passwordField('Nueva contraseña'), 'NuevaClave123!');
+    await user.type(passwordField('Confirmar nueva'), 'NuevaClave123!');
     await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
 
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/auth/change-password', {
         current_password: 'vieja123',
-        new_password: 'nueva123',
+        new_password: 'NuevaClave123!',
       })
     );
     expect(await screen.findByText('Contraseña actualizada correctamente.')).toBeInTheDocument();
@@ -154,7 +154,7 @@ describe('Profile', () => {
     await screen.findByText('Cambiar contraseña');
 
     await user.type(passwordField('Contraseña actual'), 'vieja123');
-    await user.type(passwordField('Nueva contraseña'), 'nueva123');
+    await user.type(passwordField('Nueva contraseña'), 'NuevaClave123!');
     await user.type(passwordField('Confirmar nueva'), 'otra123');
     await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
 
@@ -174,10 +174,10 @@ describe('Profile', () => {
   });
 
   it.each([
-    ['sin contraseña actual', { next: 'nueva123', confirm: 'nueva123' }],
+    ['sin contraseña actual', { next: 'NuevaClave123!', confirm: 'NuevaClave123!' }],
     ['sin contraseña nueva', { current: 'vieja123', confirm: 'vieja123' }],
-    ['sin confirmación', { current: 'vieja123', next: 'nueva123' }],
-    ['con campos composed solo de espacios', { current: '  ', next: 'nueva123', confirm: 'nueva123' }],
+    ['sin confirmación', { current: 'vieja123', next: 'NuevaClave123!' }],
+    ['con campos composed solo de espacios', { current: '  ', next: 'NuevaClave123!', confirm: 'NuevaClave123!' }],
   ])('no llama a la API %s', async (_caso, valores) => {
     const user = userEvent.setup();
     renderWithProviders(<Profile />, { route: '/app/profile' });
@@ -201,7 +201,7 @@ describe('Profile', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Todos los campos son obligatorios');
 
     await user.type(passwordField('Contraseña actual'), 'vieja123');
-    await user.type(passwordField('Nueva contraseña'), 'nueva123');
+    await user.type(passwordField('Nueva contraseña'), 'NuevaClave123!');
     await user.type(passwordField('Confirmar nueva'), 'otra123');
     await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
 
@@ -210,7 +210,7 @@ describe('Profile', () => {
 
   it('el aviso de longitud mínima acompaña al formulario', async () => {
     renderWithProviders(<Profile />, { route: '/app/profile' });
-    expect(await screen.findByText('Mínimo 6 caracteres.')).toBeInTheDocument();
+    expect(await screen.findByText('Mínimo 12 caracteres.')).toBeInTheDocument();
   });
 
   it('muestra el error de la API al cambiar la contraseña y conserva lo escrito', async () => {
@@ -221,12 +221,12 @@ describe('Profile', () => {
     await screen.findByText('Cambiar contraseña');
 
     await user.type(passwordField('Contraseña actual'), 'vieja123');
-    await user.type(passwordField('Nueva contraseña'), 'nueva123');
-    await user.type(passwordField('Confirmar nueva'), 'nueva123');
+    await user.type(passwordField('Nueva contraseña'), 'NuevaClave123!');
+    await user.type(passwordField('Confirmar nueva'), 'NuevaClave123!');
     await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña actual no es correcta');
-    expect(passwordField('Nueva contraseña')).toHaveValue('nueva123');
+    expect(passwordField('Nueva contraseña')).toHaveValue('NuevaClave123!');
     expect(screen.getByRole('button', { name: 'Actualizar contraseña' })).toBeEnabled();
   });
 
@@ -236,15 +236,15 @@ describe('Profile', () => {
     await screen.findByText('Cambiar contraseña');
 
     await user.type(passwordField('Contraseña actual'), 'vieja123');
-    await user.type(passwordField('Nueva contraseña'), 'nueva123');
-    await user.type(passwordField('Confirmar nueva'), 'nueva123');
+    await user.type(passwordField('Nueva contraseña'), 'NuevaClave123!');
+    await user.type(passwordField('Confirmar nueva'), 'NuevaClave123!');
     await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
     expect(await screen.findByText('Contraseña actualizada correctamente.')).toBeInTheDocument();
 
     api.post.mockRejectedValueOnce(new Error('La contraseña actual no es correcta'));
     await user.type(passwordField('Contraseña actual'), 'otra123');
-    await user.type(passwordField('Nueva contraseña'), 'otra123456');
-    await user.type(passwordField('Confirmar nueva'), 'otra123456');
+    await user.type(passwordField('Nueva contraseña'), 'OtraClave123!');
+    await user.type(passwordField('Confirmar nueva'), 'OtraClave123!');
     await user.click(screen.getByRole('button', { name: 'Actualizar contraseña' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('La contraseña actual no es correcta');

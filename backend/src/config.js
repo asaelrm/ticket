@@ -75,9 +75,11 @@ const rootDir = path.resolve(__dirname, '..');
 // adivinable o reutilizado de otro entorno acaba firmando cookies ajenas.
 export const MIN_SESSION_SECRET_LENGTH = 32;
 
-// El administrador es la primera credencial que existe en una instalación
-// nueva, así que su contraseña tiene que ser larga de verdad.
-export const MIN_ADMIN_PASSWORD_LENGTH = 12;
+// Toda contraseña nueva debe cumplir la misma política. Las cuentas existentes
+// no se invalidan por su longitud histórica: el mínimo se aplica al crear,
+// cambiar o restablecer una contraseña.
+export const MIN_PASSWORD_LENGTH = 12;
+export const MIN_ADMIN_PASSWORD_LENGTH = MIN_PASSWORD_LENGTH;
 
 // Solo para desarrollo y pruebas. Es público: vive en el repositorio y en el
 // compose de desarrollo, así que en producción se rechaza siempre.

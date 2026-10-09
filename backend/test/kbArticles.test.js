@@ -11,7 +11,7 @@ import {
   validateArticleFields,
 } from '../src/utils/articleLimits.js';
 
-const PASSWORD = 'Prueba1234!';
+const PASSWORD = 'Prueba12345!';
 
 let admin;
 let tech;

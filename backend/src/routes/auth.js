@@ -164,6 +164,9 @@ router.post('/change-password', requireAuth, async (req, res) => {
     await destroyUserSessions(req.user.id);
     return res.json({ ok: true });
   } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: 'Datos inválidos', fields: err.fields });
+    }
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -200,6 +203,9 @@ router.post('/reset-password', authRateLimit(), async (req, res) => {
 
     return res.json({ ok: true });
   } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: 'Datos inválidos', fields: err.fields });
+    }
     res.status(500).json({ error: 'Error interno' });
   }
 });

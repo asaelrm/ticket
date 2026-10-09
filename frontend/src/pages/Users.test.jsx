@@ -209,13 +209,13 @@ describe('Users', () => {
     await user.type(inputFor('Correo *', within(dialog)), 'grace@example.com');
     await user.type(inputFor('Cargo', within(dialog)), 'Ingeniera');
     await pickOption(user, selectFor('Departamento', within(dialog)), 'TI');
-    await user.type(inputFor('Contraseña inicial *', within(dialog)), 'secret1');
+    await user.type(inputFor('Contraseña inicial *', within(dialog)), 'Secret123456!');
     await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
 
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith('/api/users', expect.objectContaining({
         username: 'ghopper',
-        password: 'secret1',
+        password: 'Secret123456!',
         name: 'Grace',
         role_id: 3,
         department_id: '1',
@@ -406,7 +406,7 @@ describe('Users · avisos de éxito', () => {
     await user.type(inputFor('Usuario *', within(dialog)), 'ghopper');
     await user.type(inputFor('Correo *', within(dialog)), 'grace@example.com');
     await pickOption(user, selectFor('Departamento', within(dialog)), 'TI');
-    await user.type(inputFor('Contraseña inicial *', within(dialog)), 'secret1');
+    await user.type(inputFor('Contraseña inicial *', within(dialog)), 'Secret123456!');
     await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
 
     expect(await screen.findByText('Usuario creado')).toBeInTheDocument();

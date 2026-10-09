@@ -69,24 +69,24 @@ describe('Autenticación', () => {
     const token = forgot.body.token;
     const c2 = createClient();
     await c2.get('/api/health');
-    const res = await c2.post('/api/auth/reset-password', { token, password: 'Nueva1234!' });
+    const res = await c2.post('/api/auth/reset-password', { token, password: 'NuevaClave1234!' });
     assert.equal(res.status, 200);
     assert.equal((await c.get('/api/auth/me')).status, 401, 'el restablecimiento invalida sesiones existentes');
     // Login con nueva contraseña funciona
     const c3 = createClient();
-    const login = await c3.login('admin', 'Nueva1234!');
+    const login = await c3.login('admin', 'NuevaClave1234!');
     assert.equal(login.status, 200);
-    // Restaurar contraseña original
+    // Un token ya usado no puede volver a imponer una contraseña corta.
     await c3.get('/api/health');
-    await c3.post('/api/auth/reset-password', { token, password: '123456' }).catch(() => {});
-    // Usar forgot para restaurar
+    await c3.post('/api/auth/reset-password', { token, password: 'AdminRestaurada123!' }).catch(() => {});
+    // Usar forgot para cambiar otra vez con una contraseña que cumple la política.
     const c4 = createClient();
     await c4.get('/api/health');
     const f2 = await c4.post('/api/auth/forgot-password', { account: 'admin' });
     if (f2.body.token) {
       const c5 = createClient();
       await c5.get('/api/health');
-      await c5.post('/api/auth/reset-password', { token: f2.body.token, password: '123456' });
+      await c5.post('/api/auth/reset-password', { token: f2.body.token, password: 'AdminRestaurada123!' });
     }
   });
 

@@ -1,3 +1,5 @@
+import { MIN_PASSWORD_LENGTH } from '../config.js';
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const USERNAME_RE = /^[a-zA-Z0-9._-]{3,30}$/;
 
@@ -36,7 +38,7 @@ export const rules = {
   password: (v) => {
     const p = String(v || '');
     if (!p) return 'La contraseña es obligatoria';
-    if (p.length < 6) return 'La contraseña debe tener al menos 6 caracteres';
+    if (p.length < MIN_PASSWORD_LENGTH) return `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`;
     return '';
   },
 };

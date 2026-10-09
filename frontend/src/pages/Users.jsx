@@ -177,6 +177,10 @@ export default function Users() {
       setError('La contraseña es obligatoria');
       return;
     }
+    if (m.mode === 'create' && m.form.password.length < 12) {
+      setError('La contraseña debe tener al menos 12 caracteres');
+      return;
+    }
     saveMutation.mutate(m);
   }
 
@@ -356,7 +360,7 @@ export default function Users() {
                 </div>
               {modal.mode === 'create' && (
                 <div className="sm:col-span-2">
-                  <TextField label="Contraseña inicial *" type="password" help="Mínimo 6 caracteres." value={modal.form.password} onChange={(v) => setModal({ ...modal, form: { ...modal.form, password: v } })} />
+                  <TextField label="Contraseña inicial *" type="password" help="Mínimo 12 caracteres." value={modal.form.password} onChange={(v) => setModal({ ...modal, form: { ...modal.form, password: v } })} />
                 </div>
               )}
             </div>

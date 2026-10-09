@@ -551,7 +551,7 @@ describe('Usuarios asignables y roles', () => {
       last_name: 'Usuario',
       username: uname,
       email: `${uname}@test.local`,
-      password: '123456',
+      password: 'Temporal1234!',
       role_id: roleId,
     };
 
