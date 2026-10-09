@@ -35,6 +35,12 @@
       - ticket_uploads:/app/backend/uploads
     ports:
       - "4000:4000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   frontend:
     image: node:24-alpine
@@ -48,6 +54,12 @@
       - "5173:5173"
     depends_on:
       - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5173/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   backend_node_modules:
