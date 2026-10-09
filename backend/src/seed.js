@@ -148,7 +148,7 @@ function seedPermissionsAndRoles() {
     const roleId = getRole.get(code).id;
     // Los permisos iniciales solo se asignan al crear el rol; una configuración
     // modificada desde la UI no debe revertirse al reiniciar el servidor.
-    if (existingRole && code !== 'ADMIN') continue;
+    if (existingRole) continue;
     for (const perm of role.permissions) {
       const permRow = getPerm.get(perm);
       if (permRow) link.run(roleId, permRow.id);
