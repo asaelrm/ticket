@@ -717,7 +717,10 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 router.get('/export', requirePermission('ticket.export'), asyncHandler(async (req, res) => {
-  const { conds, params } = await buildConditions(req, false);
+  // Exportar no concede visibilidad global: conserva el mismo alcance que el
+  // listado (solo propios si falta ticket.view.all), además del filtro de org.
+  const viewOnlyOwn = !hasPerm(req.user, 'ticket.view.all');
+  const { conds, params } = await buildConditions(req, viewOnlyOwn);
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
   const rows = await runtime.queryMany(`${LIST_SQL} ${where} ORDER BY t.created_at DESC LIMIT 5000`, ...params);
 
@@ -1067,6 +1070,21 @@ router.patch('/:id', async (req, res) => {
     }
   }
 
+  // Los datos de negocio de un ticket terminal son inmutables. Las acciones
+  // permitidas sobre esos estados tienen endpoints propios: /reopen para
+  // RESOLVED/CLOSED y /csat para el reportante; comentarios siguen su ruta
+  // específica y no pasan por este PATCH.
+  const terminalBusinessFields = [
+    'pending_reason', 'priority', 'category_id', 'assigned_to_id',
+    'assigned_team_id', 'title', 'description',
+  ];
+  if (
+    ['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status)
+    && terminalBusinessFields.some((field) => body[field] !== undefined)
+  ) {
+    return res.status(400).json({ error: 'No puede modificar campos de negocio de un ticket terminal' });
+  }
+
   if (body.pending_reason !== undefined) {
     if (!canManage) return res.status(403).json({ error: 'No tiene permiso' });
     const value = safeStr(body.pending_reason) || null;
@@ -1180,10 +1198,13 @@ router.patch('/:id', async (req, res) => {
       titleForAssignee: `Ticket asignado a usted: ${updated.ticket_number}`,
     });
   }
-  if (updated.status === 'CANCELLED') {
+  // Los avisos de cierre/cancelación pertenecen a una transición, no a una
+  // edición posterior del ticket. Sin esta condición, cualquier PATCH sobre
+  // un terminal podía volver a enviarlos.
+  if (updated.status !== ticket.status && updated.status === 'CANCELLED') {
     await notifyCancelled(updated, `${req.user.name} ${req.user.last_name}`, updated.cancel_reason);
     await notifyTicketCancelled(updated, req.user.id, updated.cancel_reason);
-  } else if (updated.status === 'CLOSED') {
+  } else if (updated.status !== ticket.status && updated.status === 'CLOSED') {
     await notifyTicketClosed(updated, req.user.id, null);
   }
   emitTicketEvent(id, 'refresh');

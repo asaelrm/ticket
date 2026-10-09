@@ -76,14 +76,14 @@ describe('Tickets, adjuntos y filtros', () => {
     assert.ok(search.body.data.every((t) => t.title.includes('Filtro B')));
   });
 
-  it('historial registra cambios de estado y prioridad', async () => {
+  it('historial registra cambios de prioridad y resolución', async () => {
     const c = createClient();
     await c.login('admin', '123456');
     const t = await c.post('/api/tickets', { title: 'Historico', description: 'D', category_id: 1, priority: 'MEDIUM' });
     const id = t.body.ticket.id;
 
-    await c.post(`/api/tickets/${id}/resolve`, { resolution: 'Resolución de prueba' });
     await c.patch(`/api/tickets/${id}`, { priority: 'CRITICAL' });
+    await c.post(`/api/tickets/${id}/resolve`, { resolution: 'Resolución de prueba' });
 
     const detail = await c.get(`/api/tickets/${id}`);
     assert.equal(detail.status, 200);
