@@ -17,20 +17,45 @@ base de validación `SIFHA_Tickets_M5_Validation` del servidor
 
 ## 1. Respaldo previo (obligatorio)
 
-Ruta de copias fuera del repositorio (por ejemplo `D:\copias\ticket\`). En SSMS,
-conectado a `SIFHA_Tickets_M5_Validation`:
+Script preparado: `backend/scripts/migration/backup-m5.sql` (solo BACKUP; no
+restaura datos).
+
+Pasos:
+
+1. En SSMS, conectado a `SIFHA_Tickets_M5_Validation`, abrir `backup-m5.sql`.
+2. Si el directorio por defecto de la instancia no sirve, editar `@BackupDir`
+   (paso 2 del script) con una ruta **local del servidor SQL** y comprobar que
+   la cuenta del servicio tiene permiso de escritura en esa carpeta.
+3. Ejecutar el script completo. Verifica identidad, aborta si el destino no es
+   `TI-DESK-01\SIFHADEV / SIFHA_Tickets_M5_Validation`, no sobrescribe (nombre
+   único con fecha y hora) y hace `COPY_ONLY ... WITH CHECKSUM, COMPRESSION`.
+4. Debe terminar con `RESPALDO COMPLETO y VERIFICADO: <ruta>`; la verificación
+   es un `RESTORE VERIFYONLY` (no restaura la base).
+5. El script muestra al final una fila con `base`, `inicio`, `fin`,
+   `es_copy_only`, `bytes_en_disco` y `archivo`. Guarde esa ruta: es el punto de
+   recuperación.
+
+### Confirmar existencia y tamaño del `.bak` (solo lectura)
+
+Desde el catálogo de SQL Server (no requiere acceso al sistema de archivos):
 
 ```sql
-BACKUP DATABASE [SIFHA_Tickets_M5_Validation]
-  TO DISK = N'D:\copias\ticket\SIFHA_M5_FULL_AAAAMMDD_HHMM.bak'
-  WITH COPY_ONLY, INIT, CHECKSUM, COMPRESSION, STATS = 5;
-
-RESTORE VERIFYONLY
-  FROM DISK = N'D:\copias\ticket\SIFHA_M5_FULL_AAAAMMDD_HHMM.bak'
-  WITH CHECKSUM;
+SELECT TOP (1) mf.physical_device_name AS archivo,
+       bs.backup_size AS bytes_sin_comprimir,
+       bs.compressed_backup_size AS bytes_en_disco,
+       bs.backup_finish_date AS fecha
+FROM msdb.dbo.backupset AS bs
+INNER JOIN msdb.dbo.backupmediafamily AS mf ON mf.media_set_id = bs.media_set_id
+WHERE bs.database_name = N'SIFHA_Tickets_M5_Validation'
+ORDER BY bs.backup_finish_date DESC;
 ```
 
-`RESTORE VERIFYONLY` debe terminar con "the backup set on file 1 is valid".
+Si SSMS corre en el propio `TI-DESK-01`, también puede comprobarse el archivo:
+
+```powershell
+Get-Item 'D:\copias\ticket\SIFHA_Tickets_M5_Validation_FULL_*.bak' |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1 FullName, Length, LastWriteTime
+```
 
 ## 2. Diagnóstico de solo lectura (antes)
 
@@ -57,6 +82,11 @@ Antes del fix se esperan **exactamente dos** bloqueos:
 
 Códigos de salida: `0` sin bloqueos, `1` con bloqueos, `2` destino rechazado,
 `3` error de conexión/ejecución.
+
+Además, en SSMS ejecute
+`backend/scripts/migration/m5-notifications-readonly.sql` (solo lectura) y
+anote el `total_notificaciones` (debe ser 26) y la `huella` (checksum). Son la
+referencia para demostrar que el cambio de esquema no altera los datos.
 
 ## 3. Aplicar la corrección
 
@@ -87,6 +117,14 @@ Al terminar debe imprimir:
 Repetir el paso 2 (diagnóstico de solo lectura). Ahora el resultado debe ser
 `status: pass` y `exit_code: 0`, sin diferencias bloqueantes y con integridad de
 datos correcta.
+
+Volver a ejecutar `m5-notifications-readonly.sql` y comprobar que:
+
+- `total_notificaciones` sigue siendo 26 (o el valor anotado antes);
+- la `huella` es idéntica a la anterior;
+- `organization_id_admite_null` = 1;
+- `en_primary_key` = 0 y `default_constraint` = NULL;
+- la fila del CHECK aparece con `deshabilitada` = 0 y `no_confiable` = 0.
 
 ## 5. Reversión (solo si fuera necesaria)
 
