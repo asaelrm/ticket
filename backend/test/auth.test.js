@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
+import { authRateLimit } from '../src/utils/rateLimit.js';
 
 describe('Autenticación', () => {
   it('login con credenciales válidas devuelve el usuario', async () => {
@@ -94,5 +95,33 @@ describe('Autenticación', () => {
     const res = await c.login('empleado', 'Empleado1234!');
     assert.equal(res.status, 200);
     assert.equal(res.body.user.role, 'EMPLOYEE');
+  });
+
+  it('reset-password usa la misma barrera de intentos que login y forgot-password', () => {
+    // La suite desactiva los límites por diseño para no compartir cuotas entre
+    // casos. Se activa de forma local para probar el middleware que protege la
+    // ruta en ejecución normal.
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const limit = authRateLimit();
+      const req = { ip: '203.0.113.6', socket: { remoteAddress: '203.0.113.6' } };
+      let limited;
+      for (let i = 0; i < 11; i++) {
+        let continued = false;
+        const res = {
+          set() {},
+          status(code) { this.statusCode = code; return this; },
+          json(body) { this.body = body; return this; },
+        };
+        limit(req, res, () => { continued = true; });
+        if (i < 10) assert.equal(continued, true, `el intento ${i + 1} sigue permitido`);
+        else limited = res;
+      }
+      assert.equal(limited.statusCode, 429);
+      assert.match(limited.body.error, /demasiados intentos/i);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
   });
 });

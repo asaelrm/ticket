@@ -67,7 +67,16 @@ router.get('/', async (req, res) => {
       (page - 1) * perPage
     );
 
-    const actions = await runtime.queryMany('SELECT DISTINCT action FROM ticket_history ORDER BY action');
+    // El catálogo es metadato de la misma auditoría: debe recorrer los tickets
+    // visibles para la organización actual y nunca revelar acciones exclusivas
+    // de otra empresa.
+    const actions = await runtime.queryMany(
+      `SELECT DISTINCT th.action FROM ticket_history th
+       JOIN tickets t ON t.id = th.ticket_id
+       WHERE ${org ? 't.organization_id = ?' : '1 = 0'}
+       ORDER BY th.action`,
+      ...(org ? [org] : [])
+    );
     const actionList = actions.map((r) => r.action);
 
     res.json({ data: rows, total: total.n, page, perPage, pages: Math.ceil(total.n / perPage), actions: actionList });

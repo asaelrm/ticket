@@ -32,8 +32,9 @@ router.get('/', requirePermission('kb.view'), async (req, res) => {
     const canManage = req.user.permissions.includes('kb.manage');
     const asked = String(req.query.active ?? '');
     const wantsInactive = asked === '0' || asked === 'false';
+    const includeInactive = canManage && wantsInactive;
     const rows = await runtime.queryMany(
-      `${LIST_SQL} WHERE c.organization_id = ? ${wantsInactive ? '' : 'AND c.active = 1'} ORDER BY c.name`,
+      `${LIST_SQL} WHERE c.organization_id = ? ${includeInactive ? '' : 'AND c.active = 1'} ORDER BY c.name`,
       currentOrgId(req.user)
     );
     res.json({ data: rows });

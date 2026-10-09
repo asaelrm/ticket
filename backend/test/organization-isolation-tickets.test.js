@@ -459,18 +459,25 @@ describe('Aislamiento de tickets por organización (ETAPA 3)', () => {
   });
 
   it('38) la auditoría de A no incluye el historial de B y el SUPERADMIN no vuela listados', async () => {
+    const bOnlyAction = 'B_ONLY_AUDIT_ACTION_I4';
+    db.prepare(
+      'INSERT INTO ticket_history (ticket_id, user_id, action, description, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(ids.ticketB, adminB, bOnlyAction, 'Acción exclusiva de B para probar el catálogo', nowIso());
+
     const cA = await login('admin_isl3_a');
     const auditA = await cA.get('/api/audit');
     assert.equal(auditA.status, 200);
     const ticketIdsA = auditA.body.data.map((r) => r.ticket_id);
     assert.ok(ticketIdsA.includes(ids.ticketA), 'la auditoría de A incluye el historial de su ticket');
     assert.ok(!ticketIdsA.includes(ids.ticketB), 'la auditoría de A no incluye el historial de B');
+    assert.ok(!auditA.body.actions.includes(bOnlyAction), 'A no recibe acciones exclusivas de B en el catálogo');
 
     const cB = await login('admin_isl3_b');
     const auditB = await cB.get('/api/audit');
     const ticketIdsB = auditB.body.data.map((r) => r.ticket_id);
     assert.ok(ticketIdsB.includes(ids.ticketB));
     assert.ok(!ticketIdsB.includes(ids.ticketA));
+    assert.ok(auditB.body.actions.includes(bOnlyAction), 'B conserva su propia acción en el catálogo');
 
     // SUPERADMIN: sin organización no enumera por listado NI gestiona por id.
     const s = await login('super_isl3');

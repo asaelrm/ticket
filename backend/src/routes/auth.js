@@ -168,7 +168,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', authRateLimit(), async (req, res) => {
   try {
     const token = safeStr(req.body.token);
     const next = String(req.body.password || '');
