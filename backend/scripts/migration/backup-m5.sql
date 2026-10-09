@@ -87,6 +87,12 @@ DECLARE @hora  NVARCHAR(8) = REPLACE(CONVERT(NVARCHAR(8), @now, 108), N':', N'')
 DECLARE @Stamp NVARCHAR(32) = @fecha + N'_' + @hora;
 DECLARE @File NVARCHAR(4000) = @BackupDir + N'SIFHA_Tickets_M5_Validation_FULL_' + @Stamp + N'.bak';
 
+/* 3b. Nombre del conjunto de respaldo. Se calcula en una variable porque las
+ *     opciones de BACKUP (NAME/DESCRIPTION) solo admiten un literal o una
+ *     variable, NUNCA una expresion con '+': concatenar aqui produce el error de
+ *     sintaxis T-SQL "Msg 102, Level 15, State 1 ... near '+'". */
+DECLARE @BackupName NVARCHAR(256) = N'SIFHA M5 copia previa ' + @Stamp;
+
 /* 4. No sobrescribir: si el archivo ya existe, abortar (comprobacion best-effort;
  *    si no hay permiso para xp_fileexist, se continua porque el nombre es unico). */
 DECLARE @file_exists INT = 0;
@@ -115,7 +121,7 @@ BACKUP DATABASE [SIFHA_Tickets_M5_Validation]
          INIT,
          CHECKSUM,
          COMPRESSION,
-         NAME = N'SIFHA M5 copia previa ' + @Stamp,
+         NAME = @BackupName,
          DESCRIPTION = N'Copia previa a la correccion de dbo.notifications (organization_id NULL + CK_notifications_ticket_requires_org).',
          STATS = 5;
 

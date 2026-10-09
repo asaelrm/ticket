@@ -48,6 +48,14 @@ export function dbClient(v, env = process.env) {
   return requested;
 }
 
+// Mantenimiento programado (SLA vencido, escalaciones automáticas y poda de
+// notificaciones). Activo por defecto. `JOBS_ENABLED=false` lo desactiva por
+// completo, lo que permite una prueba de arranque contra SQL Server que NO
+// escriba en la base al iniciarse (el job inicial se ejecuta nada más arrancar).
+export function jobsEnabled(env = process.env) {
+  return bool(env.JOBS_ENABLED, true);
+}
+
 const rootDir = path.resolve(__dirname, '..');
 
 // ---------------------------------------------------------------------------

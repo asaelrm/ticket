@@ -38,6 +38,22 @@ describe('backup M5: script exclusivo y no destructivo', () => {
     assert.match(backup, /\bINIT\b/);
   });
 
+  it('no concatena expresiones en las opciones de BACKUP (Msg 102 near "+")', () => {
+    // NAME/DESCRIPTION de BACKUP ... WITH solo admiten un literal o una
+    // variable, nunca una expresion con '+'. Se comprueba que no queda ningun
+    // '+' fuera de las cadenas de las opciones, y que el nombre se arma antes
+    // en @BackupName y se referencia tal cual.
+    const fromBackup = backup.slice(backup.search(/BACKUP\s+DATABASE/i));
+    const optionsPart = fromBackup.slice(0, fromBackup.search(/RESTORE\s+VERIFYONLY/i));
+    const withoutStrings = optionsPart.replace(/N?'[^']*'/g, "''");
+    assert.doesNotMatch(withoutStrings, /\+/, 'las opciones de BACKUP no deben usar concatenacion (+)');
+    assert.match(
+      backup,
+      /DECLARE\s+@BackupName\s+NVARCHAR\s*\(\s*\d+\s*\)\s*=\s*N'SIFHA M5 copia previa '\s*\+\s*@Stamp/,
+    );
+    assert.match(optionsPart, /NAME\s*=\s*@BackupName/);
+  });
+
   it('genera un nombre unico con fecha y hora', () => {
     assert.match(backup, /SIFHA_Tickets_M5_Validation_FULL_/);
     assert.match(backup, /CONVERT\(NVARCHAR\(8\),\s*@now,\s*112\)/);

@@ -1,4 +1,5 @@
 import db from '../db/runtime.js';
+import { jobsEnabled } from '../config.js';
 import { nowIso } from './time.js';
 import { OPEN_STATUSES, computeSlaDue } from './sla.js';
 import { createNotification, createNotifications, notifyAdmins } from './notifications.js';
@@ -200,9 +201,20 @@ let started = false;
 /**
  * Inicia el job periódico (cada 10 minutos). No hace nada en modo test y
  * es seguro llamarlo más de una vez (arranca una sola vez).
+ *
+ * `JOBS_ENABLED=false` desactiva el mantenimiento por completo. Es lo que
+ * permite una prueba de arranque contra SQL Server sin que el job inicial
+ * escriba en la base (SLA, escalaciones y poda de notificaciones).
+ *
+ * @returns {boolean} true si el mantenimiento quedó programado; false si no.
  */
 export function startJobs() {
-  if (started || process.env.NODE_ENV === 'test') return;
+  if (started) return false;
+  if (!jobsEnabled()) {
+    console.log('[jobs] Mantenimiento programado desactivado (JOBS_ENABLED=false).');
+    return false;
+  }
+  if (process.env.NODE_ENV === 'test') return false;
   started = true;
   const INTERVAL_MS = 10 * 60 * 1000;
   const timer = setInterval(() => {
@@ -214,4 +226,5 @@ export function startJobs() {
   runMaintenance().catch((err) => {
     console.error('[jobs] Error en el mantenimiento inicial:', err?.message || err);
   });
+  return true;
 }
