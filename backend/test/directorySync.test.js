@@ -38,8 +38,8 @@ function fijar(username, password) {
 }
 
 describe('el directorio no transporta contraseñas', () => {
-  it('el archivo guardado no contiene ningún password_hash', () => {
-    assert.equal(saveDirectorySnapshot({ enabled: true, file: snapshotFile }), true);
+  it('el archivo guardado no contiene ningún password_hash', async () => {
+    assert.equal(await saveDirectorySnapshot({ enabled: true, file: snapshotFile }), true);
 
     const crudo = fs.readFileSync(snapshotFile, 'utf8');
     assert.equal(crudo.includes('password_hash'), false, 'el archivo sigue bringing password_hash');
@@ -65,7 +65,7 @@ describe('el directorio no transporta contraseñas', () => {
     assert.equal(res.status, 200);
     assert.equal(verifyPassword(NUEVA, hashDe('admin')), true);
 
-    saveDirectorySnapshot({ enabled: true, file: snapshotFile });
+    await saveDirectorySnapshot({ enabled: true, file: snapshotFile });
     const crudo = fs.readFileSync(snapshotFile, 'utf8');
     assert.equal(crudo.includes('password_hash'), false);
 
@@ -73,7 +73,7 @@ describe('el directorio no transporta contraseñas', () => {
     fijar('admin', VIEJA);
   });
 
-  it('un snapshot antiguo con hashes no puede cambiar una contraseña', () => {
+  it('un snapshot antiguo con hashes no puede cambiar una contraseña', async () => {
     fijar('admin', NUEVA);
 
     // Snapshot con el formato viejo, que además trae un hash de una contraseña
@@ -99,7 +99,7 @@ describe('el directorio no transporta contraseñas', () => {
       })
     );
 
-    restoreDirectorySnapshot({ enabled: true, file: snapshotFile });
+    await restoreDirectorySnapshot({ enabled: true, file: snapshotFile });
 
     assert.equal(verifyPassword(NUEVA, hashDe('admin')), true, 'el snapshot pisó la contraseña vigente');
     assert.equal(verifyPassword('ClaveDelHashViejo7!', hashDe('admin')), false);
@@ -118,7 +118,7 @@ describe('cambiar una contraseña y reiniciar', () => {
 
     // Es lo que hace server.js en cada arranque, después del seed.
     seed();
-    restoreDirectorySnapshot({ enabled: true, file: snapshotFile });
+    await restoreDirectorySnapshot({ enabled: true, file: snapshotFile });
 
     const viejo = createClient();
     const intentoViejo = await viejo.login('admin', VIEJA);
@@ -172,7 +172,7 @@ describe('el seed no impone contraseñas por defecto', () => {
 });
 
 describe('una cuenta que solo existe en el directorio', () => {
-  it('se crea sin ninguna contraseña conocida', () => {
+  it('se crea sin ninguna contraseña conocida', async () => {
     const nombre = `importado_${Date.now()}`;
     fs.writeFileSync(
       snapshotFile,
@@ -194,7 +194,7 @@ describe('una cuenta que solo existe en el directorio', () => {
       })
     );
 
-    const resultado = restoreDirectorySnapshot({ enabled: true, file: snapshotFile });
+    const resultado = await restoreDirectorySnapshot({ enabled: true, file: snapshotFile });
     assert.equal(resultado.applied, true);
     assert.deepEqual(resultado.nuevas, [nombre]);
 

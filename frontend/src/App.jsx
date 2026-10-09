@@ -61,6 +61,11 @@ export default function App() {
     <ErrorBoundary>
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
+        {/* La raíz "/" no tenía ruta propia y caía en el comodín "*": mostrar el
+            404 al abrir http://localhost:5173/. Se redirige a "/app", que ya
+            resuelve todo: sin sesión "Protected" envía a /login; con sesión
+            "HomeRedirect" elige dashboard o my-tickets según los permisos. */}
+        <Route path="/" element={<Navigate to="/app" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />

@@ -1,9 +1,10 @@
 import db from '../db/runtime.js';
-import { nowIso } from '../db.js';
+import { nowIso } from './time.js';
 import { OPEN_STATUSES, computeSlaDue } from './sla.js';
 import { createNotification, createNotifications, notifyAdmins } from './notifications.js';
 import { getRuleSettings } from './options.js';
 import { withSettingsCache } from './settingsStore.js';
+import { insertTicketHistory } from './ticketChildWrites.js';
 
 // Tareas de mantenimiento programadas: detección de SLA vencido y reglas de
 // escalación automática. Se ejecutan de forma periódica (ver startJobs).
@@ -109,13 +110,14 @@ async function escalateUnassigned() {
       nowIso(),
       ticket.id,
     );
-    await db.execute(
-      'INSERT INTO ticket_history (ticket_id, user_id, action, description, old_value, new_value) VALUES (?, NULL, ?, ?, ?, ?)',
+    await insertTicketHistory(
       ticket.id,
+      null,
       'ESCALATED',
       `Escalación automática: prioridad ${PRIORITY_LABEL[ticket.priority]} → ${PRIORITY_LABEL[newPriority]}`,
       ticket.priority,
       newPriority,
+      { organizationId: ticket.organization_id },
     );
     await notifyAdmins({
       ticketId: ticket.id,

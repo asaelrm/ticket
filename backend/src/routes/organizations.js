@@ -1,5 +1,6 @@
 import express from 'express';
-import db, { nowIso } from '../db.js';
+import runtime from '../db/runtime.js';
+import { nowIso } from '../utils/time.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { requireSuperadmin } from '../middleware/org.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
@@ -42,13 +43,11 @@ function normalizeName(value) {
     .toLowerCase();
 }
 
-function nameTaken(name, exceptId = null) {
+async function nameTaken(name, exceptId = null) {
   const target = normalizeName(name);
   if (!target) return false;
-  return db
-    .prepare('SELECT id, name FROM organizations')
-    .all()
-    .some((o) => o.id !== exceptId && normalizeName(o.name) === target);
+  const rows = await runtime.queryMany('SELECT id, name FROM organizations');
+  return rows.some((o) => o.id !== exceptId && normalizeName(o.name) === target);
 }
 
 // Detalle con los conteos operativos que necesita el SUPERADMIN para decidir
@@ -62,13 +61,13 @@ const DETAIL_SQL = `
   FROM organizations o
 `;
 
-function orgOr404(req, res) {
+async function orgOr404(req, res) {
   const id = parseIntSafe(req.params.id);
   if (!id) {
     res.status(404).json({ error: 'Organización no encontrada' });
     return null;
   }
-  const row = db.prepare(`${DETAIL_SQL} WHERE o.id = ?`).get(id);
+  const row = await runtime.queryOne(`${DETAIL_SQL} WHERE o.id = ?`, id);
   if (!row) {
     res.status(404).json({ error: 'Organización no encontrada' });
     return null;
@@ -76,85 +75,110 @@ function orgOr404(req, res) {
   return row;
 }
 
-router.get('/', (req, res) => {
-  const rows = db.prepare(`${DETAIL_SQL} ORDER BY o.name`).all();
-  res.json({ data: rows });
-});
-
-router.get('/:id', (req, res) => {
-  const org = orgOr404(req, res);
-  if (!org) return;
-  res.json({ organization: org });
-});
-
-router.post('/', (req, res) => {
-  const body = req.body || {};
-  if (body.organization_id !== undefined && body.organization_id !== null && body.organization_id !== '') {
-    return res.status(400).json({ error: 'La organización no puede ser establecida desde el cliente' });
+router.get('/', async (req, res) => {
+  try {
+    const rows = await runtime.queryMany(`${DETAIL_SQL} ORDER BY o.name`);
+    res.json({ data: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-  const code = safeStr(body.code).toUpperCase();
-  const name = safeStr(body.name);
-  const description = safeStr(body.description);
+});
 
-  validate({
-    code: rules.required(code, 'Código') + rules.max(code, 20, 'Código'),
-    name: rules.required(name, 'Nombre') + rules.max(name, 120, 'Nombre'),
-    description: rules.max(description, 500, 'Descripción'),
-  });
-  if (!CODE_RE.test(code)) {
-    return res.status(400).json({
-      error: 'El código debe tener entre 2 y 20 caracteres (letras, números, guion bajo o guion) y empezar por alfanumérico',
+router.get('/:id', async (req, res) => {
+  try {
+    const org = await orgOr404(req, res);
+    if (!org) return;
+    res.json({ organization: org });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.post('/', async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.organization_id !== undefined && body.organization_id !== null && body.organization_id !== '') {
+      return res.status(400).json({ error: 'La organización no puede ser establecida desde el cliente' });
+    }
+    const code = safeStr(body.code).toUpperCase();
+    const name = safeStr(body.name);
+    const description = safeStr(body.description);
+
+    validate({
+      code: rules.required(code, 'Código') + rules.max(code, 20, 'Código'),
+      name: rules.required(name, 'Nombre') + rules.max(name, 120, 'Nombre'),
+      description: rules.max(description, 500, 'Descripción'),
     });
-  }
+    if (!CODE_RE.test(code)) {
+      return res.status(400).json({
+        error: 'El código debe tener entre 2 y 20 caracteres (letras, números, guion bajo o guion) y empezar por alfanumérico',
+      });
+    }
 
-  if (db.prepare('SELECT id FROM organizations WHERE LOWER(code) = LOWER(?)').get(code)) {
-    return res.status(409).json({ error: 'Ya existe una organización con ese código' });
-  }
-  if (nameTaken(name)) {
-    return res.status(409).json({ error: 'Ya existe una organización con ese nombre' });
-  }
+    if (await runtime.queryOne('SELECT id FROM organizations WHERE LOWER(code) = LOWER(?)', code)) {
+      return res.status(409).json({ error: 'Ya existe una organización con ese código' });
+    }
+    if (await nameTaken(name)) {
+      return res.status(409).json({ error: 'Ya existe una organización con ese nombre' });
+    }
 
-  const info = db
-    .prepare('INSERT INTO organizations (code, name, description, active, created_at) VALUES (?, ?, ?, 1, ?)')
-    .run(code, name, description || null, nowIso());
-  const created = db.prepare(`${DETAIL_SQL} WHERE o.id = ?`).get(info.lastInsertRowid);
-  res.status(201).json({ organization: created });
+    const result = await runtime.insertAndGetId(
+      'INSERT INTO organizations (code, name, description, active, created_at) VALUES (?, ?, ?, 1, ?)',
+      code, name, description || null, nowIso()
+    );
+    const created = await runtime.queryOne(`${DETAIL_SQL} WHERE o.id = ?`, result.id);
+    res.status(201).json({ organization: created });
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: 'Datos inválidos', fields: err.fields });
+    }
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 // Edición de datos básicos. `code` es inmutable (identifica la empresa en
 // exports, auditorías y migraciones futuras) y `organization_id` no se acepta
 // nunca del cuerpo: este canal no lo necesita y rechazarlo explícitamente
 // evita cualquier intento de reasignación masiva de campos.
-router.patch('/:id', (req, res) => {
-  const org = orgOr404(req, res);
-  if (!org) return;
+router.patch('/:id', async (req, res) => {
+  try {
+    const org = await orgOr404(req, res);
+    if (!org) return;
 
-  const body = req.body || {};
-  if (body.organization_id !== undefined && body.organization_id !== null && body.organization_id !== '') {
-    return res.status(400).json({ error: 'La organización no puede ser establecida desde el cliente' });
+    const body = req.body || {};
+    if (body.organization_id !== undefined && body.organization_id !== null && body.organization_id !== '') {
+      return res.status(400).json({ error: 'La organización no puede ser establecida desde el cliente' });
+    }
+    if (body.code !== undefined && safeStr(body.code).toUpperCase() !== org.code) {
+      return res.status(400).json({ error: 'El código de una organización no se puede modificar' });
+    }
+
+    const name = body.name === undefined ? org.name : safeStr(body.name);
+    const description = body.description === undefined ? (org.description || '') : safeStr(body.description);
+    const active = body.active === undefined ? org.active : body.active ? 1 : 0;
+
+    validate({
+      name: rules.required(name, 'Nombre') + rules.max(name, 120, 'Nombre'),
+      description: rules.max(description, 500, 'Descripción'),
+    });
+
+    if (await nameTaken(name, org.id)) {
+      return res.status(409).json({ error: 'Ya existe una organización con ese nombre' });
+    }
+
+    await runtime.execute(
+      'UPDATE organizations SET name = ?, description = ?, active = ?, updated_at = ? WHERE id = ?',
+      name, description || null, active, nowIso(), org.id
+    );
+
+    const updated = await runtime.queryOne(`${DETAIL_SQL} WHERE o.id = ?`, org.id);
+    res.json({ organization: updated });
+  } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: 'Datos inválidos', fields: err.fields });
+    }
+    res.status(500).json({ error: 'Error interno' });
   }
-  if (body.code !== undefined && safeStr(body.code).toUpperCase() !== org.code) {
-    return res.status(400).json({ error: 'El código de una organización no se puede modificar' });
-  }
-
-  const name = body.name === undefined ? org.name : safeStr(body.name);
-  const description = body.description === undefined ? (org.description || '') : safeStr(body.description);
-  const active = body.active === undefined ? org.active : body.active ? 1 : 0;
-
-  validate({
-    name: rules.required(name, 'Nombre') + rules.max(name, 120, 'Nombre'),
-    description: rules.max(description, 500, 'Descripción'),
-  });
-
-  if (nameTaken(name, org.id)) {
-    return res.status(409).json({ error: 'Ya existe una organización con ese nombre' });
-  }
-
-  db.prepare('UPDATE organizations SET name = ?, description = ?, active = ?, updated_at = ? WHERE id = ?')
-    .run(name, description || null, active, nowIso(), org.id);
-
-  const updated = db.prepare(`${DETAIL_SQL} WHERE o.id = ?`).get(org.id);
-  res.json({ organization: updated });
 });
 
 export default router;

@@ -58,6 +58,19 @@ export function userOrganizationError(row, source, organizationId) {
   return null;
 }
 
+// Regla única de NULL legítimo en `notifications.organization_id`. Un aviso
+// global del sistema (sin ticket) puede quedar sin organización SOLO si el
+// destinatario es una cuenta SUPERADMIN global legítima (rol SUPERADMIN, sin
+// organización, con el permiso global reservado y sin departamento). Cualquier
+// otro NULL —en particular una notificación ligada a un ticket— es un dato
+// corrupto y se rechaza. La usan el transformador y el plan de reconciliación.
+export function isLegitimateGlobalNotification(row, source) {
+  if (row?.ticket_id != null) return false;
+  const recipient = (source?.users || []).find((user) => user.id === row?.user_id);
+  if (!recipient || recipient.organization_id != null) return false;
+  return userOrganizationError(recipient, source, null) === null;
+}
+
 export function resolveSourcePath(runtimeDbFile, explicitSource = undefined) {
   if (explicitSource !== undefined) {
     if (!explicitSource || typeof explicitSource !== 'string') throw new Error('--source requiere una ruta de archivo SQLite.');
@@ -445,6 +458,17 @@ export function transformRow(table, row, source, legacyOrganization = null) {
           : 'sin ticket_id ni organization_id explícito; se requiere decisión explícita';
         throw new Error(`email_logs#${row.id ?? '?'}: ${detail}`);
       }
+      if (table === 'notifications') {
+        // MSSQL vuelve a permitir organization_id NULL, pero de forma ESTRICTA:
+        // solo para un aviso global (sin ticket) a una cuenta SUPERADMIN global.
+        if (row.ticket_id != null) {
+          throw new Error(`notifications#${row.id ?? '?'}: organization_id NULL con ticket_id ${row.ticket_id}; una notificación de ticket debe pertenecer a la organización del ticket`);
+        }
+        if (!isLegitimateGlobalNotification(row, source)) {
+          throw new Error(`notifications#${row.id ?? '?'}: organization_id NULL no permitido: el destinatario no es un SUPERADMIN global legítimo`);
+        }
+        return output;
+      }
       throw new Error(`${table}#${row.id ?? '?'}: organization_id requiere decisión explícita`);
     }
   }
@@ -647,7 +671,7 @@ export function buildManifest(source, target, legacyOrganization = null) {
   return sanitizeManifest(manifest);
 }
 
-export function reconciliationPlan() { return { compareCounts: TABLES.filter((t) => !SKIPPED_TABLES.has(t)), verify: ['FK integrity', 'duplicates', 'NULL violations', 'ticket sequence', 'organization isolation', 'settings parity'], checksums: ['organizations', 'roles', 'permissions', 'departments', 'categories', 'teams', 'tickets metadata', 'kb categories'] }; }
+export function reconciliationPlan() { return { compareCounts: TABLES.filter((t) => !SKIPPED_TABLES.has(t)), verify: ['FK integrity', 'duplicates', 'NULL violations', 'ticket sequence', 'organization isolation', 'settings parity'], checksums: ['organizations', 'roles', 'permissions', 'departments', 'categories', 'teams', 'tickets metadata', 'kb categories'], nullPolicy: { notifications: { column: 'organization_id', allowedWhen: 'ticket_id IS NULL AND destinatario SUPERADMIN global legítimo (rol SUPERADMIN sin organización, con permiso organization.manage y sin departamento)' } } }; }
 
 // The source sequence can lag behind old rows.  The cutover executor must use
 // this maximum, never trust the legacy counter alone, and upsert it only after

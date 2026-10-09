@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import db from '../db/runtime.js';
-import { nowIso } from '../db.js';
+import { nowIso } from './time.js';
 import {
   GLOBAL_KEYS,
   ORG_KEYS,

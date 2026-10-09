@@ -1,5 +1,5 @@
 import express from 'express';
-import db, { nowIso } from '../db.js';
+import runtime from '../db/runtime.js';
 import config from '../config.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { visibleTemplateFor } from './cannedResponses.js';
@@ -28,6 +28,7 @@ import {
   notifyAdmins,
   notifyStaff,
 } from '../utils/notifications.js';
+import { insertTicketHistory, insertTicketComment, insertTicketAttachment } from '../utils/ticketChildWrites.js';
 
 const router = express.Router();
 router.use(requireAuth);
@@ -35,6 +36,12 @@ router.use(requireAuth);
 // Express 4 no reenvía rechazos de promesas al error handler (Node 24 los
 // convertiría en unhandledRejection). Este wrapper los propaga a `next`.
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+// Marca de tiempo canónica en ISO (UTC). El runtime compartido adapta el valor
+// al tipo de fecha de cada motor (en SQL Server se recorta el sufijo Z).
+function nowIso() {
+  return new Date().toISOString();
+}
 
 export const STATUSES = ['OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING', 'RESOLVED', 'CLOSED', 'CANCELLED'];
 export const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
@@ -88,8 +95,8 @@ const TICKET_SQL = `
   WHERE t.id = ?
 `;
 
-export function getTicket(id) {
-  return db.prepare(TICKET_SQL).get(id);
+export async function getTicket(id) {
+  return runtime.queryOne(TICKET_SQL, id);
 }
 
 export function canViewTicket(user, ticket) {
@@ -113,17 +120,18 @@ export function hasPerm(user, code) {
   return user.permissions.includes(code);
 }
 
-function recordHistory(ticketId, userId, action, description, oldValue = null, newValue = null) {
-  db.prepare(
-    'INSERT INTO ticket_history (ticket_id, user_id, action, description, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(ticketId, userId, action, description, oldValue, newValue);
+async function recordHistory(ticketId, userId, action, description, oldValue = null, newValue = null) {
+  // El historial lo escribe `insertTicketHistory`, que en MSSQL añade la
+  // organización del ticket (columna NOT NULL + FK compuesta) y en SQLite la
+  // omite porque esa tabla no la tiene. Nunca se inventa la organización.
+  await insertTicketHistory(ticketId, userId, action, description, oldValue, newValue);
 }
 
-function touchTicket(id) {
-  db.prepare('UPDATE tickets SET updated_at = ? WHERE id = ?').run(nowIso(), id);
+async function touchTicket(id) {
+  await runtime.execute('UPDATE tickets SET updated_at = ? WHERE id = ?', nowIso(), id);
 }
 
-function historyDesc(kind, ticket, newValue) {
+async function historyDesc(kind, ticket, newValue) {
   switch (kind) {
     case 'status': {
       const oldL = STATUS_LABEL[ticket.status] || ticket.status;
@@ -137,17 +145,17 @@ function historyDesc(kind, ticket, newValue) {
       return `Prioridad cambiada: ${PRIORITY_LABEL[ticket.priority] || ticket.priority} → ${PRIORITY_LABEL[newValue] || newValue}`;
     }
     case 'category': {
-      const row = db.prepare('SELECT name FROM categories WHERE id = ?').get(newValue);
+      const row = await runtime.queryOne('SELECT name FROM categories WHERE id = ?', newValue);
       return `Categoría cambiada: ${ticket.category_name || ''} → ${row ? row.name : ''}`;
     }
     case 'assigned': {
       if (newValue === null || newValue === '') return 'Asignación removida';
-      const row = db.prepare("SELECT name || ' ' || last_name AS full FROM users WHERE id = ?").get(newValue);
+      const row = await runtime.queryOne("SELECT name || ' ' || last_name AS full FROM users WHERE id = ?", newValue);
       return `Asignado a ${row ? row.full : ''}`;
     }
     case 'assigned_team': {
       if (newValue === null || newValue === '') return 'Equipo de asignación removido';
-      const row = db.prepare('SELECT name FROM teams WHERE id = ?').get(newValue);
+      const row = await runtime.queryOne('SELECT name FROM teams WHERE id = ?', newValue);
       return `Asignado al equipo ${row ? row.name : ''}`;
     }
     case 'title':
@@ -159,12 +167,13 @@ function historyDesc(kind, ticket, newValue) {
   }
 }
 
-function myTeamIds(userId) {
-  return db.prepare('SELECT team_id FROM team_members WHERE user_id = ?').all(userId).map((r) => r.team_id);
+async function myTeamIds(userId) {
+  const rows = await runtime.queryMany('SELECT team_id FROM team_members WHERE user_id = ?', userId);
+  return rows.map((r) => r.team_id);
 }
 
-function nameForTeam(teamId) {
-  const row = db.prepare('SELECT name FROM teams WHERE id = ?').get(teamId);
+async function nameForTeam(teamId) {
+  const row = await runtime.queryOne('SELECT name FROM teams WHERE id = ?', teamId);
   return row ? row.name : '';
 }
 
@@ -191,15 +200,21 @@ function validateFiles(files) {
 // ATTACHMENT_ADDED: su descripción incluye el nombre del archivo y el historial
 // es visible para el reportante. Se registra con una acción propia para que el
 // filtro de la nota interna pueda ocultarla sin mostrar ni siquiera su existencia.
-function persistAndInsertAttachments(validated, ticketId, commentId, userId, isInternalNote = false) {
+async function persistAndInsertAttachments(validated, ticketId, commentId, userId, isInternalNote = false) {
   const inserted = [];
   for (const { buffer, info } of validated) {
     const saved = persistUpload(buffer, info);
-    const infoRow = db.prepare(
-      'INSERT INTO ticket_attachments (ticket_id, comment_id, original_name, stored_name, mime_type, size_bytes, uploader_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    ).run(ticketId, commentId, saved.originalName, saved.storedName, saved.mime, saved.size, userId);
+    const infoRow = await insertTicketAttachment({
+      ticketId,
+      commentId,
+      originalName: saved.originalName,
+      storedName: saved.storedName,
+      mimeType: saved.mime,
+      sizeBytes: saved.size,
+      uploaderId: userId,
+    });
     inserted.push({
-      id: infoRow.lastInsertRowid,
+      id: infoRow.id,
       original_name: saved.originalName,
       stored_name: saved.storedName,
       mime_type: saved.mime,
@@ -207,7 +222,7 @@ function persistAndInsertAttachments(validated, ticketId, commentId, userId, isI
       comment_id: commentId,
       created_at: nowIso(),
     });
-    recordHistory(
+    await recordHistory(
       ticketId,
       userId,
       isInternalNote ? 'NOTE_ATTACHMENT_ADDED' : 'ATTACHMENT_ADDED',
@@ -288,7 +303,7 @@ const ENUM_LIST = { status: STATUSES, priority: PRIORITIES };
 const SEARCH_LIKE = `ESCAPE '\\'`;
 const LIKE_FIELDS = 13;
 
-function buildConditions(req, viewOnlyOwn) {
+async function buildConditions(req, viewOnlyOwn) {
   const conds = [];
   const params = [];
   const q = req.query;
@@ -326,7 +341,7 @@ function buildConditions(req, viewOnlyOwn) {
     conds.push('t.assigned_to_id = ?');
     params.push(req.user.id);
   } else if (view === 'my-teams') {
-    const teams = myTeamIds(req.user.id);
+    const teams = await myTeamIds(req.user.id);
     if (teams.length) {
       conds.push(`t.assigned_team_id IN (${teams.map(() => '?').join(',')})`);
       params.push(...teams);
@@ -503,14 +518,14 @@ const LIST_SQL = `
   ${FROM_JOINS}
 `;
 
-function listQuery(req, viewOnlyOwn) {
-  const { conds, params } = buildConditions(req, viewOnlyOwn);
+async function listQuery(req, viewOnlyOwn) {
+  const { conds, params } = await buildConditions(req, viewOnlyOwn);
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
   const page = Math.max(1, parseIntSafe(req.query.page) || 1);
   const perPage = Math.min(100, Math.max(1, parseIntSafe(req.query.perPage) || 15));
 
-  const total = db.prepare(`SELECT COUNT(*) AS n ${FROM_JOINS} ${where}`).get(...params).n;
-  const data = db.prepare(`${LIST_SQL} ${where} ${sortClause(req)} LIMIT ? OFFSET ?`).all(
+  const total = (await runtime.queryOne(`SELECT COUNT(*) AS n ${FROM_JOINS} ${where}`, ...params)).n;
+  const data = await runtime.queryMany(`${LIST_SQL} ${where} ${sortClause(req)} LIMIT ? OFFSET ?`,
     ...params, perPage, (page - 1) * perPage
   );
   return { data, total, page, perPage, pages: Math.ceil(total / perPage) };
@@ -520,70 +535,74 @@ function listQuery(req, viewOnlyOwn) {
 // Contadores dinámicos (filtros rápidos) — calculados en BD, con scope por rol
 // ---------------------------------------------------------------------------
 
-router.get('/counters', (req, res) => {
-  const user = req.user;
-  const staff = hasPerm(user, 'ticket.view.all');
-  const org = currentOrgId(user);
-  // ETAPA 3: los contadores se acotan a la organización del actor. Un
-  // SUPERADMIN global (org null) no tiene contexto: todos a cero, coherente con
-  // su listado vacío (`1 = 0` en buildConditions).
-  const orgCond = org ? 't.organization_id = ?' : '1 = 0';
-  // Las consultas byStatus agrupan sobre `tickets` sin alias, así que no pueden
-  // usar el prefijo `t.` del contador individual.
-  const orgCondNoAlias = org ? 'organization_id = ?' : '1 = 0';
-  const scopeParams = (org ? [org] : []).concat(staff ? [] : [user.id]);
-  const prefix = `WHERE ${orgCond}${staff ? '' : ' AND t.reporter_id = ?'} AND `;
+router.get('/counters', async (req, res) => {
+  try {
+    const user = req.user;
+    const staff = hasPerm(user, 'ticket.view.all');
+    const org = currentOrgId(user);
+    // ETAPA 3: los contadores se acotan a la organización del actor. Un
+    // SUPERADMIN global (org null) no tiene contexto: todos a cero, coherente con
+    // su listado vacío (`1 = 0` en buildConditions).
+    const orgCond = org ? 't.organization_id = ?' : '1 = 0';
+    // Las consultas byStatus agrupan sobre `tickets` sin alias, así que no pueden
+    // usar el prefijo `t.` del contador individual.
+    const orgCondNoAlias = org ? 'organization_id = ?' : '1 = 0';
+    const scopeParams = (org ? [org] : []).concat(staff ? [] : [user.id]);
+    const prefix = `WHERE ${orgCond}${staff ? '' : ' AND t.reporter_id = ?'} AND `;
 
-  const cnt = (cond, params = []) =>
-    db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${prefix}${cond}`).get(...scopeParams, ...params).n;
+    const cnt = async (cond, params = []) =>
+      (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t ${prefix}${cond}`, ...scopeParams, ...params)).n;
 
-  const openSql = `t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`;
-  const openParams = OPEN_STATUSES;
-  const closedSql = 'COALESCE(t.resolved_at, t.closed_at) IS NOT NULL';
-  const closedCol = 'COALESCE(t.resolved_at, t.closed_at)';
+    const openSql = `t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})`;
+    const openParams = OPEN_STATUSES;
+    const closedSql = 'COALESCE(t.resolved_at, t.closed_at) IS NOT NULL';
+    const closedCol = 'COALESCE(t.resolved_at, t.closed_at)';
 
-  const byStatusRows = staff
-    ? db.prepare(`SELECT status, COUNT(*) AS n FROM tickets WHERE ${orgCondNoAlias} GROUP BY status`).all(...(org ? [org] : []))
-    : db.prepare(`SELECT status, COUNT(*) AS n FROM tickets WHERE ${orgCondNoAlias} AND reporter_id = ? GROUP BY status`).all(...scopeParams);
-  const byStatus = {};
-  for (const row of byStatusRows) byStatus[row.status] = row.n;
+    const byStatusRows = staff
+      ? await runtime.queryMany(`SELECT status, COUNT(*) AS n FROM tickets WHERE ${orgCondNoAlias} GROUP BY status`, ...(org ? [org] : []))
+      : await runtime.queryMany(`SELECT status, COUNT(*) AS n FROM tickets WHERE ${orgCondNoAlias} AND reporter_id = ? GROUP BY status`, ...scopeParams);
+    const byStatus = {};
+    for (const row of byStatusRows) byStatus[row.status] = row.n;
 
-  const teams = myTeamIds(user.id);
-  const myTeams = teams.length
-    ? cnt(`t.assigned_team_id IN (${teams.map(() => '?').join(',')})`, teams)
-    : 0;
+    const teams = await myTeamIds(user.id);
+    const myTeams = teams.length
+      ? await cnt(`t.assigned_team_id IN (${teams.map(() => '?').join(',')})`, teams)
+      : 0;
 
-  const closed = {};
-  for (const period of ['today', 'yesterday', 'week', 'month', 'quarter', 'year']) {
-    const range = closedRange(period);
-    closed[period] = cnt(
-      `${closedSql} AND ${closedCol} >= ? AND ${closedCol} < ?`,
-      [range.start, range.end]
-    );
+    const closed = {};
+    for (const period of ['today', 'yesterday', 'week', 'month', 'quarter', 'year']) {
+      const range = closedRange(period);
+      closed[period] = await cnt(
+        `${closedSql} AND ${closedCol} >= ? AND ${closedCol} < ?`,
+        [range.start, range.end]
+      );
+    }
+
+    res.json({
+      all: await cnt('1 = 1'),
+      open: await cnt(openSql, openParams),
+      pending: await cnt(`t.status IN ('OPEN', 'PENDING')`),
+      attended: await cnt(`t.status IN ('ASSIGNED', 'IN_PROGRESS')`),
+      in_progress: await cnt(`t.status = 'IN_PROGRESS'`),
+      // Sin dueño = sin técnico, que es exactamente lo que devuelve `?assigned=none`.
+      // Antes además exigía `assigned_team_id IS NULL`, así que el contador y la
+      // lista de la Bandeja no cuadraban en los tickets con equipo pero sin técnico.
+      unassigned: await cnt(`${openSql} AND t.assigned_to_id IS NULL`, openParams),
+      overdue: await cnt(`${openSql} AND t.sla_due_at IS NOT NULL AND t.sla_due_at < ?`, [...openParams, nowIso()]),
+      assigned_to_me: await cnt(`t.assigned_to_id = ?`, [user.id]),
+      assigned_to_my_teams: myTeams,
+      // Indicadores compactos de la Bandeja. Los tres acotan a estados abiertos
+      // para que el número de la cabecera y el listado que produce el filtro
+      // correspondiente midan lo mismo.
+      mine_active: await cnt(`${openSql} AND t.assigned_to_id = ?`, [...openParams, user.id]),
+      critical: await cnt(`${openSql} AND t.priority = 'CRITICAL'`, openParams),
+      on_hold: await cnt(`t.status = 'PENDING'`),
+      closed: { ...closed },
+      by_status: byStatus,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-
-  res.json({
-    all: cnt('1 = 1'),
-    open: cnt(openSql, openParams),
-    pending: cnt(`t.status IN ('OPEN', 'PENDING')`),
-    attended: cnt(`t.status IN ('ASSIGNED', 'IN_PROGRESS')`),
-    in_progress: cnt(`t.status = 'IN_PROGRESS'`),
-    // Sin dueño = sin técnico, que es exactamente lo que devuelve `?assigned=none`.
-    // Antes además exigía `assigned_team_id IS NULL`, así que el contador y la
-    // lista de la Bandeja no cuadraban en los tickets con equipo pero sin técnico.
-    unassigned: cnt(`${openSql} AND t.assigned_to_id IS NULL`, openParams),
-    overdue: cnt(`${openSql} AND t.sla_due_at IS NOT NULL AND t.sla_due_at < ?`, [...openParams, nowIso()]),
-    assigned_to_me: cnt(`t.assigned_to_id = ?`, [user.id]),
-    assigned_to_my_teams: myTeams,
-    // Indicadores compactos de la Bandeja. Los tres acotan a estados abiertos
-    // para que el número de la cabecera y el listado que produce el filtro
-    // correspondiente midan lo mismo.
-    mine_active: cnt(`${openSql} AND t.assigned_to_id = ?`, [...openParams, user.id]),
-    critical: cnt(`${openSql} AND t.priority = 'CRITICAL'`, openParams),
-    on_hold: cnt(`t.status = 'PENDING'`),
-    closed: { ...closed },
-    by_status: byStatus,
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -629,7 +648,7 @@ router.post(
       priority: rules.oneOf(priority, PRIORITIES, 'Prioridad'),
     });
 
-    const category = db.prepare('SELECT id FROM categories WHERE id = ? AND organization_id = ?').get(categoryId, org);
+    const category = await runtime.queryOne('SELECT id FROM categories WHERE id = ? AND organization_id = ?', categoryId, org);
     if (!category) return res.status(400).json({ error: 'Categoría inválida' });
 
     // El departamento se comprueba igual que la categoría. Sin esta comprobación,
@@ -637,7 +656,7 @@ router.post(
     // foránea con un 500, en lugar de un 400 que el formulario puede mostrar.
     // ETAPA 3: el departamento debe pertenecer a la organización del actor.
     if (departmentId !== null) {
-      const department = db.prepare('SELECT id FROM departments WHERE id = ? AND organization_id = ?').get(departmentId, org);
+      const department = await runtime.queryOne('SELECT id FROM departments WHERE id = ? AND organization_id = ?', departmentId, org);
       if (!department) return res.status(400).json({ error: 'Departamento inválido' });
     }
 
@@ -649,27 +668,28 @@ router.post(
     if (!filesCheck.ok) return res.status(400).json({ error: filesCheck.reason });
 
     const number = await nextTicketNumber(org);
-    const info = db.prepare(
+    const info = await runtime.insertAndGetId(
       `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, department_id, priority, sla_due_at, organization_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(number, title, description, req.user.id, categoryId, departmentId, priority, await computeSlaDue(priority, new Date(), org), org);
-    const ticketId = info.lastInsertRowid;
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      number, title, description, req.user.id, categoryId, departmentId, priority, await computeSlaDue(priority, new Date(), org), org
+    );
+    const ticketId = info.id;
 
     let attachments = [];
     try {
-      attachments = persistAndInsertAttachments(filesCheck.validated, ticketId, null, req.user.id);
+      attachments = await persistAndInsertAttachments(filesCheck.validated, ticketId, null, req.user.id);
     } catch (err) {
-      db.prepare('DELETE FROM ticket_attachments WHERE ticket_id = ?').run(ticketId);
-      db.prepare('DELETE FROM tickets WHERE id = ?').run(ticketId);
+      await runtime.execute('DELETE FROM ticket_attachments WHERE ticket_id = ?', ticketId);
+      await runtime.execute('DELETE FROM tickets WHERE id = ?', ticketId);
       return res.status(500).json({ error: 'Error al guardar los archivos adjuntos' });
     }
 
-    recordHistory(ticketId, req.user.id, 'CREATED', `Ticket creado por ${req.user.name} ${req.user.last_name}`);
-    touchTicket(ticketId);
+    await recordHistory(ticketId, req.user.id, 'CREATED', `Ticket creado por ${req.user.name} ${req.user.last_name}`);
+    await touchTicket(ticketId);
 
     // Avisa al personal de soporte de la MISMA organización (quien puede ver
     // todos los tickets de esa org) de que llegó un ticket nuevo.
-    const created = getTicket(ticketId);
+    const created = await getTicket(ticketId);
     await notifyStaff({
       type: 'NEW_TICKET',
       title: `Nuevo ticket: ${created.ticket_number}`,
@@ -688,18 +708,18 @@ router.post(
   }
 );
 
-router.get('/', (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   // "Mis tickets" (frontend) pasa own=1 para forzar el scope al reportante,
   // incluso para usuarios con permiso ticket.view.all (admin/técnicos).
   const forceOwn = String(req.query.own) === '1';
   const viewOnlyOwn = forceOwn || !hasPerm(req.user, 'ticket.view.all');
-  res.json(listQuery(req, viewOnlyOwn));
-});
+  res.json(await listQuery(req, viewOnlyOwn));
+}));
 
 router.get('/export', requirePermission('ticket.export'), asyncHandler(async (req, res) => {
-  const { conds, params } = buildConditions(req, false);
+  const { conds, params } = await buildConditions(req, false);
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
-  const rows = db.prepare(`${LIST_SQL} ${where} ORDER BY t.created_at DESC LIMIT 5000`).all(...params);
+  const rows = await runtime.queryMany(`${LIST_SQL} ${where} ORDER BY t.created_at DESC LIMIT 5000`, ...params);
 
   const cols = [
     'Número', 'Título', 'Estado', 'Prioridad', 'Categoría', 'Departamento',
@@ -844,9 +864,9 @@ router.get('/export', requirePermission('ticket.export'), asyncHandler(async (re
   res.send('\uFEFF' + lines.join('\n'));
 }));
 
-router.get('/:id', (req, res) => {
+router.get('/:id', asyncHandler(async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
@@ -858,25 +878,25 @@ router.get('/:id', (req, res) => {
   // el reportante no debe saber ni que existió un archivo interno ni cómo se llama.
   const historyFilter = canSeeInternal ? '' : `AND th.action NOT IN ('NOTE_ADDED','NOTE_ATTACHMENT_ADDED')`;
 
-  const attachments = db.prepare(`
+  const attachments = await runtime.queryMany(`
     SELECT ta.*, u.name || ' ' || u.last_name AS uploader_name
     FROM ticket_attachments ta
     LEFT JOIN users u ON u.id = ta.uploader_id
     LEFT JOIN ticket_comments tc ON tc.id = ta.comment_id
     WHERE ta.ticket_id = ?
       AND (ta.comment_id IS NULL OR tc.is_internal = 0 OR ?)
-    ORDER BY ta.created_at ASC, ta.id ASC`).all(id, canSeeInternal ? 1 : 0);
+    ORDER BY ta.created_at ASC, ta.id ASC`, id, canSeeInternal ? 1 : 0);
 
-  const comments = db.prepare(`
+  const comments = await runtime.queryMany(`
     SELECT tc.*, u.name || ' ' || u.last_name AS user_name,
            (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.comment_id = tc.id) AS attachment_count
     FROM ticket_comments tc LEFT JOIN users u ON u.id = tc.user_id
-    WHERE tc.ticket_id = ? ${internalFilter} ORDER BY tc.created_at ASC, tc.id ASC`).all(id);
+    WHERE tc.ticket_id = ? ${internalFilter} ORDER BY tc.created_at ASC, tc.id ASC`, id);
 
-  const history = db.prepare(`
+  const history = await runtime.queryMany(`
     SELECT th.*, u.name || ' ' || u.last_name AS user_name
     FROM ticket_history th LEFT JOIN users u ON u.id = th.user_id
-    WHERE th.ticket_id = ? ${historyFilter} ORDER BY th.created_at ASC, th.id ASC`).all(id);
+    WHERE th.ticket_id = ? ${historyFilter} ORDER BY th.created_at ASC, th.id ASC`, id);
 
   const can = {
     resolve: hasPerm(req.user, 'ticket.resolve'),
@@ -890,7 +910,7 @@ router.get('/:id', (req, res) => {
   };
 
   res.json({ ticket, attachments, comments, history, can });
-});
+}));
 
 /**
  * Artículos de la base de conocimiento enlazados a este ticket.
@@ -900,20 +920,20 @@ router.get('/:id', (req, res) => {
  * ticket ajeno. Solo devuelve artículos publicados: un borrador enlazado
  * permanece invisible aquí por mucho que se conozca el ticket.
  */
-router.get('/:id/articles', requirePermission('kb.view'), (req, res) => {
+router.get('/:id/articles', requirePermission('kb.view'), asyncHandler(async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
-  const articles = visibleArticlesForTicket(req.user, id);
+  const articles = await visibleArticlesForTicket(req.user, id);
   res.json({ data: articles, total: articles.length });
-});
+}));
 
 // Conversación en vivo: emite comentarios, cambios y "escribiendo…" por SSE.
-router.get('/:id/stream', (req, res) => {
+router.get('/:id/stream', asyncHandler(async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
@@ -958,11 +978,11 @@ router.get('/:id/stream', (req, res) => {
     unsubscribe();
     res.end();
   });
-});
+}));
 
-router.post('/:id/typing', (req, res) => {
+router.post('/:id/typing', asyncHandler(async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
@@ -975,11 +995,11 @@ router.post('/:id/typing', (req, res) => {
     internal: false,
   });
   res.json({ ok: true });
-});
+}));
 
 router.patch('/:id', async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   // Misma regla que GET /:id: si el actor no puede ver el ticket, tampoco puede
   // saber que existe. Sin esta comprobación, un cuerpo vacío (`{}`) sortía del
   // `if (!sets.length)` de más abajo con el ticket entero en la respuesta para
@@ -1021,7 +1041,7 @@ router.patch('/:id', async (req, res) => {
       sets.push({ col: 'status = ?', val: body.status });
       entries.push({
         action: 'STATUS_CHANGED',
-        desc: historyDesc('status', ticket, body.status),
+        desc: await historyDesc('status', ticket, body.status),
         old: ticket.status,
         new: body.status,
       });
@@ -1070,18 +1090,18 @@ router.patch('/:id', async (req, res) => {
       if (!['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status)) {
         sets.push({ col: 'sla_due_at = ?', val: await computeSlaDue(body.priority, new Date(), ticket.organization_id) });
       }
-      entries.push({ action: 'PRIORITY_CHANGED', desc: historyDesc('priority', ticket, body.priority), old: ticket.priority, new: body.priority });
+      entries.push({ action: 'PRIORITY_CHANGED', desc: await historyDesc('priority', ticket, body.priority), old: ticket.priority, new: body.priority });
     }
   }
 
   if (body.category_id !== undefined) {
     if (!canManage) return res.status(403).json({ error: 'No tiene permiso' });
     const catId = body.category_id === '' || body.category_id == null ? null : parseIntSafe(body.category_id);
-    const cat = catId ? db.prepare('SELECT id FROM categories WHERE id = ? AND organization_id = ?').get(catId, ticket.organization_id) : null;
+    const cat = catId ? await runtime.queryOne('SELECT id FROM categories WHERE id = ? AND organization_id = ?', catId, ticket.organization_id) : null;
     if (!cat) return res.status(400).json({ error: 'Categoría inválida' });
     if (catId !== ticket.category_id) {
       sets.push({ col: 'category_id = ?', val: catId });
-      entries.push({ action: 'CATEGORY_CHANGED', desc: historyDesc('category', ticket, catId), old: ticket.category_id, new: catId });
+      entries.push({ action: 'CATEGORY_CHANGED', desc: await historyDesc('category', ticket, catId), old: ticket.category_id, new: catId });
     }
   }
 
@@ -1089,12 +1109,12 @@ router.patch('/:id', async (req, res) => {
     if (!canAssign) return res.status(403).json({ error: 'No tiene permiso para asignar tickets' });
     const targetId = body.assigned_to_id === '' || body.assigned_to_id == null ? null : parseIntSafe(body.assigned_to_id);
     if (targetId !== null) {
-      const u = db.prepare('SELECT id FROM users WHERE id = ? AND active = 1 AND organization_id = ?').get(targetId, ticket.organization_id);
+      const u = await runtime.queryOne('SELECT id FROM users WHERE id = ? AND active = 1 AND organization_id = ?', targetId, ticket.organization_id);
       if (!u) return res.status(400).json({ error: 'Usuario inválido para asignación' });
     }
     if (targetId !== ticket.assigned_to_id) {
       sets.push({ col: 'assigned_to_id = ?', val: targetId });
-      entries.push({ action: 'ASSIGNED', desc: historyDesc('assigned', ticket, targetId), old: ticket.assigned_to_id, new: targetId });
+      entries.push({ action: 'ASSIGNED', desc: await historyDesc('assigned', ticket, targetId), old: ticket.assigned_to_id, new: targetId });
     }
   }
 
@@ -1102,12 +1122,12 @@ router.patch('/:id', async (req, res) => {
     if (!canAssign) return res.status(403).json({ error: 'No tiene permiso para asignar tickets' });
     const targetTeam = body.assigned_team_id === '' || body.assigned_team_id == null ? null : parseIntSafe(body.assigned_team_id);
     if (targetTeam !== null) {
-      const tm = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?').get(targetTeam, ticket.organization_id);
+      const tm = await runtime.queryOne('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?', targetTeam, ticket.organization_id);
       if (!tm) return res.status(400).json({ error: 'Equipo inválido para asignación' });
     }
     if (targetTeam !== ticket.assigned_team_id) {
       sets.push({ col: 'assigned_team_id = ?', val: targetTeam });
-      entries.push({ action: 'ASSIGNED_TEAM', desc: historyDesc('assigned_team', ticket, targetTeam), old: ticket.assigned_team_id, new: targetTeam });
+      entries.push({ action: 'ASSIGNED_TEAM', desc: await historyDesc('assigned_team', ticket, targetTeam), old: ticket.assigned_team_id, new: targetTeam });
     }
   }
 
@@ -1117,7 +1137,7 @@ router.patch('/:id', async (req, res) => {
     validate({ title: rules.required(value, 'Título') + rules.max(value, 200, 'Título') });
     if (value !== ticket.title) {
       sets.push({ col: 'title = ?', val: value });
-      entries.push({ action: 'UPDATED', desc: historyDesc('title', ticket, value), old: ticket.title, new: value });
+      entries.push({ action: 'UPDATED', desc: await historyDesc('title', ticket, value), old: ticket.title, new: value });
     }
   }
 
@@ -1127,7 +1147,7 @@ router.patch('/:id', async (req, res) => {
     validate({ description: rules.required(value, 'Descripción') + rules.max(value, 10000, 'Descripción') });
     if (value !== ticket.description) {
       sets.push({ col: 'description = ?', val: value });
-      entries.push({ action: 'UPDATED', desc: historyDesc('description', ticket, value), old: ticket.description, new: value });
+      entries.push({ action: 'UPDATED', desc: await historyDesc('description', ticket, value), old: ticket.description, new: value });
     }
   }
 
@@ -1135,10 +1155,10 @@ router.patch('/:id', async (req, res) => {
 
   const changedAssign = sets.some((s) => s.col.startsWith('assigned_to_id'));
   const setSql = sets.map((s) => s.col).join(', ');
-  db.prepare(`UPDATE tickets SET ${setSql}, updated_at = ? WHERE id = ?`).run(...sets.map((s) => s.val), nowIso(), id);
-  for (const e of entries) recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
+  await runtime.execute(`UPDATE tickets SET ${setSql}, updated_at = ? WHERE id = ?`, ...sets.map((s) => s.val), nowIso(), id);
+  for (const e of entries) await recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
 
-  const updated = getTicket(id);
+  const updated = await getTicket(id);
 
   // Cambio de estado no terminal: se avisa al reportante salvo que él mismo lo
   // haya provocado. RESOLVED/CLOSED/CANCELLED quedan fuera porque ya tienen su
@@ -1172,7 +1192,7 @@ router.patch('/:id', async (req, res) => {
 
 async function processComment(req, res, attachOnly) {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
@@ -1203,23 +1223,23 @@ async function processComment(req, res, attachOnly) {
   const finalMessage = attachOnly
     ? message
     : message || (isInternal ? 'Nota interna con archivos adjuntos.' : 'Se adjuntaron archivos a este ticket.');
-  const info = db.prepare(
-    'INSERT INTO ticket_comments (ticket_id, user_id, message, is_internal) VALUES (?, ?, ?, ?)'
-  ).run(ticket.id, req.user.id, finalMessage, isInternal ? 1 : 0);
-  const commentId = info.lastInsertRowid;
+  const info = await insertTicketComment(ticket.id, req.user.id, finalMessage, isInternal, {
+    organizationId: ticket.organization_id,
+  });
+  const commentId = info.id;
 
   let attachments = [];
   if (filesCheck.validated.length) {
     try {
-      attachments = persistAndInsertAttachments(filesCheck.validated, ticket.id, commentId, req.user.id, isInternal);
+      attachments = await persistAndInsertAttachments(filesCheck.validated, ticket.id, commentId, req.user.id, isInternal);
     } catch (err) {
-      db.prepare('DELETE FROM ticket_comments WHERE id = ?').run(commentId);
-      db.prepare('DELETE FROM ticket_attachments WHERE comment_id = ?').run(commentId);
+      await runtime.execute('DELETE FROM ticket_comments WHERE id = ?', commentId);
+      await runtime.execute('DELETE FROM ticket_attachments WHERE comment_id = ?', commentId);
       return res.status(500).json({ error: 'Error al guardar los archivos adjuntos' });
     }
   }
 
-  recordHistory(
+  await recordHistory(
     ticket.id,
     req.user.id,
     isInternal ? 'NOTE_ADDED' : 'COMMENT_ADDED',
@@ -1227,7 +1247,7 @@ async function processComment(req, res, attachOnly) {
       ? `${req.user.name} ${req.user.last_name} agregó una nota interna`
       : `${req.user.name} ${req.user.last_name} agregó un comentario`
   );
-  touchTicket(ticket.id);
+  await touchTicket(ticket.id);
 
   // Contador de uso de la respuesta rápida (plantilla). Solo se incrementa aquí,
   // después de que el comentario (y sus adjuntos) quedaron persistidos, y
@@ -1248,22 +1268,23 @@ async function processComment(req, res, attachOnly) {
       .map((v) => parseIntSafe(v))
       .filter((v) => v && v > 0);
     for (const templateId of new Set(ids)) {
-      const template = visibleTemplateFor(req.user, templateId);
+      const template = await visibleTemplateFor(req.user, templateId);
       if (template && template.is_active) {
         // Una sola sentencia atómica por plantilla: no hay endpoint que permita
         // incrementarlo de forma arbitraria ni lecturas-modificación-escrituras
         // que se pisen entre peticiones concurrentes.
-        db.prepare('UPDATE canned_responses SET use_count = use_count + 1 WHERE id = ?').run(template.id);
+        await runtime.execute('UPDATE canned_responses SET use_count = use_count + 1 WHERE id = ?', template.id);
       }
     }
   }
 
-  const comment = db.prepare(
+  const comment = await runtime.queryOne(
     `SELECT tc.*, u.name || ' ' || u.last_name AS user_name,
             (SELECT COUNT(*) FROM ticket_attachments ta WHERE ta.comment_id = tc.id) AS attachment_count
      FROM ticket_comments tc LEFT JOIN users u ON u.id = tc.user_id
-     WHERE tc.id = ?`
-  ).get(commentId);
+     WHERE tc.id = ?`,
+    commentId
+  );
   comment.is_internal = !!comment.is_internal;
 
   emitTicketEvent(ticket.id, 'comment', { comment, attachments });
@@ -1292,9 +1313,9 @@ async function processComment(req, res, attachOnly) {
  * processComment decidía si tenía permiso. Se mantiene la distinción
  * público/interna, que sí necesita el cuerpo, para más abajo.
  */
-function requireTicketWriteAccess(req, res, next) {
+async function requireTicketWriteAccess(req, res, next) {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) {
     return res.status(404).json({ error: 'Ticket no encontrado' });
   }
@@ -1322,7 +1343,7 @@ router.post(
 
 router.post('/:id/assign', async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (!hasPerm(req.user, 'ticket.assign')) return res.status(403).json({ error: 'No tiene permiso para asignar' });
 
@@ -1334,12 +1355,12 @@ router.post('/:id/assign', async (req, res) => {
     const value = req.body.assigned_to_id;
     const targetId = value === null || value === '' ? null : parseIntSafe(value);
     if (targetId !== null) {
-      const u = db.prepare('SELECT id FROM users WHERE id = ? AND active = 1 AND organization_id = ?').get(targetId, ticket.organization_id);
+      const u = await runtime.queryOne('SELECT id FROM users WHERE id = ? AND active = 1 AND organization_id = ?', targetId, ticket.organization_id);
       if (!u) return res.status(400).json({ error: 'Usuario inválido para asignación' });
     }
     if (targetId !== ticket.assigned_to_id) {
       updates.push({ col: 'assigned_to_id = ?', val: targetId });
-      entries.push({ action: 'ASSIGNED', desc: historyDesc('assigned', ticket, targetId), old: ticket.assigned_to_id, new: targetId });
+      entries.push({ action: 'ASSIGNED', desc: await historyDesc('assigned', ticket, targetId), old: ticket.assigned_to_id, new: targetId });
     }
   }
 
@@ -1347,22 +1368,22 @@ router.post('/:id/assign', async (req, res) => {
     const value = req.body.assigned_team_id;
     const targetTeam = value === null || value === '' ? null : parseIntSafe(value);
     if (targetTeam !== null) {
-      const tm = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?').get(targetTeam, ticket.organization_id);
+      const tm = await runtime.queryOne('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?', targetTeam, ticket.organization_id);
       if (!tm) return res.status(400).json({ error: 'Equipo inválido para asignación' });
     }
     if (targetTeam !== ticket.assigned_team_id) {
       updates.push({ col: 'assigned_team_id = ?', val: targetTeam });
-      entries.push({ action: 'ASSIGNED_TEAM', desc: historyDesc('assigned_team', ticket, targetTeam), old: ticket.assigned_team_id, new: targetTeam });
+      entries.push({ action: 'ASSIGNED_TEAM', desc: await historyDesc('assigned_team', ticket, targetTeam), old: ticket.assigned_team_id, new: targetTeam });
     }
   }
 
   if (updates.length) {
     const setSql = updates.map((u) => u.col).join(', ');
-    db.prepare(`UPDATE tickets SET ${setSql}, updated_at = ? WHERE id = ?`).run(...updates.map((u) => u.val), now, id);
-    for (const e of entries) recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
+    await runtime.execute(`UPDATE tickets SET ${setSql}, updated_at = ? WHERE id = ?`, ...updates.map((u) => u.val), now, id);
+    for (const e of entries) await recordHistory(id, req.user.id, e.action, e.desc, e.old, e.new);
   }
 
-  const updated = getTicket(id);
+  const updated = await getTicket(id);
   if (updates.some((u) => u.col.startsWith('assigned_to_id'))) {
     await notifyAssigned(updated, `${req.user.name} ${req.user.last_name}`);
     await notifyTicketParticipants(updated, {
@@ -1464,7 +1485,7 @@ router.post(
   uploadSizeError,
   async (req, res) => {
     const id = parseIntSafe(req.params.id);
-    const ticket = getTicket(id);
+    const ticket = await getTicket(id);
     if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
     if (['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status)) {
       return res.status(400).json({ error: 'El ticket ya está en un estado terminal y no puede resolverse' });
@@ -1499,22 +1520,23 @@ router.post(
 
     let attachments = [];
     try {
-      attachments = persistAndInsertAttachments(filesCheck.validated, id, null, req.user.id);
+      attachments = await persistAndInsertAttachments(filesCheck.validated, id, null, req.user.id);
     } catch {
       return res.status(500).json({ error: 'Error al guardar los archivos adjuntos' });
     }
 
-    db.prepare(
+    await runtime.execute(
       `UPDATE tickets
          SET status = 'RESOLVED', resolved_at = ?, resolved_by = ?, resolution = ?,
              resolution_category = ?, root_cause = ?, time_spent_minutes = ?,
              closed_at = NULL, closed_by = NULL, pending_reason = NULL,
              resolution_notified = ?, updated_at = ?
-       WHERE id = ?`
-    ).run(now, req.user.id, resolution, resolutionCategory, rootCause, timeSpent, notify ? 1 : 0, now, id);
+       WHERE id = ?`,
+      now, req.user.id, resolution, resolutionCategory, rootCause, timeSpent, notify ? 1 : 0, now, id
+    );
 
     const previous = ticket.status;
-    recordHistory(
+    await recordHistory(
       id,
       req.user.id,
       'RESOLVED',
@@ -1526,10 +1548,14 @@ router.post(
     if (notify) {
       // Notificación real al reportante: comentario público con la solución
       // y correo con el detalle de la resolución.
-      db.prepare(
-        'INSERT INTO ticket_comments (ticket_id, user_id, message, is_internal) VALUES (?, ?, ?, 0)'
-      ).run(id, req.user.id, `El ticket fue resuelto.\n\nSolución: ${resolution}`);
-      recordHistory(
+      await insertTicketComment(
+        id,
+        req.user.id,
+        `El ticket fue resuelto.\n\nSolución: ${resolution}`,
+        false,
+        { organizationId: ticket.organization_id },
+      );
+      await recordHistory(
         id,
         req.user.id,
         'COMMENT_ADDED',
@@ -1549,13 +1575,13 @@ router.post(
     }
 
     emitTicketEvent(id, 'refresh');
-    return res.json({ ticket: getTicket(id), attachments });
+    return res.json({ ticket: await getTicket(id), attachments });
   }
 );
 
 router.post('/:id/close', requirePermission('ticket.close'), async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (ticket.status === 'CLOSED') return res.status(400).json({ error: 'El ticket ya está cerrado' });
   if (ticket.status === 'CANCELLED') return res.status(400).json({ error: 'No puede cerrar un ticket cancelado' });
@@ -1566,11 +1592,12 @@ router.post('/:id/close', requirePermission('ticket.close'), async (req, res) =>
 
   const note = safeStr(req.body?.note).slice(0, 2000) || null;
   const now = nowIso();
-  db.prepare(
-    `UPDATE tickets SET status = 'CLOSED', closed_at = ?, closed_by = ?, pending_reason = NULL, updated_at = ? WHERE id = ?`
-  ).run(now, req.user.id, now, id);
+  await runtime.execute(
+    `UPDATE tickets SET status = 'CLOSED', closed_at = ?, closed_by = ?, pending_reason = NULL, updated_at = ? WHERE id = ?`,
+    now, req.user.id, now, id
+  );
 
-  recordHistory(
+  await recordHistory(
     id,
     req.user.id,
     'CLOSED',
@@ -1578,7 +1605,7 @@ router.post('/:id/close', requirePermission('ticket.close'), async (req, res) =>
     ticket.status,
     'CLOSED'
   );
-  const updated = getTicket(id);
+  const updated = await getTicket(id);
   await notifyTicketClosed(updated, req.user.id, note);
   // Correo de cierre al reportante (salvo que el propio reportante lo cierre).
   if (updated.reporter_id !== req.user.id) await notifyClosed(updated);
@@ -1589,7 +1616,7 @@ router.post('/:id/close', requirePermission('ticket.close'), async (req, res) =>
 // Cancelar con motivo obligatorio: notifica al reportante y audita la acción.
 router.post('/:id/cancel', async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (!hasPerm(req.user, 'ticket.update.any')) {
     return res.status(403).json({ error: 'No tiene permiso para cancelar tickets' });
@@ -1603,15 +1630,16 @@ router.post('/:id/cancel', async (req, res) => {
   validate({ reason: rules.required(reason, 'Motivo de cancelación') + rules.max(reason, 2000, 'Motivo de cancelación') });
 
   const now = nowIso();
-  db.prepare(
+  await runtime.execute(
     `UPDATE tickets
        SET status = 'CANCELLED', cancel_reason = ?, cancelled_by = ?, cancelled_at = ?,
            closed_at = NULL, closed_by = NULL, resolved_at = NULL,
            pending_reason = NULL, updated_at = ?
-     WHERE id = ?`
-  ).run(reason, req.user.id, now, now, id);
+     WHERE id = ?`,
+    reason, req.user.id, now, now, id
+  );
 
-  recordHistory(
+  await recordHistory(
     id,
     req.user.id,
     'CANCELLED',
@@ -1619,9 +1647,9 @@ router.post('/:id/cancel', async (req, res) => {
     ticket.status,
     'CANCELLED'
   );
-  touchTicket(id);
+  await touchTicket(id);
 
-  const updated = getTicket(id);
+  const updated = await getTicket(id);
   await notifyCancelled(updated, `${req.user.name} ${req.user.last_name}`, reason);
   await notifyTicketCancelled(updated, req.user.id, reason);
   emitTicketEvent(id, 'refresh');
@@ -1631,7 +1659,7 @@ router.post('/:id/cancel', async (req, res) => {
 // Encuesta de satisfacción (solo el reportante, una vez por ticket).
 router.post('/:id/csat', async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (ticket.reporter_id !== req.user.id) {
     return res.status(403).json({ error: 'Solo el reportante puede calificar este ticket' });
@@ -1653,11 +1681,12 @@ router.post('/:id/csat', async (req, res) => {
   const comment = safeStr(req.body?.comment).slice(0, 2000) || null;
 
   const now = nowIso();
-  db.prepare(
-    `UPDATE tickets SET csat_rating = ?, csat_comment = ?, csat_answered_at = ?, updated_at = ? WHERE id = ?`
-  ).run(rating, comment, now, now, id);
+  await runtime.execute(
+    `UPDATE tickets SET csat_rating = ?, csat_comment = ?, csat_answered_at = ?, updated_at = ? WHERE id = ?`,
+    rating, comment, now, now, id
+  );
 
-  recordHistory(
+  await recordHistory(
     id,
     req.user.id,
     'CSAT_RATED',
@@ -1675,14 +1704,14 @@ router.post('/:id/csat', async (req, res) => {
     });
   }
 
-  const updated = getTicket(id);
+  const updated = await getTicket(id);
   emitTicketEvent(id, 'refresh');
   res.json({ ticket: updated });
 });
 
 router.post('/:id/reopen', requirePermission('ticket.reopen'), async (req, res) => {
   const id = parseIntSafe(req.params.id);
-  const ticket = getTicket(id);
+  const ticket = await getTicket(id);
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (!['RESOLVED', 'CLOSED'].includes(ticket.status)) {
     return res.status(400).json({ error: 'Solo se pueden reabrir tickets resueltos o cerrados' });
@@ -1696,16 +1725,17 @@ router.post('/:id/reopen', requirePermission('ticket.reopen'), async (req, res) 
   const now = nowIso();
   // Se conservan solution/root_cause/time_spent/resolved_by de la resolución anterior.
   // La encuesta CSAT sí se reinicia: valoraba la resolución que ya no está en pie.
-  db.prepare(
+  await runtime.execute(
     `UPDATE tickets
        SET status = 'OPEN', reopened_at = ?, reopened_by = ?, reopen_reason = ?,
            resolved_at = NULL, closed_at = NULL, pending_reason = NULL,
            sla_due_at = ?, updated_at = ?,
            csat_rating = NULL, csat_comment = NULL, csat_answered_at = NULL
-     WHERE id = ?`
-  ).run(now, req.user.id, reason, await computeSlaDue(ticket.priority, new Date(), ticket.organization_id), now, id);
+     WHERE id = ?`,
+    now, req.user.id, reason, await computeSlaDue(ticket.priority, new Date(), ticket.organization_id), now, id
+  );
 
-  recordHistory(
+  await recordHistory(
     id,
     req.user.id,
     'REOPENED',
@@ -1714,7 +1744,7 @@ router.post('/:id/reopen', requirePermission('ticket.reopen'), async (req, res) 
     'OPEN'
   );
   emitTicketEvent(id, 'refresh');
-  res.json({ ticket: getTicket(id) });
+  res.json({ ticket: await getTicket(id) });
 });
 
 export { nameForTeam };

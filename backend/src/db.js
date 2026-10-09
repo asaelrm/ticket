@@ -379,9 +379,10 @@ export function transaction(fn) {
   }
 }
 
-export function nowIso() {
-  return new Date().toISOString();
-}
+// `nowIso` se conserva como reexport por compatibilidad (pruebas y módulos que
+// todavía lo importan desde aquí). Su implementación vive en utils/time.js, que
+// no depende de ningún motor ni abre la conexión SQLite.
+export { nowIso } from './utils/time.js';
 
 export default db;
 

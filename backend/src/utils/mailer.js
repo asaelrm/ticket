@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import db from '../db/runtime.js';
-import { nowIso } from '../db.js';
+import { nowIso } from './time.js';
 import config from '../config.js';
 import { getSetting } from './settingsStore.js';
 

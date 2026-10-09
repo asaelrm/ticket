@@ -1,5 +1,5 @@
 import express from 'express';
-import db from '../db.js';
+import runtime from '../db/runtime.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { currentOrgId } from '../middleware/org.js';
 import { slaAtRiskUntilIso } from '../utils/sla.js';
@@ -39,36 +39,37 @@ function mondayOfCurrentWeek() {
   return d;
 }
 
-router.get('/summary', (req, res) => {
+router.get('/summary', async (req, res) => {
   // ETAPA 4A: todos los totales cuentan solo los tickets de la organización de
   // la sesión. Un SUPERADMIN global (org NULL) obtiene ceros: no hay un
   // dashboard global accidental.
   const scope = dashboardScope(req);
   const counts = { OPEN: 0, ASSIGNED: 0, IN_PROGRESS: 0, PENDING: 0, RESOLVED: 0, CLOSED: 0, CANCELLED: 0 };
-  const byStatus = db.prepare(`SELECT status, COUNT(*) AS n FROM tickets t WHERE ${scope.sql} GROUP BY status`).all(...scope.params);
+  const byStatus = await runtime.queryMany(`SELECT status, COUNT(*) AS n FROM tickets t WHERE ${scope.sql} GROUP BY status`, ...scope.params);
   for (const row of byStatus) counts[row.status] = row.n;
 
   const openTotal = OPEN_STATUSES.reduce((a, s) => a + counts[s], 0);
-  const critical = db.prepare(
-    `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND status IN (${OPEN_STATUSES.map(() => '?').join(',')}) AND priority = 'CRITICAL'`
-  ).get(...scope.params, ...OPEN_STATUSES).n;
+  const critical = (await runtime.queryOne(
+    `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND status IN (${OPEN_STATUSES.map(() => '?').join(',')}) AND priority = 'CRITICAL'`,
+    ...scope.params, ...OPEN_STATUSES
+  )).n;
 
   const year = new Date().getUTCFullYear();
   const month = String(new Date().getUTCMonth() + 1).padStart(2, '0');
-  const createdMonth = db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND strftime('%Y-%m', created_at) = ?`).get(...scope.params, `${year}-${month}`).n;
-  const resolvedMonth = db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND status = 'RESOLVED' AND strftime('%Y-%m', resolved_at) = ?`).get(...scope.params, `${year}-${month}`).n;
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql}`).get(...scope.params).n;
+  const createdMonth = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND strftime('%Y-%m', created_at) = ?`, ...scope.params, `${year}-${month}`)).n;
+  const resolvedMonth = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND status = 'RESOLVED' AND strftime('%Y-%m', resolved_at) = ?`, ...scope.params, `${year}-${month}`)).n;
+  const total = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql}`, ...scope.params)).n;
 
   res.json({ counts, openTotal, critical, createdMonth, resolvedMonth, total });
 });
 
-router.get('/by-status', (req, res) => {
+router.get('/by-status', async (req, res) => {
   const scope = dashboardScope(req);
-  res.json({ data: db.prepare(`SELECT status, COUNT(*) AS n FROM tickets t WHERE ${scope.sql} GROUP BY status ORDER BY n DESC`).all(...scope.params) });
+  res.json({ data: await runtime.queryMany(`SELECT status, COUNT(*) AS n FROM tickets t WHERE ${scope.sql} GROUP BY status ORDER BY n DESC`, ...scope.params) });
 });
 
 // Estado SLA de los turnos/tickets abiertos: vencidos, próximos a vencer y dentro de plazo.
-router.get('/sla', (req, res) => {
+router.get('/sla', async (req, res) => {
   // ETAPA 4A: los conteos SLA y el listado solo cubren tickets de la
   // organización de la sesión. El JOIN de reporter se refuerza a la misma org
   // para neutralizar referencias legacy cross-org.
@@ -77,35 +78,38 @@ router.get('/sla', (req, res) => {
   const in24Iso = slaAtRiskUntilIso();
   const ph = OPEN_STATUSES.map(() => '?').join(',');
   const inClause = `status IN (${ph}) AND sla_due_at IS NOT NULL`;
-  const overdue = db
-    .prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND ${inClause} AND sla_due_at < ?`)
-    .get(...scope.params, ...OPEN_STATUSES, nowIso).n;
-  const atRisk = db
-    .prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND ${inClause} AND sla_due_at >= ? AND sla_due_at < ?`)
-    .get(...scope.params, ...OPEN_STATUSES, nowIso, in24Iso).n;
-  const healthy = db
-    .prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND ${inClause} AND sla_due_at >= ?`)
-    .get(...scope.params, ...OPEN_STATUSES, in24Iso).n;
-  const top = db
-    .prepare(
-      `SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.sla_due_at,
-              (t.sla_due_at < ?) AS is_overdue,
-              r.name || ' ' || r.last_name AS reporter_name
-       FROM tickets t
-       LEFT JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id
-       WHERE ${scope.sql} AND ${inClause}
-       ORDER BY is_overdue DESC, t.sla_due_at ASC
-       LIMIT 6`
-    )
-    .all(nowIso, ...scope.params, ...OPEN_STATUSES);
+  const overdue = (await runtime.queryOne(
+    `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND ${inClause} AND sla_due_at < ?`,
+    ...scope.params, ...OPEN_STATUSES, nowIso
+  )).n;
+  const atRisk = (await runtime.queryOne(
+    `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND ${inClause} AND sla_due_at >= ? AND sla_due_at < ?`,
+    ...scope.params, ...OPEN_STATUSES, nowIso, in24Iso
+  )).n;
+  const healthy = (await runtime.queryOne(
+    `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND ${inClause} AND sla_due_at >= ?`,
+    ...scope.params, ...OPEN_STATUSES, in24Iso
+  )).n;
+  const top = await runtime.queryMany(
+    `SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.sla_due_at,
+            (t.sla_due_at < ?) AS is_overdue,
+            r.name || ' ' || r.last_name AS reporter_name
+     FROM tickets t
+     LEFT JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id
+     WHERE ${scope.sql} AND ${inClause}
+     ORDER BY is_overdue DESC, t.sla_due_at ASC
+     LIMIT 6`,
+    nowIso, ...scope.params, ...OPEN_STATUSES
+  );
   res.json({ overdue, atRisk, healthy, top });
 });
 
-router.get('/by-priority', (req, res) => {
+router.get('/by-priority', async (req, res) => {
   const scope = dashboardScope(req);
-  const data = db.prepare(
-    `SELECT priority, COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND status IN (${OPEN_STATUSES.map(() => '?').join(',')}) GROUP BY priority ORDER BY n DESC`
-  ).all(...scope.params, ...OPEN_STATUSES);
+  const data = await runtime.queryMany(
+    `SELECT priority, COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND status IN (${OPEN_STATUSES.map(() => '?').join(',')}) GROUP BY priority ORDER BY n DESC`,
+    ...scope.params, ...OPEN_STATUSES
+  );
   const open = data.reduce((a, b) => a + b.n, 0);
   res.json({ data, open });
 });
@@ -123,38 +127,38 @@ router.get('/by-priority', (req, res) => {
 // tickets abiertos y ofrece un "Ver todas", así que recortar el conjunto
 // dejaría esas filas inalcanzables y el interruptor mentiría. El orden por `n`
 // mantiene arriba lo que pesa y el desempate por nombre da una lista estable.
-router.get('/by-category', (req, res) => {
+router.get('/by-category', async (req, res) => {
   // ETAPA 4A: la categoría debe pertenecer a la organización del actor y los
   // tickets agregados también. El scope del ticket va en el ON del LEFT JOIN
   // para conservar las categorías propias sin tickets (n = 0) sin traer ni
   // nombres ni contadores de otras organizaciones.
   const ticketScope = dashboardScope(req, 't');
   const categoryScope = dashboardScope(req, 'c');
-  const data = db.prepare(`
+  const data = await runtime.queryMany(`
     SELECT c.id, c.name, c.color, COUNT(t.id) AS n,
       SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
     FROM categories c
     LEFT JOIN tickets t ON t.category_id = c.id AND ${ticketScope.sql}
     WHERE c.active = 1 AND ${categoryScope.sql}
     GROUP BY c.id ORDER BY n DESC, c.name ASC
-  `).all(...OPEN_STATUSES, ...ticketScope.params, ...categoryScope.params);
+  `, ...OPEN_STATUSES, ...ticketScope.params, ...categoryScope.params);
   res.json({ data });
 });
 
 // Mismo criterio y mismo `id` navegable que /by-category, con el filtro
 // `department` de buildConditions. Los departamentos no tienen columna `active`
 // en este esquema, así que no se filtra por ella.
-router.get('/by-department', (req, res) => {
+router.get('/by-department', async (req, res) => {
   const ticketScope = dashboardScope(req, 't');
   const departmentScope = dashboardScope(req, 'd');
-  const data = db.prepare(`
+  const data = await runtime.queryMany(`
     SELECT d.id, d.name, COUNT(t.id) AS n,
       SUM(CASE WHEN t.status IN (${OPEN_STATUSES.map(() => '?').join(',')}) THEN 1 ELSE 0 END) AS open
     FROM departments d
     LEFT JOIN tickets t ON t.department_id = d.id AND ${ticketScope.sql}
     WHERE ${departmentScope.sql}
     GROUP BY d.id ORDER BY n DESC, d.name ASC
-  `).all(...OPEN_STATUSES, ...ticketScope.params, ...departmentScope.params);
+  `, ...OPEN_STATUSES, ...ticketScope.params, ...departmentScope.params);
   res.json({ data });
 });
 
@@ -182,7 +186,7 @@ router.get('/by-department', (req, res) => {
 //
 // Se agrupa por `assigned_to_id` y no por rol para no dejar fuera a quien lleva
 // la carga aunque su rol no sea TECHNICIAN (p. ej. un administrador de apoyo).
-router.get('/by-technician', (req, res) => {
+router.get('/by-technician', async (req, res) => {
   // ETAPA 4A: solo tickets de la organización de la sesión (listado, totales y
   // "unassigned"). El JOIN a users se refuerza a la misma organización del
   // ticket para no dejar ver técnicos con referencias legacy cross-org.
@@ -196,27 +200,26 @@ router.get('/by-technician', (req, res) => {
   const nowIso = new Date().toISOString();
   const openPh = OPEN_STATUSES.map(() => '?').join(',');
 
-  const data = db
-    .prepare(
-      `SELECT u.id,
-              u.name,
-              u.last_name,
-              u.position,
-              u.name || ' ' || u.last_name AS technician,
-              COUNT(*) AS active,
-              SUM(CASE WHEN t.status = 'OPEN' THEN 1 ELSE 0 END) AS open,
-              SUM(CASE WHEN t.status = 'ASSIGNED' THEN 1 ELSE 0 END) AS assigned,
-              SUM(CASE WHEN t.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS in_progress,
-              SUM(CASE WHEN t.status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
-              SUM(CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ? THEN 1 ELSE 0 END) AS overdue
-       FROM tickets t
-       JOIN users u ON u.id = t.assigned_to_id AND u.organization_id = t.organization_id
-       WHERE ${scope.sql} AND t.status IN (${openPh})
-       GROUP BY u.id
-       ORDER BY active DESC, overdue DESC, technician ASC
-       LIMIT 10`
-    )
-    .all(nowIso, ...scope.params, ...OPEN_STATUSES);
+  const data = await runtime.queryMany(
+    `SELECT u.id,
+            u.name,
+            u.last_name,
+            u.position,
+            u.name || ' ' || u.last_name AS technician,
+            COUNT(*) AS active,
+            SUM(CASE WHEN t.status = 'OPEN' THEN 1 ELSE 0 END) AS open,
+            SUM(CASE WHEN t.status = 'ASSIGNED' THEN 1 ELSE 0 END) AS assigned,
+            SUM(CASE WHEN t.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) AS in_progress,
+            SUM(CASE WHEN t.status = 'PENDING' THEN 1 ELSE 0 END) AS pending,
+            SUM(CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ? THEN 1 ELSE 0 END) AS overdue
+     FROM tickets t
+     JOIN users u ON u.id = t.assigned_to_id AND u.organization_id = t.organization_id
+     WHERE ${scope.sql} AND t.status IN (${openPh})
+     GROUP BY u.id
+     ORDER BY active DESC, overdue DESC, technician ASC
+     LIMIT 10`,
+    nowIso, ...scope.params, ...OPEN_STATUSES
+  );
 
   // Los totales se calculan sobre TODOS los técnicos con carga y no solo sobre las
   // diez filas devueltas, para que el resumen de la cabecera no dependa del corte.
@@ -230,24 +233,22 @@ router.get('/by-technician', (req, res) => {
   // se trata como NO asignado (u.id IS NULL tras el LEFT JOIN validado). Así cada
   // ticket abierto queda en la fila de un técnico válido o en "sin dueño", y
   // `totals.active + unassigned` sigue igualando el openTotal de /summary.
-  const totals = db
-    .prepare(
-      `SELECT COUNT(DISTINCT u.id) AS technicians,
-              COUNT(*) AS active,
-              COALESCE(SUM(CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ? THEN 1 ELSE 0 END), 0) AS overdue
-       FROM tickets t
-       JOIN users u ON u.id = t.assigned_to_id AND u.organization_id = t.organization_id
-       WHERE ${scope.sql} AND t.status IN (${openPh})`
-    )
-    .get(nowIso, ...scope.params, ...OPEN_STATUSES);
+  const totals = await runtime.queryOne(
+    `SELECT COUNT(DISTINCT u.id) AS technicians,
+            COUNT(*) AS active,
+            COALESCE(SUM(CASE WHEN t.sla_due_at IS NOT NULL AND t.sla_due_at < ? THEN 1 ELSE 0 END), 0) AS overdue
+     FROM tickets t
+     JOIN users u ON u.id = t.assigned_to_id AND u.organization_id = t.organization_id
+     WHERE ${scope.sql} AND t.status IN (${openPh})`,
+    nowIso, ...scope.params, ...OPEN_STATUSES
+  );
 
-  const unassigned = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM tickets t
-       LEFT JOIN users u ON u.id = t.assigned_to_id AND u.organization_id = t.organization_id
-       WHERE ${scope.sql} AND t.status IN (${openPh}) AND u.id IS NULL`
-    )
-    .get(...scope.params, ...OPEN_STATUSES).n;
+  const unassigned = (await runtime.queryOne(
+    `SELECT COUNT(*) AS n FROM tickets t
+     LEFT JOIN users u ON u.id = t.assigned_to_id AND u.organization_id = t.organization_id
+     WHERE ${scope.sql} AND t.status IN (${openPh}) AND u.id IS NULL`,
+    ...scope.params, ...OPEN_STATUSES
+  )).n;
 
   res.json({ data, unassigned, totals });
 });
@@ -274,9 +275,11 @@ router.get('/by-technician', (req, res) => {
 // 'Carga por técnico'.
 //
 // El orden de ATTENTION_REASONS ES el orden de gravedad que devuelven `reasons`,
-// y la UI usa reasons[0] como el motivo dominante. Los niveles numéricos de
-// urgencia viven solo en el ORDER BY de SQL (MIN(CASE...)); no se duplican aquí
-// para que ambas cosas no puedan discrepar.
+// y la UI usa reasons[0] como el motivo dominante. El nivel numérico de urgencia
+// (0..3, y 9 si ninguno aplica) se deriva del PRIMER motivo que cumple con un
+// CASE WHEN encadenado en el mismo orden: es equivalente al MIN() escalar de
+// SQLite sobre cuatro valores 0/1/2/3, pero T-SQL no admite MIN() escalar con
+// varios argumentos, así que esta forma es portable y no cambia el resultado.
 const ATTENTION_REASONS = [
   { key: 'SLA_OVERDUE', flag: 'is_overdue' },
   { key: 'CRITICAL', flag: 'is_critical' },
@@ -312,7 +315,7 @@ function attentionFlaggedSql(openPh, ticketCond) {
 const ATTENTION_FILTER =
   'WHERE is_overdue OR is_critical OR is_due_soon OR is_unassigned';
 
-router.get('/needs-attention', (req, res) => {
+router.get('/needs-attention', async (req, res) => {
   // ETAPA 4A: el CTE está acotado a la organización de la sesión, así que ni el
   // listado ni los totales pueden revelar tickets concretos de otra org. Los
   // JOIN de usuario/categoría se refuerzan a la misma org del ticket.
@@ -332,32 +335,32 @@ router.get('/needs-attention', (req, res) => {
   // (los NULL al final, para que un ticket sin plazo no empuje a los demás),
   // luego la antigüedad y por último el id, para que dos llamadas seguidas con
   // el mismo reloj devuelvan exactamente la misma lista.
-  const rows = db
-    .prepare(
-      `${flaggedSql}
-       SELECT f.id, f.ticket_number, f.title, f.status, f.priority, f.sla_due_at,
-              f.assigned_to_id, f.created_at,
-              f.is_overdue, f.is_critical, f.is_due_soon, f.is_unassigned,
-              MIN(
-                CASE WHEN f.is_overdue    THEN 0 ELSE 9 END,
-                CASE WHEN f.is_critical   THEN 1 ELSE 9 END,
-                CASE WHEN f.is_due_soon   THEN 2 ELSE 9 END,
-                CASE WHEN f.is_unassigned THEN 3 ELSE 9 END
-              ) AS urgency,
-              u.name || ' ' || u.last_name AS technician_name,
-              c.name AS category_name
-       FROM flagged f
-       LEFT JOIN users u ON u.id = f.assigned_to_id AND u.organization_id = f.organization_id
-       LEFT JOIN categories c ON c.id = f.category_id AND c.organization_id = f.organization_id
-       ${ATTENTION_FILTER}
-       ORDER BY urgency ASC,
-                CASE WHEN f.sla_due_at IS NULL THEN 1 ELSE 0 END ASC,
-                f.sla_due_at ASC,
-                f.created_at ASC,
-                f.id ASC
-       LIMIT ?`
-    )
-    .all(now, now, in24, ...scope.params, ...OPEN_STATUSES, limit);
+  const rows = await runtime.queryMany(
+    `${flaggedSql}
+     SELECT f.id, f.ticket_number, f.title, f.status, f.priority, f.sla_due_at,
+            f.assigned_to_id, f.created_at,
+            f.is_overdue, f.is_critical, f.is_due_soon, f.is_unassigned,
+            CASE
+              WHEN f.is_overdue    THEN 0
+              WHEN f.is_critical   THEN 1
+              WHEN f.is_due_soon   THEN 2
+              WHEN f.is_unassigned THEN 3
+              ELSE 9
+            END AS urgency,
+            u.name || ' ' || u.last_name AS technician_name,
+            c.name AS category_name
+     FROM flagged f
+     LEFT JOIN users u ON u.id = f.assigned_to_id AND u.organization_id = f.organization_id
+     LEFT JOIN categories c ON c.id = f.category_id AND c.organization_id = f.organization_id
+     ${ATTENTION_FILTER}
+     ORDER BY urgency ASC,
+              CASE WHEN f.sla_due_at IS NULL THEN 1 ELSE 0 END ASC,
+              f.sla_due_at ASC,
+              f.created_at ASC,
+              f.id ASC
+     LIMIT ?`,
+    now, now, in24, ...scope.params, ...OPEN_STATUSES, limit
+  );
 
   const data = rows.map((r) => ({
     id: r.id,
@@ -378,41 +381,43 @@ router.get('/needs-attention', (req, res) => {
   // Los contadores son de TICKETS, no de motivos: un ticket vencido y crítico
   // suma en los dos. Por eso `total` puede ser menor que su suma, y la UI no
   // debe intentar cuadrarlos.
-  const totals = db
-    .prepare(
-      `${flaggedSql}
-       SELECT COUNT(*) AS total,
-              COALESCE(SUM(is_overdue), 0) AS overdue,
-              COALESCE(SUM(is_critical), 0) AS critical,
-              COALESCE(SUM(is_due_soon), 0) AS dueSoon,
-              COALESCE(SUM(is_unassigned), 0) AS unassigned
-       FROM flagged
-       ${ATTENTION_FILTER}`
-    )
-    .get(now, now, in24, ...scope.params, ...OPEN_STATUSES);
+  // SUM directo sobre una columna BIT no es válido en T-SQL ("Operand data type
+  // bit is invalid for sum operator"); el CASE ... THEN 1 ELSE 0 END es idéntico
+  // en ambos motores.
+  const totals = await runtime.queryOne(
+    `${flaggedSql}
+     SELECT COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN is_overdue THEN 1 ELSE 0 END), 0) AS overdue,
+            COALESCE(SUM(CASE WHEN is_critical THEN 1 ELSE 0 END), 0) AS critical,
+            COALESCE(SUM(CASE WHEN is_due_soon THEN 1 ELSE 0 END), 0) AS dueSoon,
+            COALESCE(SUM(CASE WHEN is_unassigned THEN 1 ELSE 0 END), 0) AS unassigned
+     FROM flagged
+     ${ATTENTION_FILTER}`,
+    now, now, in24, ...scope.params, ...OPEN_STATUSES
+  );
 
   res.json({ data, totals });
 });
 
-router.get('/trend', (req, res) => {
+router.get('/trend', async (req, res) => {
   // ETAPA 4A: todas las ventanas (día/semana/mes) cuentan solo tickets de la
   // organización de la sesión. Un SUPERADMIN global obtiene la estructura con
   // ceros, coherente con el resto del Dashboard.
   const scope = dashboardScope(req);
   const range = ['day', 'week', 'month'].includes(req.query.range) ? req.query.range : 'day';
   const data = [];
-  const countCreatedDay = db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND date(created_at) = ?`);
-  const countResolvedDay = db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND date(resolved_at) = ?`);
-  const countCreatedMonth = db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND strftime('%Y-%m', created_at) = ?`);
-  const countResolvedMonth = db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND strftime('%Y-%m', resolved_at) = ?`);
+  const countCreatedDay = `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND date(created_at) = ?`;
+  const countResolvedDay = `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND date(resolved_at) = ?`;
+  const countCreatedMonth = `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND strftime('%Y-%m', created_at) = ?`;
+  const countResolvedMonth = `SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND strftime('%Y-%m', resolved_at) = ?`;
 
   if (range === 'day') {
     for (let i = 13; i >= 0; i--) {
       const label = isoDate(-i);
       data.push({
         label,
-        created: countCreatedDay.get(...scope.params, label).n,
-        resolved: countResolvedDay.get(...scope.params, label).n,
+        created: (await runtime.queryOne(countCreatedDay, ...scope.params, label)).n,
+        resolved: (await runtime.queryOne(countResolvedDay, ...scope.params, label)).n,
       });
     }
   } else if (range === 'week') {
@@ -425,8 +430,8 @@ router.get('/trend', (req, res) => {
       end.setUTCDate(end.getUTCDate() + 7);
       data.push({
         label: start.slice(0, 10),
-        created: db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND created_at >= ? AND created_at < ?`).get(...scope.params, start, end.toISOString()).n,
-        resolved: db.prepare(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND resolved_at >= ? AND resolved_at < ?`).get(...scope.params, start, end.toISOString()).n,
+        created: (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND created_at >= ? AND created_at < ?`, ...scope.params, start, end.toISOString())).n,
+        resolved: (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t WHERE ${scope.sql} AND resolved_at >= ? AND resolved_at < ?`, ...scope.params, start, end.toISOString())).n,
       });
     }
   } else {
@@ -436,8 +441,8 @@ router.get('/trend', (req, res) => {
       const label = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
       data.push({
         label,
-        created: countCreatedMonth.get(...scope.params, label).n,
-        resolved: countResolvedMonth.get(...scope.params, label).n,
+        created: (await runtime.queryOne(countCreatedMonth, ...scope.params, label)).n,
+        resolved: (await runtime.queryOne(countResolvedMonth, ...scope.params, label)).n,
       });
     }
   }
@@ -456,13 +461,13 @@ router.get('/trend', (req, res) => {
 // mismo criterio de dueño que usa /by-technician, no el estado— para que la fila
 // muestre a quién se le asignó sin que la UI tenga que pedir un ticket por
 // persona. Son dos uniones en una consulta: no hay N+1 ni llamadas extra.
-router.get('/recent', (req, res) => {
+router.get('/recent', async (req, res) => {
   // ETAPA 4A: endpoint sensible que devuelve tickets concretos. Solo tickets de
   // la organización de la sesión, y los JOIN a reporter/categoría/asignado se
   // refuerzan a la misma org del ticket para neutralizar referencias legacy
   // cross-org.
   const scope = dashboardScope(req);
-  const data = db.prepare(`
+  const data = await runtime.queryMany(`
     SELECT t.id, t.ticket_number, t.title, t.status, t.priority, t.created_at,
       c.name AS category_name,
       r.name || ' ' || r.last_name AS reporter_name,
@@ -472,7 +477,7 @@ router.get('/recent', (req, res) => {
     LEFT JOIN categories c ON c.id = t.category_id AND c.organization_id = t.organization_id
     LEFT JOIN users a ON a.id = t.assigned_to_id AND a.organization_id = t.organization_id
     WHERE ${scope.sql}
-    ORDER BY t.created_at DESC LIMIT 8`).all(...scope.params);
+    ORDER BY t.created_at DESC LIMIT 8`, ...scope.params);
   res.json({ data });
 });
 

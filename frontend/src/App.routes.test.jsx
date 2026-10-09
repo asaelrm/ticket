@@ -116,6 +116,39 @@ describe('Permisos de las rutas de gestión', () => {
   });
 });
 
+describe('Ruta raíz "/"', () => {
+  // La raíz no tenía ruta y caía en el comodín "*": abrir http://localhost:5173/
+  // mostraba "404 — Página no encontrada". Debe encaminar al inicio real.
+
+  it('no muestra el 404 en la raíz', async () => {
+    renderApp('/');
+    expect(await screen.findByText('PAGE my-tickets')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Página no encontrada' })).not.toBeInTheDocument();
+  });
+
+  it('con sesión y dashboard.view lleva al dashboard', async () => {
+    authState.user = { ...EMPLOYEE, permissions: ['dashboard.view'] };
+
+    renderApp('/');
+    expect(await screen.findByText('PAGE dashboard')).toBeInTheDocument();
+  });
+
+  it('con sesión sin dashboard.view lleva a my-tickets', async () => {
+    authState.user = EMPLOYEE;
+
+    renderApp('/');
+    expect(await screen.findByText('PAGE my-tickets')).toBeInTheDocument();
+  });
+
+  it('sin sesión lleva al login', async () => {
+    authState.user = null;
+
+    renderApp('/');
+    expect(await screen.findByText('PAGE login')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Página no encontrada' })).not.toBeInTheDocument();
+  });
+});
+
 describe('Rutas desconocidas', () => {
   // Antes, `<Route path="*" element={<Navigate to="/app" replace />} />` mandaba
   // cualquier dirección inventada al inicio: el usuario veía su panel sin saber

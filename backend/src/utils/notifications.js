@@ -1,44 +1,101 @@
-import db from '../db/runtime.js';
+import db, { currentEngine } from '../db/runtime.js';
 import { EventEmitter } from 'node:events';
+import { SUPERADMIN_ROLE_CODE } from '../orgPolicy.js';
 
 export const notificationEvents = new EventEmitter();
 
+// Notificaciones in-app: se muestran en la campana del header. No son correos,
+// solo eventos internos del sistema (asignación, comentarios, cierre, etc.).
+//
 // ETAPA 3 (defensa central): antes de crear una notificación ligada a un
 // ticket, el destinatario debe pertenecer a la MISMA organización del ticket.
 // Es la red de seguridad que cubre cualquier flujo (normal, jobs o datos
 // legacy corruptos): si el usuario no existe, no tiene org o la org no
 // coincide, la notificación no se crea. Las notificaciones de sistema o no
 // ligadas a tickets (password reset, avisos globales) pasan ticketId = null.
-async function recipientInTicketOrg(userId, ticketId) {
-  const row = await db.queryOne(
-    `SELECT u.organization_id AS user_org, t.organization_id AS ticket_org
-     FROM users u, tickets t WHERE u.id = ? AND t.id = ?`,
-    userId,
-    ticketId,
-  );
-  if (!row || row.user_org == null || row.ticket_org == null) return false;
-  return Number(row.user_org) === Number(row.ticket_org);
+//
+// MULTIEMPRESA (MSSQL): el esquema destino exige `organization_id` en
+// `notifications`, con FK compuesta (organization_id, user_id) -> users y
+// (organization_id, ticket_id) -> tickets. La organización NUNCA llega del
+// cliente: se deriva en el servidor. Con ticket, manda la organización del
+// ticket; sin ticket, la del destinatario. `NULL` queda reservado para un aviso
+// global legítimo dirigido a un SUPERADMIN sin organización. SQLite no tiene la
+// columna y conserva su comportamiento anterior.
+//
+// El servicio se construye con una fábrica para inyectar el runtime y la
+// detección de motor en las pruebas (contrato MSSQL falso, sin conexión real).
+const RECIPIENT_IN_TICKET_ORG = `SELECT u.organization_id AS user_org, t.organization_id AS ticket_org
+     FROM users u, tickets t WHERE u.id = ? AND t.id = ?`;
+
+export function createNotificationService(rt = db, engine = currentEngine) {
+  const writesOrganizationId = () => engine() === 'mssql';
+
+  async function recipientInTicketOrg(userId, ticketId) {
+    const row = await rt.queryOne(RECIPIENT_IN_TICKET_ORG, userId, ticketId);
+    if (!row || row.user_org == null || row.ticket_org == null) return false;
+    return Number(row.user_org) === Number(row.ticket_org);
+  }
+
+  // Organización del servidor para una notificación. Rechaza cualquier estado
+  // que no permita decidir una organización legítima.
+  async function organizationIdFor({ userId, ticketId }) {
+    if (ticketId != null) {
+      const ticket = await rt.queryOne('SELECT organization_id FROM tickets WHERE id = ?', ticketId);
+      if (!ticket) throw new Error(`No se puede notificar: no existe el ticket ${ticketId}.`);
+      if (ticket.organization_id == null) throw new Error(`No se puede notificar: el ticket ${ticketId} no tiene organización.`);
+      return ticket.organization_id;
+    }
+    const user = await rt.queryOne(
+      `SELECT u.organization_id AS organization_id, r.code AS role_code
+       FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ?`,
+      userId,
+    );
+    if (!user) throw new Error(`No se puede notificar: no existe el usuario ${userId}.`);
+    if (user.organization_id != null) return user.organization_id;
+    if (user.role_code === SUPERADMIN_ROLE_CODE) return null;
+    throw new Error(`No se puede notificar: el usuario ${userId} no tiene organización y no es un SUPERADMIN global.`);
+  }
+
+  async function createNotification({ userId, ticketId = null, type, title, body = null, link = null }) {
+    if (!userId) return null;
+    if (ticketId != null && !(await recipientInTicketOrg(userId, ticketId))) return null;
+
+    let info;
+    if (writesOrganizationId()) {
+      const organizationId = await organizationIdFor({ userId, ticketId });
+      info = await rt.insertAndGetId(
+        'INSERT INTO notifications (organization_id, user_id, ticket_id, type, title, body, link) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        organizationId,
+        userId,
+        ticketId,
+        String(type).toUpperCase(),
+        String(title).slice(0, 200),
+        body ? String(body).slice(0, 500) : null,
+        link || null,
+      );
+    } else {
+      info = await rt.insertAndGetId(
+        'INSERT INTO notifications (user_id, ticket_id, type, title, body, link) VALUES (?, ?, ?, ?, ?, ?)',
+        userId,
+        ticketId,
+        String(type).toUpperCase(),
+        String(title).slice(0, 200),
+        body ? String(body).slice(0, 500) : null,
+        link || null,
+      );
+    }
+
+    const notificationId = info.id;
+    notificationEvents.emit('new_notification', { id: notificationId, userId, ticketId, type, title, body, link });
+    return notificationId;
+  }
+
+  return { createNotification, recipientInTicketOrg, organizationIdFor };
 }
 
-// Notificaciones in-app: se muestran en la campana del header. No son correos,
-// solo eventos internos del sistema (asignación, comentarios, cierre, etc.).
-export async function createNotification({ userId, ticketId = null, type, title, body = null, link = null }) {
-  if (!userId) return null;
-  if (ticketId != null && !(await recipientInTicketOrg(userId, ticketId))) return null;
-  const info = await db.insertAndGetId(
-    'INSERT INTO notifications (user_id, ticket_id, type, title, body, link) VALUES (?, ?, ?, ?, ?, ?)',
-    userId,
-    ticketId,
-    String(type).toUpperCase(),
-    String(title).slice(0, 200),
-    body ? String(body).slice(0, 500) : null,
-    link || null,
-  );
+const defaultService = createNotificationService();
 
-  const notificationId = info.id;
-  notificationEvents.emit('new_notification', { id: notificationId, userId, ticketId, type, title, body, link });
-  return notificationId;
-}
+export const createNotification = defaultService.createNotification;
 
 export async function createNotifications({ userIds = [], ...rest }) {
   const ids = [...new Set(userIds.map((u) => Number(u)).filter(Boolean))];

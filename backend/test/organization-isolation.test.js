@@ -466,8 +466,8 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-aislamiento-'));
   const file = path.join(tmp, 'directory.json');
 
-  it('el snapshot lleva organization_code en usuarios y departamentos', () => {
-    assert.equal(saveDirectorySnapshot({ enabled: true, file }), true);
+  it('el snapshot lleva organization_code en usuarios y departamentos', async () => {
+    assert.equal(await saveDirectorySnapshot({ enabled: true, file }), true);
     const snapshot = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.equal(snapshot.version, 3);
     const depts = new Map(snapshot.departments.map((d) => [d.name, d.organization_code]));
@@ -479,11 +479,11 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
     assert.equal(porNombre.get('super_aisl'), null, 'el SUPERADMIN se guarda sin organización');
   });
 
-  it('restaurar borra y recrea debajo de una organización: ninguna cuenta queda huérfana', () => {
+  it('restaurar borra y recrea debajo de una organización: ninguna cuenta queda huérfana', async () => {
     const userA = db.prepare('SELECT id FROM users WHERE username = ?').get('usuario_a_aisl');
     db.prepare('DELETE FROM users WHERE id = ?').run(userA.id);
 
-    const resultado = restoreDirectorySnapshot({ enabled: true, file });
+    const resultado = await restoreDirectorySnapshot({ enabled: true, file });
     assert.equal(resultado.applied, true);
     assert.deepEqual(resultado.nuevas, ['usuario_a_aisl']);
 
@@ -493,7 +493,7 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
     assert.equal(back.org, ORGA, 'la cuenta restaurada vuelve a su organización');
   });
 
-  it('un snapshot con organización desconocida aborta sin ensuciar la base', () => {
+  it('un snapshot con organización desconocida aborta sin ensuciar la base', async () => {
     const malo = path.join(tmp, 'malo.json');
     fs.writeFileSync(
       malo,
@@ -510,12 +510,15 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
       })
     );
     const antes = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-    assert.throws(() => restoreDirectorySnapshot({ enabled: true, file: malo }), /Organización desconocida/);
+    await assert.rejects(
+      restoreDirectorySnapshot({ enabled: true, file: malo }),
+      /Organización desconocida/
+    );
     const despues = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
     assert.equal(despues, antes, 'el restore fallido no debe dejar cuentas huérfanas');
   });
 
-  it('un departamento que no coincide con la organización no se impone', () => {
+  it('un departamento que no coincide con la organización no se impone', async () => {
     const malo = path.join(tmp, 'dept-malo.json');
     // Departamento "Depto A Aislamiento" pertenece a A; el usuario es de B: el
     // restore deja al usuario sin departamento y avisa.
@@ -533,9 +536,113 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
         ],
       })
     );
-    const resultado = restoreDirectorySnapshot({ enabled: true, file: malo });
+    const resultado = await restoreDirectorySnapshot({ enabled: true, file: malo });
     assert.ok(resultado.avisos.length >= 1, 'debe avisar del departamento descartado');
     const row = db.prepare('SELECT department_id FROM users WHERE username = ?').get(resultado.nuevas[0]);
     assert.equal(row.department_id, null);
+  });
+
+  it('departamentos con el mismo nombre en organizaciones distintas no se mezclan', async () => {
+    // En SQLite `departments.name` es UNIQUE GLOBAL (el esquema MSSQL es
+    // UNIQUE(organization_id, name)). En cualquier caso, el departamento de A
+    // no puede terminar perteneciendo a B ni cambiar de descripción.
+    const comparte = `Compartido ${Date.now()}`;
+    db.prepare('INSERT INTO departments (name, description, active, organization_id) VALUES (?, ?, 1, ?)')
+      .run(comparte, 'de A', ids.orgA);
+    const deptAId = db.prepare('SELECT id FROM departments WHERE name = ?').get(comparte).id;
+
+    const archivo = path.join(tmp, 'homonimo.json');
+    fs.writeFileSync(
+      archivo,
+      JSON.stringify({
+        version: 3,
+        departments: [{ name: comparte, description: 'de B', active: 1, organization_code: ORGB }],
+        users: [],
+      })
+    );
+
+    let aplicado = true;
+    try {
+      await restoreDirectorySnapshot({ enabled: true, file: archivo });
+    } catch {
+      aplicado = false;
+    }
+
+    const filaA = db.prepare('SELECT id, organization_id, description FROM departments WHERE id = ?').get(deptAId);
+    assert.equal(filaA.organization_id, ids.orgA, 'el departamento de A jamás se mueve a B');
+    assert.equal(filaA.description, 'de A', 'tampoco se sobrescribe su descripción');
+
+    const enB = db.prepare('SELECT COUNT(*) AS n FROM departments WHERE name = ? AND organization_id = ?')
+      .get(comparte, ids.orgB).n;
+    if (aplicado) {
+      // Motor con unicidad por organización: el homónimo existe como fila
+      // distinta, nunca como la de A reasignada.
+      assert.equal(enB, 1);
+    } else {
+      // SQLite: el nombre es único globalmente y la creación revierte entera.
+      assert.equal(enB, 0);
+    }
+  });
+
+  it('un correo ya usado por otra cuenta aborta la restauración sin fusionar cuentas', async () => {
+    const ts = Date.now();
+    const archivo = path.join(tmp, 'email-duplicado.json');
+    fs.writeFileSync(
+      archivo,
+      JSON.stringify({
+        version: 3,
+        departments: [],
+        users: [
+          {
+            name: 'Duplicado', last_name: 'Email', username: `duplicado_${ts}`, email: 'ua@aisl.test',
+            position: 'P', active: 1, role_code: 'EMPLOYEE', department_name: null,
+            organization_code: ORGB,
+          },
+        ],
+      })
+    );
+
+    // 'ua@aisl.test' pertenece a usuario_a_aisl: el restore no puede apropiárselo.
+    const antes = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+    await assert.rejects(
+      restoreDirectorySnapshot({ enabled: true, file: archivo }),
+      /ya pertenece/
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, antes);
+    assert.equal(
+      db.prepare('SELECT username FROM users WHERE email = ?').get('ua@aisl.test').username,
+      'usuario_a_aisl',
+      'el correo sigue en su dueño original'
+    );
+  });
+
+  it('un rol desconocido revierte por completo, incluido el departamento ya insertado', async () => {
+    const ts = Date.now();
+    const deptNuevo = `Rollback ${ts}`;
+    const archivo = path.join(tmp, 'rol-malo.json');
+    fs.writeFileSync(
+      archivo,
+      JSON.stringify({
+        version: 3,
+        departments: [{ name: deptNuevo, description: 'x', active: 1, organization_code: ORGA }],
+        users: [
+          {
+            name: 'SinRol', last_name: 'Rollback', username: `sinrol_${ts}`, email: `sinrol_${ts}@aisl.test`,
+            position: 'P', active: 1, role_code: 'ROL_QUE_NO_EXISTE', department_name: null,
+            organization_code: ORGA,
+          },
+        ],
+      })
+    );
+
+    const deptAntes = db.prepare('SELECT COUNT(*) AS n FROM departments').get().n;
+    const userAntes = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+    await assert.rejects(
+      restoreDirectorySnapshot({ enabled: true, file: archivo }),
+      /Rol no encontrado/
+    );
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM departments').get().n, deptAntes, 'el departamento insertado se revierte');
+    assert.equal(db.prepare('SELECT id FROM departments WHERE name = ?').get(deptNuevo), undefined);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, userAntes);
   });
 });

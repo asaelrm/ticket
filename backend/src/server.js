@@ -1,16 +1,5 @@
-import { createApp } from './app.js';
 import config from './config.js';
-import { runMigrations } from './db.js';
-import { seed } from './seed.js';
-import { restoreDirectorySnapshot } from './directorySync.js';
-import { startJobs } from './utils/jobs.js';
-
-runMigrations();
-seed();
-restoreDirectorySnapshot();
-
-const app = createApp();
-startJobs();
+import { startServer } from './startup.js';
 
 // Deja constancia cuando se pidió SQL Server pero el runtime no está activado:
 // sin este aviso, un `DB_CLIENT=mssql` sin `MSSQL_RUNTIME=true` parecería estar
@@ -22,8 +11,8 @@ if (config.requestedDbClient === 'mssql' && config.dbClient !== 'mssql') {
   );
 }
 
-app.listen(config.port, () => {
-  console.log(`[ticket] API escuchando en http://localhost:${config.port} (${config.env})`);
-  console.log(`[ticket] Base de datos: ${config.dbFile}`);
-  console.log(`[ticket] Uploads: ${config.uploadDir}`);
-});
+// startServer decide el camino por motor: SQLite migra, siembra y restaura la
+// instantánea del directorio; MSSQL solo valida el esquema (sin migrar, sin
+// sembrar, sin restaurar y sin tocar db.js). Si la validación MSSQL falla, no se
+// llega a abrir el puerto HTTP.
+await startServer();

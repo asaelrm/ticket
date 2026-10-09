@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import db, { transaction } from './db.js';
 import config from './config.js';
 import { unusablePassword } from './utils/password.js';
+import { INITIAL_ORGANIZATION } from './orgConstants.js';
 
 function boolEnv(value) {
   if (value === undefined || value === null || value === '') return false;
@@ -81,14 +82,10 @@ const ROLES = {
   },
 };
 
-// Organización inicial (ETAPA 1A). Es la organización a la que se asocian los
-// datos existentes sin pérdida de información. Las siguientes organizaciones
-// llegarán en etapas posteriores, no en esta.
-export const INITIAL_ORGANIZATION = {
-  code: 'UCE',
-  name: 'Centro Médico UCE',
-  description: 'Organización inicial del sistema',
-};
+// Organización inicial (ETAPA 1A). Se conserva como reexport por compatibilidad;
+// su definición vive en orgConstants.js, que no depende de ningún motor ni abre
+// la conexión SQLite.
+export { INITIAL_ORGANIZATION };
 
 /**
  * Taxonomía propia de la base de conocimiento. NO se reutiliza `categories`

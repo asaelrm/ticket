@@ -68,6 +68,11 @@ backups/
 *.db.bak
 *.tar.gz
 
+# Copias de trabajo del editor (por ejemplo al reescribir un archivo). No
+# aportan nada al historial y suelen llevar la version anterior.
+*.bak
+*~
+
 # OS
 .DS_Store
 Thumbs.db

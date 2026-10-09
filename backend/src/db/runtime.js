@@ -15,10 +15,20 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import config from '../config.js';
-import legacyDb from '../db.js';
-import { createSqliteDatabase } from './sqlite.js';
 import { createMssqlContract } from './mssql.js';
 import { placeholderCount, toTsql } from './dialect.js';
+
+// Dependencias de SQLite: se cargan SOLO cuando el motor real es SQLite. En modo
+// MSSQL no se importa db.js (que abre/crea el archivo SQLite al evaluarse) ni
+// sqlite.js (node:sqlite). La decisión se toma una vez, al evaluar este módulo,
+// según config.dbClient. Importarlo nunca abre una conexión de SQL Server,
+// porque createMssqlContract es perezoso (la primera consulta abre el pool).
+const sqliteDeps = config.dbClient === 'mssql'
+  ? null
+  : {
+      connection: (await import('../db.js')).default,
+      createDatabase: (await import('./sqlite.js')).createSqliteDatabase,
+    };
 
 const ISO_PREFIX = /^\d{4}-\d{2}-\d{2}T/;
 
@@ -235,8 +245,8 @@ function createDefaultRuntime() {
   }
   return createRuntime({
     engine: 'sqlite',
-    connection: legacyDb,
-    openConnection: () => createSqliteDatabase(config.dbFile),
+    connection: sqliteDeps.connection,
+    openConnection: () => sqliteDeps.createDatabase(config.dbFile),
   });
 }
 

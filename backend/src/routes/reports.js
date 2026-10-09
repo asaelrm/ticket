@@ -1,5 +1,5 @@
 import express from 'express';
-import db from '../db.js';
+import runtime from '../db/runtime.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
 import { currentOrgId } from '../middleware/org.js';
 
@@ -85,29 +85,29 @@ function ctx(req) {
   };
 }
 
-function summaryData(req) {
+async function summaryData(req) {
   const { df, base, combine } = ctx(req);
 
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${base}`).get(...df.params).n;
+  const total = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t ${base}`, ...df.params)).n;
 
   const wOpen = combine([OPEN_IN]);
-  const open = db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${wOpen.sql}`).get(...OPEN_STATUSES, ...wOpen.params).n;
+  const open = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t ${wOpen.sql}`, ...OPEN_STATUSES, ...wOpen.params)).n;
 
   const wUnresolved = combine([OPEN_IN, 't.created_at < ?']);
-  const unresolved = db
-    .prepare(`SELECT COUNT(*) AS n FROM tickets t ${wUnresolved.sql}`)
-    .get(...OPEN_STATUSES, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), ...wUnresolved.params).n;
+  const unresolved = (await runtime.queryOne(
+    `SELECT COUNT(*) AS n FROM tickets t ${wUnresolved.sql}`,
+    ...OPEN_STATUSES, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(), ...wUnresolved.params
+  )).n;
 
   const wResolved = combine([`t.status IN ('RESOLVED','CLOSED')`]);
-  const resolved = db.prepare(`SELECT COUNT(*) AS n FROM tickets t ${wResolved.sql}`).get(...wResolved.params).n;
+  const resolved = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t ${wResolved.sql}`, ...wResolved.params)).n;
 
   const wAvg = combine(['(t.resolved_at IS NOT NULL OR t.closed_at IS NOT NULL)']);
-  const avgResolution = db
-    .prepare(
-      `SELECT AVG((julianday(COALESCE(t.resolved_at, t.closed_at, t.updated_at)) - julianday(t.created_at)) * 24) AS hours
-       FROM tickets t ${wAvg.sql}`
-    )
-    .get(...wAvg.params).hours;
+  const avgResolution = (await runtime.queryOne(
+    `SELECT AVG((julianday(COALESCE(t.resolved_at, t.closed_at, t.updated_at)) - julianday(t.created_at)) * 24) AS hours
+     FROM tickets t ${wAvg.sql}`,
+    ...wAvg.params
+  )).hours;
 
   return {
     total,
@@ -118,22 +118,18 @@ function summaryData(req) {
   };
 }
 
-function byStatusData(req) {
+async function byStatusData(req) {
   const { df, base } = ctx(req);
-  return db
-    .prepare(`SELECT t.status, COUNT(*) AS n FROM tickets t ${base} GROUP BY t.status ORDER BY n DESC`)
-    .all(...df.params);
+  return runtime.queryMany(`SELECT t.status, COUNT(*) AS n FROM tickets t ${base} GROUP BY t.status ORDER BY n DESC`, ...df.params);
 }
 
-function byPriorityData(req) {
+async function byPriorityData(req) {
   const { combine } = ctx(req);
   const w = combine([OPEN_IN]);
-  return db
-    .prepare(`SELECT t.priority, COUNT(*) AS n FROM tickets t ${w.sql} GROUP BY t.priority ORDER BY n DESC`)
-    .all(...OPEN_STATUSES, ...w.params);
+  return runtime.queryMany(`SELECT t.priority, COUNT(*) AS n FROM tickets t ${w.sql} GROUP BY t.priority ORDER BY n DESC`, ...OPEN_STATUSES, ...w.params);
 }
 
-function byCategoryData(req) {
+async function byCategoryData(req) {
   // ETAPA 4B: el reporte enumera categorías, así que hace falta doble scope.
   // Las categorías visibles (WHERE sobre `c`) pertenecen a la organización
   // actual —una categoría de otra org no aparece ni con n = 0— y los tickets
@@ -142,61 +138,57 @@ function byCategoryData(req) {
   // los del WHERE, y por eso df.params precede a categoryScope.params.
   const df = ticketFilter(req);
   const categoryScope = reportOrgScope(req, 'c');
-  return db
-    .prepare(
-      `SELECT c.name, c.color, COUNT(t.id) AS n,
-         SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
-       FROM categories c
-       LEFT JOIN tickets t ON t.category_id = c.id AND ${df.conds.join(' AND ')}
-       WHERE ${categoryScope.sql} AND c.active = 1
-       GROUP BY c.id ORDER BY n DESC LIMIT 10`
-    )
-    .all(...OPEN_STATUSES, ...df.params, ...categoryScope.params);
+  return runtime.queryMany(
+    `SELECT c.name, c.color, COUNT(t.id) AS n,
+       SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
+     FROM categories c
+     LEFT JOIN tickets t ON t.category_id = c.id AND ${df.conds.join(' AND ')}
+     WHERE ${categoryScope.sql} AND c.active = 1
+     GROUP BY c.id ORDER BY n DESC LIMIT 10`,
+    ...OPEN_STATUSES, ...df.params, ...categoryScope.params
+  );
 }
 
-function byDepartmentData(req) {
+async function byDepartmentData(req) {
   const { df, base } = ctx(req);
   // ETAPA 4B: el JOIN a departamentos se refuerza a la misma org del ticket
   // (`d.organization_id = t.organization_id`), así una referencia legacy
   // cross-org no revela el nombre/id del departamento de otra org: se agrupa
   // bajo 'Sin departamento'. Los tickets ya se acotan con el scope de ticket.
-  return db
-    .prepare(
-      `SELECT COALESCE(d.name, 'Sin departamento') AS name, COUNT(t.id) AS n,
-         SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
-       FROM tickets t
-       LEFT JOIN departments d ON d.id = t.department_id AND d.organization_id = t.organization_id ${base}
-       GROUP BY d.id ORDER BY n DESC LIMIT 10`
-    )
-    .all(...OPEN_STATUSES, ...df.params);
+  return runtime.queryMany(
+    `SELECT COALESCE(d.name, 'Sin departamento') AS name, COUNT(t.id) AS n,
+       SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
+     FROM tickets t
+     LEFT JOIN departments d ON d.id = t.department_id AND d.organization_id = t.organization_id ${base}
+     GROUP BY d.id ORDER BY n DESC LIMIT 10`,
+    ...OPEN_STATUSES, ...df.params
+  );
 }
 
-function byDayData(req) {
+async function byDayData(req) {
   const { combine } = ctx(req);
   const w = combine(['(t.resolved_at IS NOT NULL OR t.closed_at IS NOT NULL)']);
-  return db
-    .prepare(
-      `SELECT date(COALESCE(t.resolved_at, t.closed_at)) AS day, COUNT(*) AS n
-       FROM tickets t ${w.sql} GROUP BY day ORDER BY day DESC LIMIT 30`
-    )
-    .all(...w.params);
+  return runtime.queryMany(
+    `SELECT date(COALESCE(t.resolved_at, t.closed_at)) AS day, COUNT(*) AS n
+     FROM tickets t ${w.sql} GROUP BY day ORDER BY day DESC LIMIT 30`,
+    ...w.params
+  );
 }
 
-function byUserData(req) {
+async function byUserData(req) {
   const { combine } = ctx(req);
   const w = combine([]);
   // ETAPA 4B: LEFT JOIN reforzado a la misma org del ticket. Un reporter
   // legacy cross-org no puede filtrar identidad ajena: su ticket se conserva
   // en el reporte agrupado bajo 'Sin reportero' (no se oculta un ticket de la
   // org por miedo a un JOIN incorrecto).
-  return db
-    .prepare(
-      `SELECT COALESCE(r.name || ' ' || r.last_name, 'Sin reportero') AS reporter, COUNT(*) AS total,
-         SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
-       FROM tickets t LEFT JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id ${w.sql}
-       GROUP BY t.reporter_id ORDER BY total DESC LIMIT 10`
-    )
-    .all(...OPEN_STATUSES, ...w.params);
+  return runtime.queryMany(
+    `SELECT COALESCE(r.name || ' ' || r.last_name, 'Sin reportero') AS reporter, COUNT(*) AS total,
+       SUM(CASE WHEN ${OPEN_IN} THEN 1 ELSE 0 END) AS open
+     FROM tickets t LEFT JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id ${w.sql}
+     GROUP BY t.reporter_id ORDER BY total DESC LIMIT 10`,
+    ...OPEN_STATUSES, ...w.params
+  );
 }
 
 // Instante en que un ticket se dio por terminado y si le vencía el SLA.
@@ -223,25 +215,22 @@ function slaResult(total, within) {
 // Un 0 de media o un 0% de respuesta no es lo mismo que "no hay datos":
 // sin respuestas la media y la tasa se devuelven como null.
 
-function csatData(req) {
+async function csatData(req) {
   const { df, base, combine } = ctx(req);
 
-  const totals = db
-    .prepare(
-      `SELECT COUNT(t.csat_rating) AS responses,
-              AVG(t.csat_rating) AS average,
-              SUM(CASE WHEN t.status IN ('RESOLVED','CLOSED') THEN 1 ELSE 0 END) AS eligible
-       FROM tickets t ${base}`
-    )
-    .get(...df.params);
+  const totals = await runtime.queryOne(
+    `SELECT COUNT(t.csat_rating) AS responses,
+            AVG(t.csat_rating) AS average,
+            SUM(CASE WHEN t.status IN ('RESOLVED','CLOSED') THEN 1 ELSE 0 END) AS eligible
+     FROM tickets t ${base}`,
+    ...df.params
+  );
 
   const responses = totals.responses || 0;
   const eligible = totals.eligible || 0;
 
   const wAnswered = combine(['t.csat_rating IS NOT NULL']);
-  const counts = db
-    .prepare(`SELECT t.csat_rating AS rating, COUNT(*) AS n FROM tickets t ${wAnswered.sql} GROUP BY t.csat_rating`)
-    .all(...wAnswered.params);
+  const counts = await runtime.queryMany(`SELECT t.csat_rating AS rating, COUNT(*) AS n FROM tickets t ${wAnswered.sql} GROUP BY t.csat_rating`, ...wAnswered.params);
   const byRating = new Map(counts.map((c) => [c.rating, c.n]));
 
   return {
@@ -252,19 +241,19 @@ function csatData(req) {
     average: totals.average == null ? null : round2(totals.average),
     has_data: responses > 0,
     distribution: [1, 2, 3, 4, 5].map((rating) => ({ rating, n: byRating.get(rating) || 0 })),
-    by_technician: csatBy(req, 'users u ON u.id = t.resolved_by AND u.organization_id = t.organization_id', {
+    by_technician: await csatBy(req, 'users u ON u.id = t.resolved_by AND u.organization_id = t.organization_id', {
       label: "COALESCE(u.name || ' ' || u.last_name, 'Sin técnico')",
       group: 't.resolved_by',
     }),
-    by_department: csatBy(req, 'departments d ON d.id = t.department_id AND d.organization_id = t.organization_id', {
+    by_department: await csatBy(req, 'departments d ON d.id = t.department_id AND d.organization_id = t.organization_id', {
       label: "COALESCE(d.name, 'Sin departamento')",
       group: 'd.id',
     }),
-    by_category: csatBy(req, 'categories c ON c.id = t.category_id AND c.organization_id = t.organization_id', {
+    by_category: await csatBy(req, 'categories c ON c.id = t.category_id AND c.organization_id = t.organization_id', {
       label: "COALESCE(c.name, 'Sin categoría')",
       group: 'c.id',
     }),
-    by_month: csatByMonth(req),
+    by_month: await csatByMonth(req),
   };
 }
 
@@ -273,34 +262,32 @@ function csatData(req) {
 // (ver llamadas en csatData), de modo que una identidad legacy cross-org cae
 // en el bucket COALESCE 'Sin...' sin filtrar nombre/id ajeno y sin mezclar
 // encuestas de otra organización (los tickets ya van acotados por ticketFilter).
-function csatBy(req, join, { label, group }) {
+async function csatBy(req, join, { label, group }) {
   const { combine } = ctx(req);
   const w = combine(['t.csat_rating IS NOT NULL']);
-  return db
-    .prepare(
-      `SELECT ${label} AS label, COUNT(*) AS responses, AVG(t.csat_rating) AS average
-       FROM tickets t LEFT JOIN ${join} ${w.sql}
-       GROUP BY ${group} HAVING responses > 0
-       ORDER BY responses DESC, average DESC`
-    )
-    .all(...w.params)
-    .map((r) => ({ ...r, average: round2(r.average) }));
+  const rows = await runtime.queryMany(
+    `SELECT ${label} AS label, COUNT(*) AS responses, AVG(t.csat_rating) AS average
+     FROM tickets t LEFT JOIN ${join} ${w.sql}
+     GROUP BY ${group} HAVING responses > 0
+     ORDER BY responses DESC, average DESC`,
+    ...w.params
+  );
+  return rows.map((r) => ({ ...r, average: round2(r.average) }));
 }
 
 // La evolución se agrupa por la fecha en que se respondió, no por la de
 // creación del ticket: es cuando existe la medición.
-function csatByMonth(req) {
+async function csatByMonth(req) {
   const { combine } = ctx(req);
   const w = combine(['t.csat_rating IS NOT NULL']);
-  return db
-    .prepare(
-      `SELECT substr(COALESCE(t.csat_answered_at, t.updated_at), 1, 7) AS month,
-              COUNT(*) AS responses, AVG(t.csat_rating) AS average
-       FROM tickets t ${w.sql}
-       GROUP BY month ORDER BY month ASC`
-    )
-    .all(...w.params)
-    .map((r) => ({ ...r, average: round2(r.average) }));
+  const rows = await runtime.queryMany(
+    `SELECT substr(COALESCE(t.csat_answered_at, t.updated_at), 1, 7) AS month,
+            COUNT(*) AS responses, AVG(t.csat_rating) AS average
+     FROM tickets t ${w.sql}
+     GROUP BY month ORDER BY month ASC`,
+    ...w.params
+  );
+  return rows.map((r) => ({ ...r, average: round2(r.average) }));
 }
 
 // --- Rendimiento por técnico y por equipo ---------------------------------
@@ -312,31 +299,30 @@ function csatByMonth(req) {
 // ticket no se pierde: sigue en /summary, /full y el detalle (misma decisión
 // que /by-technician en ETAPA 4A: la asignación inválida se trata como sin
 // dueño allí y queda fuera de la atribución aquí).
-function technicianData(req) {
+async function technicianData(req) {
   const { combine } = ctx(req);
   const w = combine([]);
-  const rows = db
-    .prepare(
-      `SELECT u.id, u.name || ' ' || u.last_name AS technician,
-         SUM(CASE WHEN t.assigned_to_id = u.id THEN 1 ELSE 0 END) AS assigned,
-         SUM(CASE WHEN t.assigned_to_id = u.id AND ${OPEN_IN} THEN 1 ELSE 0 END) AS open,
-         SUM(CASE WHEN t.resolved_by = u.id THEN 1 ELSE 0 END) AS resolved,
-         SUM(CASE WHEN t.closed_by = u.id THEN 1 ELSE 0 END) AS closed,
-         COALESCE(SUM(CASE WHEN t.resolved_by = u.id THEN t.time_spent_minutes ELSE 0 END), 0) AS total_time_minutes,
-         AVG(CASE WHEN t.resolved_by = u.id THEN t.time_spent_minutes END) AS avg_time_minutes,
-         AVG(CASE WHEN t.resolved_by = u.id AND t.resolved_at IS NOT NULL
-             THEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 END) AS avg_resolution_hours,
-         SUM(CASE WHEN ${SLA_COMPUTABLE} THEN 1 ELSE 0 END) AS sla_comparable,
-         SUM(CASE WHEN ${SLA_COMPUTABLE} AND ${DONE_AT} <= t.sla_due_at THEN 1 ELSE 0 END) AS sla_within
-       FROM tickets t
-       JOIN users u ON (u.id = t.assigned_to_id AND u.organization_id = t.organization_id)
-                    OR (u.id = t.resolved_by AND u.organization_id = t.organization_id)
-                    OR (u.id = t.closed_by AND u.organization_id = t.organization_id)
-       ${w.sql}
-       GROUP BY u.id
-       ORDER BY resolved DESC, closed DESC, assigned DESC`
-    )
-    .all(...OPEN_STATUSES, ...w.params);
+  const rows = await runtime.queryMany(
+    `SELECT u.id, u.name || ' ' || u.last_name AS technician,
+       SUM(CASE WHEN t.assigned_to_id = u.id THEN 1 ELSE 0 END) AS assigned,
+       SUM(CASE WHEN t.assigned_to_id = u.id AND ${OPEN_IN} THEN 1 ELSE 0 END) AS open,
+       SUM(CASE WHEN t.resolved_by = u.id THEN 1 ELSE 0 END) AS resolved,
+       SUM(CASE WHEN t.closed_by = u.id THEN 1 ELSE 0 END) AS closed,
+       COALESCE(SUM(CASE WHEN t.resolved_by = u.id THEN t.time_spent_minutes ELSE 0 END), 0) AS total_time_minutes,
+       AVG(CASE WHEN t.resolved_by = u.id THEN t.time_spent_minutes END) AS avg_time_minutes,
+       AVG(CASE WHEN t.resolved_by = u.id AND t.resolved_at IS NOT NULL
+           THEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 END) AS avg_resolution_hours,
+       SUM(CASE WHEN ${SLA_COMPUTABLE} THEN 1 ELSE 0 END) AS sla_comparable,
+       SUM(CASE WHEN ${SLA_COMPUTABLE} AND ${DONE_AT} <= t.sla_due_at THEN 1 ELSE 0 END) AS sla_within
+     FROM tickets t
+     JOIN users u ON (u.id = t.assigned_to_id AND u.organization_id = t.organization_id)
+                  OR (u.id = t.resolved_by AND u.organization_id = t.organization_id)
+                  OR (u.id = t.closed_by AND u.organization_id = t.organization_id)
+     ${w.sql}
+     GROUP BY u.id
+     ORDER BY resolved DESC, closed DESC, assigned DESC`,
+    ...OPEN_STATUSES, ...w.params
+  );
 
   return rows.map((r) => ({
     ...r,
@@ -351,25 +337,24 @@ function technicianData(req) {
 // lo completado se atribuye al equipo actual y así se declara en la respuesta.
 const TEAM_BASIS = 'current_assignment';
 
-function teamData(req) {
+async function teamData(req) {
   const { combine } = ctx(req);
   const w = combine(['t.assigned_team_id IS NOT NULL']);
-  const rows = db
-    .prepare(
-      `SELECT tm.id, tm.name AS team,
-         SUM(CASE WHEN t.assigned_team_id = tm.id THEN 1 ELSE 0 END) AS assigned,
-         SUM(CASE WHEN t.assigned_team_id = tm.id AND ${OPEN_IN} THEN 1 ELSE 0 END) AS open,
-         SUM(CASE WHEN ${DONE_AT} IS NOT NULL THEN 1 ELSE 0 END) AS completed,
-         AVG(CASE WHEN t.resolved_at IS NOT NULL
-             THEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 END) AS avg_resolution_hours,
-         SUM(CASE WHEN t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL THEN 1 ELSE 0 END) AS sla_comparable,
-         SUM(CASE WHEN t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL AND ${DONE_AT} <= t.sla_due_at THEN 1 ELSE 0 END) AS sla_within
-       FROM tickets t JOIN teams tm ON tm.id = t.assigned_team_id AND tm.organization_id = t.organization_id
-       ${w.sql}
-       GROUP BY tm.id
-       ORDER BY open DESC, completed DESC`
-    )
-    .all(...OPEN_STATUSES, ...w.params);
+  const rows = await runtime.queryMany(
+    `SELECT tm.id, tm.name AS team,
+       SUM(CASE WHEN t.assigned_team_id = tm.id THEN 1 ELSE 0 END) AS assigned,
+       SUM(CASE WHEN t.assigned_team_id = tm.id AND ${OPEN_IN} THEN 1 ELSE 0 END) AS open,
+       SUM(CASE WHEN ${DONE_AT} IS NOT NULL THEN 1 ELSE 0 END) AS completed,
+       AVG(CASE WHEN t.resolved_at IS NOT NULL
+           THEN (julianday(t.resolved_at) - julianday(t.created_at)) * 24 END) AS avg_resolution_hours,
+       SUM(CASE WHEN t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL THEN 1 ELSE 0 END) AS sla_comparable,
+       SUM(CASE WHEN t.sla_due_at IS NOT NULL AND ${DONE_AT} IS NOT NULL AND ${DONE_AT} <= t.sla_due_at THEN 1 ELSE 0 END) AS sla_within
+     FROM tickets t JOIN teams tm ON tm.id = t.assigned_team_id AND tm.organization_id = t.organization_id
+     ${w.sql}
+     GROUP BY tm.id
+     ORDER BY open DESC, completed DESC`,
+    ...OPEN_STATUSES, ...w.params
+  );
 
   return {
     basis: TEAM_BASIS,
@@ -382,15 +367,15 @@ function teamData(req) {
   };
 }
 
-function ticketDetailsData(req) {
+async function ticketDetailsData(req) {
   // ETAPA 4B: detalle CRÍTICO (/full y /export). Todos los JOIN de identidad
   // (reporter, asignado, departamento, categoría) se refuerzan a la misma org
   // del ticket con LEFT JOIN: una identidad legacy cross-org aparece con la
   // etiqueta segura ('Sin reportero'/'Sin asignar'/'Sin...') y el ticket se
   // conserva — nunca se cae una fila legítima de A por esconder un JOIN.
   const { df, base } = ctx(req);
-  return db.prepare(`
-    SELECT t.ticket_number, t.title, t.status, t.priority, t.created_at, t.resolved_at, t.closed_at,
+  return runtime.queryMany(
+    `SELECT t.ticket_number, t.title, t.status, t.priority, t.created_at, t.resolved_at, t.closed_at,
            COALESCE(d.name, 'Sin departamento') AS department,
            COALESCE(c.name, 'Sin categoría') AS category,
            COALESCE(r.name || ' ' || r.last_name, 'Sin reportero') AS reporter,
@@ -402,8 +387,9 @@ function ticketDetailsData(req) {
     LEFT JOIN categories c ON c.id = t.category_id AND c.organization_id = t.organization_id
     ${base}
     ORDER BY t.created_at DESC, t.id DESC
-    LIMIT 500
-  `).all(...df.params);
+    LIMIT 500`,
+    ...df.params
+  );
 }
 
 function rangeOf(req) {
@@ -418,59 +404,59 @@ function rangeOf(req) {
 }
 
 // Reporte completo (usado por /export y /full). Cada sección se calcula una vez.
-function reportData(req) {
+async function reportData(req) {
   return {
     range: rangeOf(req),
-    summary: summaryData(req),
-    by_status: byStatusData(req),
-    by_priority: byPriorityData(req),
-    by_category: byCategoryData(req),
-    by_department: byDepartmentData(req),
-    by_day: byDayData(req),
-    by_user: byUserData(req),
-    by_technician: technicianData(req),
-    by_team: teamData(req),
-    csat: csatData(req),
-    details: ticketDetailsData(req),
+    summary: await summaryData(req),
+    by_status: await byStatusData(req),
+    by_priority: await byPriorityData(req),
+    by_category: await byCategoryData(req),
+    by_department: await byDepartmentData(req),
+    by_day: await byDayData(req),
+    by_user: await byUserData(req),
+    by_technician: await technicianData(req),
+    by_team: await teamData(req),
+    csat: await csatData(req),
+    details: await ticketDetailsData(req),
   };
 }
 
-router.get('/summary', (req, res) => {
-  res.json({ ...summaryData(req), range: rangeOf(req) });
+router.get('/summary', async (req, res) => {
+  res.json({ ...await summaryData(req), range: rangeOf(req) });
 });
 
-router.get('/by-status', (req, res) => {
-  res.json({ data: byStatusData(req) });
+router.get('/by-status', async (req, res) => {
+  res.json({ data: await byStatusData(req) });
 });
 
-router.get('/by-priority', (req, res) => {
-  res.json({ data: byPriorityData(req) });
+router.get('/by-priority', async (req, res) => {
+  res.json({ data: await byPriorityData(req) });
 });
 
-router.get('/by-category', (req, res) => {
-  res.json({ data: byCategoryData(req) });
+router.get('/by-category', async (req, res) => {
+  res.json({ data: await byCategoryData(req) });
 });
 
-router.get('/by-department', (req, res) => {
-  res.json({ data: byDepartmentData(req) });
+router.get('/by-department', async (req, res) => {
+  res.json({ data: await byDepartmentData(req) });
 });
 
-router.get('/performance', (req, res) => {
+router.get('/performance', async (req, res) => {
   res.json({
-    by_day: byDayData(req),
-    by_user: byUserData(req),
-    by_technician: technicianData(req),
-    by_team: teamData(req),
+    by_day: await byDayData(req),
+    by_user: await byUserData(req),
+    by_technician: await technicianData(req),
+    by_team: await teamData(req),
   });
 });
 
-router.get('/csat', (req, res) => {
-  res.json(csatData(req));
+router.get('/csat', async (req, res) => {
+  res.json(await csatData(req));
 });
 
 // Reporte completo en una sola petición (evita 6 llamadas desde el frontend).
-router.get('/full', (req, res) => {
-  const r = reportData(req);
+router.get('/full', async (req, res) => {
+  const r = await reportData(req);
   res.json({
     range: r.range,
     summary: r.summary,
@@ -488,8 +474,8 @@ router.get('/full', (req, res) => {
 });
 
 // Exporta el reporte completo como CSV organizado por secciones (Excel/ES con ';').
-router.get('/export', (req, res) => {
-  const r = reportData(req);
+router.get('/export', async (req, res) => {
+  const r = await reportData(req);
   const requested = String(req.query.sections || '').split(',').filter((section) => EXPORT_SECTIONS.has(section));
   const sections = new Set(requested.length ? requested : EXPORT_SECTIONS);
   const sep = ';';
