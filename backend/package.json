@@ -10,7 +10,8 @@
     "db:seed": "node --env-file-if-exists=.env src/scripts/seed.js",
     "db:bootstrap": "node --env-file-if-exists=.env src/scripts/bootstrap-superadmin.js",
     "db:audit-orgs": "node --env-file-if-exists=.env src/scripts/audit-orgs.js",
-    "test": "node --test --import ./test/setup.js --env-file-if-exists=.env \"test/*.test.js\""
+    "test": "node --test --import ./test/setup.js --env-file-if-exists=.env \"test/*.test.js\"",
+    "test:mssql": "node --test --import ./test/setup-mssql.js --env-file-if-exists=.env.mssql-test \"test/mssql-*.test.js\""
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
