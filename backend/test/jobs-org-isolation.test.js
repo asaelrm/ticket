@@ -195,6 +195,37 @@ describe('Aislamiento por organización en los jobs programados (V3)', () => {
     }
   });
 
+  it('una asignación corrupta de otra organización usa el fallback seguro de administradores', async () => {
+    const corruptAssignee = insertTicket({
+      number: 'TCK-JOB-CROSS-USER',
+      reporterId: empA,
+      organizationId: orgA,
+      createdAt: hoursAgo(3),
+      slaDueAt: hoursAgo(1),
+    });
+    db.prepare('UPDATE tickets SET assigned_to_id = ? WHERE id = ?').run(empB, corruptAssignee);
+
+    const teamB = db.prepare(
+      'INSERT INTO teams (name, description, active, organization_id) VALUES (?, ?, 1, ?)'
+    ).run('Equipo B corrupto para jobs', 'Fixture cross-org', orgB).lastInsertRowid;
+    db.prepare('INSERT INTO team_members (team_id, user_id) VALUES (?, ?)').run(teamB, empB);
+    const corruptTeam = insertTicket({
+      number: 'TCK-JOB-CROSS-TEAM',
+      reporterId: empA,
+      organizationId: orgA,
+      createdAt: hoursAgo(3),
+      slaDueAt: hoursAgo(1),
+    });
+    db.prepare('UPDATE tickets SET assigned_team_id = ? WHERE id = ?').run(teamB, corruptTeam);
+
+    await runMaintenance();
+    for (const ticketId of [corruptAssignee, corruptTeam]) {
+      const recipients = recipientIds(ticketId, 'SLA_OVERDUE');
+      assert.deepEqual(recipients, [adminA], 'el dato cross-org no silencia el fallback de la organización A');
+      assert.ok(!recipients.includes(adminB) && !recipients.includes(empB), 'ningún destinatario de B recibe la alerta');
+    }
+  });
+
   it('notifyAdmins con contexto de ticket nunca cruza organizaciones', async () => {
     const before = db.prepare('SELECT COUNT(*) AS n FROM notifications').get().n;
 

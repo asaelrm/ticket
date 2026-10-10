@@ -24,9 +24,25 @@ async function targetUsersFor(ticket) {
   // así que aquí se devuelve vacío en lugar de lanzar una consulta GLOBAL que
   // barriera los administradores de todas las empresas.
   if (ticket.organization_id == null) return [];
-  if (ticket.assigned_to_id) return [ticket.assigned_to_id];
+  if (ticket.assigned_to_id) {
+    const assigned = await db.queryOne(
+      'SELECT id FROM users WHERE id = ? AND organization_id = ?',
+      ticket.assigned_to_id,
+      ticket.organization_id,
+    );
+    if (assigned) return [assigned.id];
+  }
   if (ticket.assigned_team_id) {
-    const members = (await db.queryMany('SELECT user_id FROM team_members WHERE team_id = ?', ticket.assigned_team_id))
+    const members = (await db.queryMany(
+      `SELECT tm.user_id
+       FROM team_members tm
+       JOIN teams te ON te.id = tm.team_id AND te.organization_id = ?
+       JOIN users u ON u.id = tm.user_id AND u.organization_id = ?
+       WHERE tm.team_id = ?`,
+      ticket.organization_id,
+      ticket.organization_id,
+      ticket.assigned_team_id,
+    ))
       .map((r) => r.user_id);
     if (members.length) return members;
   }
@@ -51,8 +67,8 @@ async function notifyOverdueTickets() {
             r.email AS reporter_email,
             COALESCE(au.name || ' ' || au.last_name, '') AS assigned_name
      FROM tickets t
-     JOIN users r ON r.id = t.reporter_id
-     LEFT JOIN users au ON au.id = t.assigned_to_id
+     JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id
+     LEFT JOIN users au ON au.id = t.assigned_to_id AND au.organization_id = t.organization_id
      WHERE t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})
        AND t.sla_due_at IS NOT NULL
        AND t.sla_due_at < ?`,
@@ -84,9 +100,10 @@ async function escalateUnassigned() {
   // reglas de SU organización.
   const rows = await db.queryMany(
     `SELECT t.*, r.name || ' ' || r.last_name AS reporter_name
-     FROM tickets t JOIN users r ON r.id = t.reporter_id
+     FROM tickets t JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id
      WHERE t.status = 'OPEN' AND t.assigned_to_id IS NULL AND t.assigned_team_id IS NULL
-       AND t.priority NOT IN ('CRITICAL')`,
+       AND t.priority NOT IN ('CRITICAL')
+       AND t.organization_id IS NOT NULL`,
   );
 
   let count = 0;
@@ -140,10 +157,11 @@ async function alertCriticalLongOpen() {
     `SELECT t.*, r.name || ' ' || r.last_name AS reporter_name,
             COALESCE(au.name || ' ' || au.last_name, '') AS assigned_name
      FROM tickets t
-     JOIN users r ON r.id = t.reporter_id
-     LEFT JOIN users au ON au.id = t.assigned_to_id
+     JOIN users r ON r.id = t.reporter_id AND r.organization_id = t.organization_id
+     LEFT JOIN users au ON au.id = t.assigned_to_id AND au.organization_id = t.organization_id
      WHERE t.status IN (${OPEN_STATUSES.map(() => '?').join(',')})
-       AND t.priority = 'CRITICAL'`,
+       AND t.priority = 'CRITICAL'
+       AND t.organization_id IS NOT NULL`,
     ...OPEN_STATUSES,
   );
 
