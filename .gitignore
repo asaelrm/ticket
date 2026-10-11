@@ -87,3 +87,7 @@ git-watch.ps1
 git-watch-hidden.vbs
 
 deploy/central/.env
+
+.env.backup-local
+.env.mssql-test
+.env.*.local
