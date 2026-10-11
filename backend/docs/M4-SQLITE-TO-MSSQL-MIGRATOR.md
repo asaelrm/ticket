@@ -18,7 +18,7 @@ APPLY usa una transacción única, preserva IDs con `IDENTITY_INSERT`, apaga cad
 
 ## Verificación
 
-Los tests (`npm test` en `backend`, 596 en verde) cubren: paridad de `COLUMNS`/`TENANT_FKS`/`IDENTITY_TABLES`/`TABLES` contra `schema.sql`; `runApply` con doble falso (commit, rollback, vacuidad, orden de organizaciones, *reuse*, `IDENTITY_INSERT` emparejado); SQL puro con driver real simulado; y los M4/M5 previos. El dry-run contra el snapshot real termina con exit 0, 0 errores de precheck, la organización legacy planificada en modo `create`, la fila global de secuencia fuera del plan y destino en 0 filas.
+Los tests (`npm test` en `backend`) cubren: paridad de `COLUMNS`/`TENANT_FKS`/`IDENTITY_TABLES`/`TABLES` contra `schema.sql`; `runApply` con doble falso (commit, rollback, vacuidad, orden de organizaciones, *reuse*, `IDENTITY_INSERT` emparejado); SQL puro con driver real simulado; y los M4/M5 previos. El dry-run contra el snapshot real termina con exit 0, 0 errores de precheck, la organización legacy planificada en modo `create`, la fila global de secuencia fuera del plan y destino en 0 filas.
 
 ## Decisiones humanas pendientes
 

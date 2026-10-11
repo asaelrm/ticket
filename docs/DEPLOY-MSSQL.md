@@ -101,12 +101,15 @@ SMTP_FROM_NAME=SIFHA Tickets
 # Instalar dependencias
 cd backend && npm ci
 
-# Verificar configuración (dry-run)
-npm run db:migrate  # Solo valida, no escribe si esquema existe
-
-# Arrancar
+# Arrancar (valida el esquema MSSQL en solo lectura; si falta algo, no inicia HTTP)
 npm start
 ```
+
+> **No** ejecute `npm run db:migrate` ni `npm run db:seed` con el motor MSSQL:
+> esos scripts operan sobre **SQLite** (`src/scripts/*` importan `db.js`) y no
+> tocan SQL Server. La única validación de esquema MSSQL es la del arranque. Para
+> una comprobación de arranque que no escriba (el job inicial sí escribe al
+> iniciar), arranque una vez con `JOBS_ENABLED=false`.
 
 **Comportamiento al arrancar:**
 1. Valida `SESSION_SECRET`, `PUBLIC_URL`, etc.
@@ -274,8 +277,11 @@ RESTORE LOG SIFHA_Tickets_PROD FROM DISK='...' WITH RECOVERY, STOPAT='2026-10-10
 ### Pruebas SQLite (siempre)
 ```bash
 cd backend && npm test
-# 857 tests, 0 fallos
 ```
+El glob `test/*.test.js` recoge también las suites `mssql-*.test.js`, que sin un
+SQL Server configurado registran **3 fallos** (pendientes de validación MSSQL;
+ver `docs/PENDIENTES_ENTREGA_OFICINA.md`). Última ejecución registrada:
+**860 pruebas, 3 fallos**.
 
 ### Pruebas MSSQL (requiere base aislada)
 ```bash
@@ -316,4 +322,4 @@ npm run test:mssql
 
 ---
 
-*Documento generado para entrega M5. Versión correspondiente al commit `aa3bf6f` (rama `trabajo-etapa3-pendiente`).*
+*Documento generado para entrega M5. Estado actual: rama `trabajo-oficina-10oct` (correcciones de frontend en `ec0ae32`). Los pendientes de entrega se registran en `docs/PENDIENTES_ENTREGA_OFICINA.md`.*

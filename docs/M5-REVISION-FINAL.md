@@ -1,8 +1,10 @@
 # SIFHA Ticket — Auditoría final M5
 
-**Fecha:** 2026-10-10  
-**Rama revisada:** `trabajo-etapa3-pendiente`  
-**Commit base:** `aa3bf6f fix(seed): no reponer permisos de roles personalizados`
+**Fecha de la revisión original:** 2026-10-10
+**Rama de la revisión original:** `trabajo-etapa3-pendiente`
+**Commit base de la revisión original:** `aa3bf6f fix(seed): no reponer permisos de roles personalizados`
+
+> **Nota de estructura.** Las secciones siguientes conservan la auditoría original (commit `aa3bf6f`) como registro histórico; no se reescribieron. La **etapa actual** (correcciones de frontend sobre el commit `e7c7d1e`) se documenta al final, en la sección *Revisión de la etapa actual — 2026-10-10*.
 
 ## Resultado ejecutivo
 
@@ -120,3 +122,78 @@ fix(jobs): refuerza aislamiento multiempresa en alertas M5
 ## Pendientes para cerrar M5
 
 No queda un fallo local que impida la revisión o subida del código. Para declarar M5 certificado sobre MSSQL todavía hace falta ejecutar, en un entorno MSSQL desechable o de staging autorizado, las pruebas de integración HTTP, concurrencia y jobs que deliberadamente no se ejecutaron aquí.
+
+---
+
+# Revisión de la etapa actual — 2026-10-10
+
+**Rama:** `trabajo-oficina-10oct`
+**Commit base:** `e7c7d1e test(mssql): integración real contra SIFHA_Tickets_M5_Integration_Test`
+
+## Alcance de la etapa
+
+Cierre de la primera etapa con **dos correcciones de frontend**, aisladas y cada una con su prueba de regresión. No se modificó el backend, ni SQLite, ni los archivos reservados de MSSQL, ni `tickets.js`, ni `ticketNumber.js`, ni archivos `.env`. No se ejecutaron migraciones ni operaciones contra bases de datos. No se hizo commit ni push.
+
+Responder y documentar en español conforme a la configuración permanente del proyecto.
+
+## Correcciones realizadas
+
+| Archivo | Cambio |
+|---|---|
+| `frontend/src/pages/TicketDetail.jsx` | Al elegir "Cancelado" en el selector de estado se abre el modal de cancelación (`setCancelOpen(true)`) en lugar de enviar `PATCH /api/tickets/:id { status: 'CANCELLED' }`, que el backend rechaza con 400 porque la cancelación tiene su propio flujo. Queda coherente con "Resuelto" (drawer) y "Cerrado" (modal). |
+| `frontend/src/pages/Users.jsx` | El interruptor activar/desactivar usuario se pinta solo si el usuario tiene `user.manage`, permiso que exige `PATCH /api/users/:id/status` en el backend. Sin ese permiso se muestra un badge de solo lectura "Activo"/"Inactivo". Antes, un usuario con `user.view` veía el control y solo podía obtener 403. |
+
+### Pruebas de regresión añadidas
+
+| Archivo | Prueba |
+|---|---|
+| `frontend/src/pages/TicketDetail.test.jsx` | *elegir "Cancelado" abre el modal de cancelación sin enviar PATCH*: verifica que se abre el diálogo "Cancelar ticket" y que no se llama a `api.patch`. |
+| `frontend/src/pages/Users.test.jsx` | *no ofrece el interruptor de estado sin el permiso user.manage*: verifica que no existe el `switch` y que se ve el texto "Activo" como dato de solo lectura. |
+
+## Pruebas de frontend
+
+- Archivos de prueba: **44**
+- Pruebas aprobadas: **1,080**
+- Pruebas fallidas: **0**
+
+Las 1,080 pruebas incluyen las dos regresiones nuevas de esta etapa (la línea base previa a estos cambios era 1,078). Comando: `npx vitest run` en `frontend/`.
+
+## Backend — tres fallos pendientes de validación MSSQL
+
+`npm test` usa el glob `test/*.test.js`, que también recoge las suites `mssql-*.test.js`, orientadas a la integración con SQL Server y no ejecutables con el setup SQLite local. Resultado observado: **860 pruebas, 3 fallos**. Los tres quedan **pendientes de validación MSSQL**; no se marcan como solucionados ni se les atribuye una causa definitiva.
+
+Errores observados (evidencia directa de la ejecución, sin interpretación de causa raíz):
+
+| Suite | Error observado |
+|---|---|
+| `test/mssql-integration.test.js` | `SyntaxError: The requested module './helpers-mssql.js' does not provide an export named 'IMG_PNG'` |
+| `test/mssql-jobs.test.js` | `Error: Variable de entorno requerida no definida: MSSQL_TEST_SERVER` (`test/setup-mssql.js:25`) |
+| `test/mssql-reports-dashboard.test.js` | `Error: Variable de entorno requerida no definida: MSSQL_TEST_SERVER` (`test/setup-mssql.js:25`) |
+
+Notas:
+
+- Las suites de integración real se ejecutan con `npm run test:mssql`, que usa `test/setup-mssql.js` y el archivo `.env.mssql-test`; no se ejecutó porque el alcance prohíbe operar contra SQL Server y no se dispone de ese entorno aquí.
+- No se modificaron las suites `mssql-*`, los helpers MSSQL ni la configuración de MSSQL para esta etapa.
+- El número de fallos (3) coincide con la línea base de la sesión; no se introdujo ningún fallo nuevo.
+
+## Verificación de archivos modificados
+
+`git status --short` tras esta etapa:
+
+```text
+ M docs/M5-REVISION-FINAL.md
+ M frontend/src/pages/TicketDetail.jsx
+ M frontend/src/pages/TicketDetail.test.jsx
+ M frontend/src/pages/Users.jsx
+ M frontend/src/pages/Users.test.jsx
+```
+
+Los cinco archivos corresponden exactamente a las dos correcciones, sus dos pruebas de regresión y esta documentación. No hay cambios en backend, SQLite, archivos reservados de MSSQL, `tickets.js`, `ticketNumber.js` ni `.env`.
+
+## Validaciones finales de la etapa
+
+- Frontend: 44 archivos / 1,080 pruebas aprobadas.
+- Backend: 860 pruebas, 3 fallos pendientes de validación MSSQL (los expuestos arriba).
+- `git diff --check`: sin errores de espacios ni conflictos.
+- No se añadieron credenciales ni secretos.
+- No se ejecutaron migraciones, ni operaciones de base de datos, ni `git add`, commit, push o cambio de rama.

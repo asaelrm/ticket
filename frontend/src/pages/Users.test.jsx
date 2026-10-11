@@ -378,6 +378,20 @@ describe('Users', () => {
     expect(screen.queryByRole('button', { name: 'Restablecer contraseña' })).not.toBeInTheDocument();
   });
 
+  // El interruptor de estado llama a PATCH /api/users/:id/status, que exige
+  // user.manage en el backend. Sin ese permiso no debe pintarse un control que
+  // solo puede devolver 403; en su lugar se muestra el estado como dato de solo
+  // lectura.
+  it('no ofrece el interruptor de estado sin el permiso user.manage', async () => {
+    authState.user = { id: 7, name: 'Usuario', permissions: ['user.view'] };
+
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    expect(screen.queryByRole('switch', { name: 'estado de alovelace' })).not.toBeInTheDocument();
+    expect(screen.getByText('Activo')).toBeInTheDocument();
+  });
+
   it('muestra el estado vacío cuando no hay usuarios', async () => {
     api.get.mockImplementation((url) => {
       if (url.startsWith('/api/users?page=')) return Promise.resolve(listResp([]));

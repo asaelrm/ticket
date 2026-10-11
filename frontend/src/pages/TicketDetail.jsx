@@ -343,6 +343,10 @@ export default function TicketDetail() {
       setCloseOpen(true);
       return;
     }
+    if (value === 'CANCELLED' && can.cancel) {
+      setCancelOpen(true);
+      return;
+    }
     if (value === 'PENDING') {
       setPendingOpen(true);
       return;
