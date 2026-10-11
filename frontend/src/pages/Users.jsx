@@ -285,13 +285,21 @@ export default function Users() {
                         {u.last_login_at ? formatDateTime(u.last_login_at) : 'Nunca'}
                       </td>
                       <td className="td">
-                        <ConfirmToggle
-                          active={u.active}
-                          name={`estado de ${u.username}`}
-                          labelActivate="Desactivar"
-                          labelDeactivate="Activar"
-                          onToggle={() => toggleActive(u)}
-                        />
+                        {user?.permissions?.includes('user.manage') ? (
+                          <ConfirmToggle
+                            active={u.active}
+                            name={`estado de ${u.username}`}
+                            labelActivate="Desactivar"
+                            labelDeactivate="Activar"
+                            onToggle={() => toggleActive(u)}
+                          />
+                        ) : (
+                          <span
+                            className={`badge ring-1 ${u.active ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' : 'bg-slate-100 text-slate-500 ring-slate-400/20'}`}
+                          >
+                            {u.active ? 'Activo' : 'Inactivo'}
+                          </span>
+                        )}
                       </td>
                       <td className="td">
                         <div className="flex justify-end gap-1">
