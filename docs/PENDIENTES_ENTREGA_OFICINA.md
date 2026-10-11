@@ -122,7 +122,7 @@ opera con MSSQL activado.
 - **No se ejecutó**: sigue **pendiente de autorización explícita** y de backup
   previo. No activar `MSSQL_RUNTIME=true` hasta cerrar este P0.
 
-### 3.4 Trampas de documentación detectadas
+### 3.4 Trampas de documentación detectadas (corregidas)
 
 | Ubicación | Observación |
 |---|---|
@@ -131,8 +131,9 @@ opera con MSSQL activado.
 | `docs/DEPLOY-MSSQL.md:319` | El pie referencia el commit `aa3bf6f`, que no corresponde al estado actual. |
 | `backend/package.json:13` | El script `test` usa el glob `test/*.test.js`, que también recoge las suites `mssql-*.test.js` (orientadas a SQL Server). Por eso `npm test` intenta cargarlas y produce los 3 fallos del §5. |
 
-Estas correcciones son de documentación; **no se aplicaron** en esta etapa para
-no colisionar con el trabajo MSSQL pendiente de integrar desde el otro equipo.
+Estas trampas se **corrigieron** en la revisión de oficina (ver §8). Queda
+pendiente una decisión de configuración sobre `backend/package.json:13` (si
+`npm test` debe excluir las suites `mssql-*`); no es documentación.
 
 ### 3.5 Pendientes de prioridad menor (P2)
 
@@ -170,8 +171,7 @@ de alcance limitado y verificable, corregible sin tocar archivos reservados.
 - **P1** — Reintegrar desde el equipo de casa la corrección de
   `mssql-integration.test.js` (`IMG_PNG` + `TEST_ADMIN_USER`).
 - **P1** — Prueba de instalación desde cero (`ENTREGA-CHECKLIST.md` §7).
-- **P2** — Corregir la documentación MSSQL (§3.4): paso `db:migrate`, cifras de
-  pruebas y pie de commit.
+- **P2** — ~~Corregir la documentación MSSQL (§3.4)~~ **corregido** (ver §8).
 - **P2** — Parametrizar el proxy de Vite y manejo global de sesión caducada
   (§3.5).
 - **P2** — Evaluar si `npm test` debe excluir las suites `mssql-*` (o si las
@@ -199,3 +199,22 @@ real, prohibido por el alcance.
 - No se añadieron credenciales ni secretos a este documento ni al repositorio.
 - No se ejecutaron migraciones, seed, operaciones de base de datos, pruebas
   SQLite, ni `git add`, commit, push o cambio de rama.
+
+---
+
+## 8. Correcciones de documentación aplicadas
+
+Instrucciones y cifras corregidas en la revisión de oficina:
+
+| Archivo | Cambio |
+|---|---|
+| `docs/DEPLOY-MSSQL.md` §4 | Se elimina el paso engañoso `npm run db:migrate`; se arranca con `npm start` (validación de esquema en solo lectura) y se advierte de que `db:migrate`/`db:seed` operan sobre SQLite. |
+| `docs/DEPLOY-MSSQL.md` §11 | Cifra actualizada a `860 pruebas, 3 fallos` (los `mssql-*`) y nota sobre el glob de `npm test`. |
+| `docs/DEPLOY-MSSQL.md` pie | Se sustituye el commit `aa3bf6f` por el estado actual (`trabajo-oficina-10oct`). |
+| `ENTREGA-CHECKLIST.md` §1 | Cifras a `860 / 3` (backend) y `1080` (frontend); referencia a este documento. |
+| `ENTREGA-INFRAESTRUCTURA.md` §5 | Cifras a `860 / 3` (backend) y `1080` (frontend); nota de ramas y de `npm run test:mssql`. |
+| `backend/docs/M4-SQLITE-TO-MSSQL-MIGRATOR.md` | Se retira la cifra histórica `596`. |
+| `README.md` | Se aclara que `npm test` recoge las suites `mssql-*`. |
+
+`docs/M5-REVISION-FINAL.md` conserva el `857` porque describe la auditoría
+histórica del commit `aa3bf6f`; no es una cifra vigente.

@@ -4,7 +4,9 @@ Documento de entrega para el equipo de infraestructura. Cubre requisitos,
 instalación, configuración, migración, seguridad, verificación y limitaciones
 conocidas. No contiene secretos: todas las variables se declaran sin valores.
 
-Rama de entrega: `trabajo-etapa3-pendiente`.
+Rama de entrega: `trabajo-etapa3-pendiente` (las correcciones de la etapa de
+oficina, con sus pruebas de regresión, están en `trabajo-oficina-10oct`; ver
+`docs/PENDIENTES_ENTREGA_OFICINA.md`).
 
 ---
 
@@ -64,12 +66,16 @@ npx vitest run
 npm run build                  # comprueba el bundle
 ```
 
-Resultado de la entrega (ejecutados en esta sesión):
+Última ejecución registrada (rama `trabajo-oficina-10oct`):
 
-- Backend: **672 tests, 670 pass, 0 fail, 2 omitidos**.
-- Frontend: **1074 tests, 44 archivos, 0 fallos**; `npm run build` sin errores.
+- Backend: **860 pruebas, 3 fallos**. Los tres son las suites `mssql-*.test.js`,
+  que el glob `test/*.test.js` recoge y que requieren un SQL Server real;
+  pendientes de validación MSSQL (ver `docs/PENDIENTES_ENTREGA_OFICINA.md`).
+- Frontend: **1080 pruebas, 44 archivos, 0 fallos**; `npm run build` sin errores.
 
-Los 2 omitidos son pruebas condicionales a un entorno real (SMTP/adjuntos).
+Hay además 2 pruebas omitidas, condicionales a un entorno real (SMTP/adjuntos).
+Las suites MSSQL de integración se ejecutan aparte con `npm run test:mssql`
+(requiere `.env.mssql-test` y un SQL Server autorizado); no se ejecutaron aquí.
 Repita ambas suites antes de cualquier despliegue.
 
 ## 6. Variables de entorno (sin secretos)

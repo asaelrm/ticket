@@ -1,16 +1,16 @@
 # SIFHA — Lista de verificación de entrega
 
 Documento de aceptación para la entrega institucional. Acompaña a
-`ENTREGA-INFRAESTRUCTURA.md` (infraestructura) y `M5-PROCEDIMIENTO-WINDOWS.md`
-(corrección de SQL Server). Última revisión automática de la sesión descrita
-abajo.
+`ENTREGA-INFRAESTRUCTURA.md` (infraestructura), `M5-PROCEDIMIENTO-WINDOWS.md`
+(corrección de SQL Server) y `docs/PENDIENTES_ENTREGA_OFICINA.md` (pendientes y
+hallazgos de la revisión de oficina).
 
 ## 1. Estado de pruebas (local, entorno de desarrollo)
 
 | Suite | Comando | Resultado |
 | --- | --- | --- |
-| Backend | `cd backend; npm test` | 823 tests, 821 pass, 2 skipped, 0 fail |
-| Frontend | `docker exec -w /app/frontend ticket-dev-frontend npx vitest run` | 44 archivos, 1078 pass |
+| Backend | `cd backend; npm test` | 860 pruebas, 3 fallos pendientes de validación MSSQL (los recoge el glob `test/*.test.js`; ver `docs/PENDIENTES_ENTREGA_OFICINA.md`) |
+| Frontend | `docker exec -w /app/frontend ticket-dev-frontend npx vitest run` | 44 archivos, 1080 pass |
 | Build producción frontend | `npx vite build` (contenedor frontend) | OK |
 | Traducción SQLite→T-SQL | `node --test test/mssql-sql-translation.test.js` | 249 sentencias, 0 incompatibles |
 | Autodiagnóstico M5 (sin red) | `DIAGNOSE_SELFCHECK=1 node scripts/migration/diagnose-m5-validation.js` | pass (24 tablas, 23 índices) |
@@ -57,6 +57,9 @@ abajo.
 - **P1** — Prueba de instalación desde cero (ver §7) antes de la entrega.
 - **P2** — Proxy de Vite parametrizable por entorno (hoy fijo a `http://backend:4000`).
 - **P2** — Desconexión automática del frontend ante sesión caducada en una petición ya abierta.
+
+El detalle de cada pendiente, con su evidencia y alcance, está en
+`docs/PENDIENTES_ENTREGA_OFICINA.md`.
 
 ## 6. Cómo ejecutar todas las pruebas
 
