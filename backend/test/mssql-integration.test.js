@@ -4,7 +4,7 @@
 
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAdminClient, createEmpleadoClient, createTecnicoClient, uniqueSuffix, IMG_PNG } from './helpers-mssql.js';
+import { createAdminClient, createEmpleadoClient, createTecnicoClient, uniqueSuffix } from './helpers-mssql.js';
 import { ensureMssqlTestSetup } from './setup-mssql.js';
 
 const IMG_PNG_LOCAL = {
@@ -33,7 +33,7 @@ describe('MSSQL Integration: Autenticación y sesiones', () => {
     const res = await c.get('/api/auth/me');
     assert.equal(res.status, 200);
     assert.equal(res.body.user.role, 'ADMIN');
-    assert.equal(res.body.user.username, TEST_ADMIN_USER || 'admin');
+    assert.equal(res.body.user.username, 'admin');
     assert.ok(Array.isArray(res.body.user.permissions));
   });
 
@@ -42,7 +42,7 @@ describe('MSSQL Integration: Autenticación y sesiones', () => {
     // El login falla en el helper, probamos directamente
     const c2 = (await import('./helpers-mssql.js')).createClient();
     const res = await c2.post('/api/auth/login', { 
-      account: TEST_ADMIN_USER || 'admin', 
+      account: 'admin', 
       password: 'wrong', 
       remember: false 
     });
@@ -52,7 +52,7 @@ describe('MSSQL Integration: Autenticación y sesiones', () => {
   it('GET /api/auth/me devuelve el usuario autenticado', async () => {
     const res = await adminClient.get('/api/auth/me');
     assert.equal(res.status, 200);
-    assert.equal(res.body.user.username, TEST_ADMIN_USER || 'admin');
+    assert.equal(res.body.user.username, 'admin');
   });
 
   it('logout destruye la sesión', async () => {
