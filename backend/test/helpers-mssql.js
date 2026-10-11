@@ -11,12 +11,19 @@ import request from 'supertest';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Credenciales de prueba desde variables de entorno (definidas en .env.mssql-test)
-const TEST_ADMIN_USER = process.env.MSSQL_TEST_ADMIN_USER || 'admin';
-const TEST_ADMIN_PASS = process.env.MSSQL_TEST_ADMIN_PASS || 'TestAdmin123!';
-const TEST_EMPLEADO_USER = process.env.MSSQL_TEST_EMPLEADO_USER || 'empleado';
-const TEST_EMPLEADO_PASS = process.env.MSSQL_TEST_EMPLEADO_PASS || 'Empleado1234!';
-const TEST_TECNICO_USER = process.env.MSSQL_TEST_TECNICO_USER || 'tecnico';
-const TEST_TECNICO_PASS = process.env.MSSQL_TEST_TECNICO_PASS || 'Tecnico1234!';
+// DEBEN coincidir con las usadas en el seed (mssql-seed-test-users.js).
+// No hay valores por defecto seguros: si la variable no está definida, el test fallará
+// para evitar probar con credenciales incorrectas.
+export const TEST_ADMIN_USER = process.env.MSSQL_TEST_ADMIN_USER || 'admin';
+export const TEST_ADMIN_PASS = process.env.MSSQL_TEST_ADMIN_PASS;
+export const TEST_EMPLEADO_USER = process.env.MSSQL_TEST_EMPLEADO_USER || 'empleado';
+export const TEST_EMPLEADO_PASS = process.env.MSSQL_TEST_EMPLEADO_PASS;
+export const TEST_TECNICO_USER = process.env.MSSQL_TEST_TECNICO_USER || 'tecnico';
+export const TEST_TECNICO_PASS = process.env.MSSQL_TEST_TECNICO_PASS;
+
+if (!TEST_ADMIN_PASS) throw new Error('MSSQL_TEST_ADMIN_PASS no definido en entorno');
+if (!TEST_EMPLEADO_PASS) throw new Error('MSSQL_TEST_EMPLEADO_PASS no definido en entorno');
+if (!TEST_TECNICO_PASS) throw new Error('MSSQL_TEST_TECNICO_PASS no definido en entorno');
 
 // Directorio temporal para uploads (solo archivos locales, no BD)
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-mssql-test-'));
@@ -133,19 +140,28 @@ export function createClient() {
 // Clientes preconfigurados para roles comunes
 export async function createAdminClient(suffix = '') {
   const c = createClient();
-  await c.login(TEST_ADMIN_USER, TEST_ADMIN_PASS);
+  const res = await c.login(TEST_ADMIN_USER, TEST_ADMIN_PASS);
+  if (res.status !== 200) {
+    throw new Error(`Login fallido para admin (${TEST_ADMIN_USER}): HTTP ${res.status} - ${JSON.stringify(res.body)}`);
+  }
   return c;
 }
 
 export async function createEmpleadoClient(suffix = '') {
   const c = createClient();
-  await c.login(TEST_EMPLEADO_USER, TEST_EMPLEADO_PASS);
+  const res = await c.login(TEST_EMPLEADO_USER, TEST_EMPLEADO_PASS);
+  if (res.status !== 200) {
+    throw new Error(`Login fallido para empleado (${TEST_EMPLEADO_USER}): HTTP ${res.status} - ${JSON.stringify(res.body)}`);
+  }
   return c;
 }
 
 export async function createTecnicoClient(suffix = '') {
   const c = createClient();
-  await c.login(TEST_TECNICO_USER, TEST_TECNICO_PASS);
+  const res = await c.login(TEST_TECNICO_USER, TEST_TECNICO_PASS);
+  if (res.status !== 200) {
+    throw new Error(`Login fallido para técnico (${TEST_TECNICO_USER}): HTTP ${res.status} - ${JSON.stringify(res.body)}`);
+  }
   return c;
 }
 

@@ -17,7 +17,8 @@ export async function nextTicketNumber(organizationId = null) {
   return db.transaction(async () => {
     const key = organizationId == null ? 'ticket_number' : `ticket_number:${organizationId}`;
     const row = await db.queryOne('SELECT value FROM sequences WHERE name = ?', key);
-    const value = (row ? row.value : 0) + 1;
+    const currentValue = row ? Number(row.value) : 0;
+    const value = currentValue + 1;
     await db.execute(
       'INSERT INTO sequences (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value',
       key,

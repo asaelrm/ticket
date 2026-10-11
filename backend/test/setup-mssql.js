@@ -48,6 +48,26 @@ const config = {
   },
 };
 
+// Configurar variables de entorno para el runtime MSSQL ANTES de importar la app
+// Esto debe ejecutarse en el nivel superior (import time) porque helpers-mssql.js
+// importa la app al cargar el módulo, y la app decide el motor en config.js
+// basándose en DB_CLIENT y MSSQL_RUNTIME.
+process.env.DB_CLIENT = 'mssql';
+process.env.MSSQL_RUNTIME = 'true';
+process.env.DB_SERVER = config.server;
+process.env.DB_PORT = String(config.port);
+process.env.DB_DATABASE = AUTHORIZED_DATABASE;
+process.env.DB_USER = config.user;
+process.env.DB_PASSWORD = config.password;
+process.env.DB_ENCRYPT = String(config.options.encrypt);
+process.env.DB_TRUST_SERVER_CERTIFICATE = String(config.options.trustServerCertificate);
+if (config.options.instanceName) {
+  process.env.DB_INSTANCE = config.options.instanceName;
+}
+// Variables de test (no credenciales de producción)
+process.env.NODE_ENV = 'test';
+process.env.JOBS_ENABLED = 'false';
+
 // Validar que el servidor responde y que DB_NAME() coincide
 async function validateTargetDatabase() {
   const pool = await sql.connect(config);
@@ -71,8 +91,8 @@ async function validateSchema() {
   const pool = await sql.connect(config);
   try {
     const result = await pool.request().query(`
-      SELECT TABLE_NAME 
-      FROM INFORMATION_SCHEMA.TABLES 
+      SELECT TABLE_NAME
+      FROM INFORMATION_SCHEMA.TABLES
       WHERE TABLE_SCHEMA = 'dbo' AND TABLE_TYPE = 'BASE TABLE'
       ORDER BY TABLE_NAME
     `);
@@ -85,7 +105,7 @@ async function validateSchema() {
       'kb_ticket_articles', 'kb_article_history', 'organizations',
       'roles', 'permissions', 'role_permissions'
     ];
-    
+
     const missing = expectedTables.filter(t => !tables.includes(t));
     if (missing.length > 0) {
       throw new Error(`Faltan tablas en el esquema: ${missing.join(', ')}`);
@@ -96,39 +116,20 @@ async function validateSchema() {
   }
 }
 
-// Configurar variables de entorno para el runtime MSSQL
-function configureRuntimeEnv() {
-  process.env.DB_CLIENT = 'mssql';
-  process.env.MSSQL_RUNTIME = 'true';
-  process.env.DB_SERVER = config.server;
-  process.env.DB_PORT = String(config.port);
-  process.env.DB_DATABASE = AUTHORIZED_DATABASE;
-  process.env.DB_USER = config.user;
-  process.env.DB_PASSWORD = config.password;
-  process.env.DB_ENCRYPT = String(config.options.encrypt);
-  process.env.DB_TRUST_SERVER_CERTIFICATE = String(config.options.trustServerCertificate);
-  if (config.options.instanceName) {
-    process.env.DB_INSTANCE = config.options.instanceName;
-  }
-  // Variables de test (no credenciales de producción)
-  process.env.NODE_ENV = 'test';
-  process.env.JOBS_ENABLED = 'false';
-}
-
 // Setup principal: solo validación, sin escrituras destructivas
+// Las variables de entorno para el runtime MSSQL ya se configuraron en el nivel superior (import time)
 let setupDone = false;
 export async function ensureMssqlTestSetup() {
   if (setupDone) return;
-  
+
   console.log('[MSSQL Test Setup] Validando configuración de integración MSSQL...');
   console.log(`[MSSQL Test Setup] Servidor: ${config.server}`);
   console.log(`[MSSQL Test Setup] Base autorizada: ${AUTHORIZED_DATABASE}`);
   console.log(`[MSSQL Test Setup] Usuario: ${config.user}`);
-  
+
   await validateTargetDatabase();
   await validateSchema();
-  configureRuntimeEnv();
-  
+
   setupDone = true;
   console.log('[MSSQL Test Setup] Validación completada - listo para pruebas');
 }

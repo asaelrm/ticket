@@ -887,7 +887,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
     LEFT JOIN users u ON u.id = ta.uploader_id
     LEFT JOIN ticket_comments tc ON tc.id = ta.comment_id
     WHERE ta.ticket_id = ?
-      AND (ta.comment_id IS NULL OR tc.is_internal = 0 OR ?)
+      AND (ta.comment_id IS NULL OR tc.is_internal = 0 OR ? = 1)
     ORDER BY ta.created_at ASC, ta.id ASC`, id, canSeeInternal ? 1 : 0);
 
   const comments = await runtime.queryMany(`
