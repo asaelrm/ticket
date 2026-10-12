@@ -33,21 +33,35 @@ lectura.
 
 ## 3. Grupo D — `apply-groupD-not-null.sql`
 
-Convierte **únicamente** `dbo.departments.organization_id` a `INT NOT NULL`
-(paridad con `backend/src/db/mssql/schema.sql`). No modifica el tipo, no borra
-datos, no elimina/deshabilita restricciones y **no** toca `users.organization_id`
-(que sigue NULL-able, como el canónico).
+Convierte **únicamente** la **nulabilidad** de `dbo.departments.organization_id`
+a `INT NOT NULL` (paridad con `backend/src/db/mssql/schema.sql`). No modifica el
+tipo, no borra datos y **no** toca `users.organization_id` (que sigue NULL-able,
+como el canónico).
+
+**Gestión de dependencias (hallazgo corregido).** En SQL Server 2022 el
+`ALTER COLUMN` falla con *«one or more objects access this column»* cuando la
+columna pertenece a un índice/`UNIQUE` (verificado empíricamente sobre una copia
+aislada). Por ello el script **suelta y recrea, dentro de la misma transacción**,
+los `UNIQUE` que incluyen `organization_id` (`UQ_departments_organization_id`,
+`UQ_departments_organization_name`) y las FK compuestas que dependen de ellos
+(`FK_users_department_same_org`, `FK_tickets_department_same_org`), dejándolos
+**idénticos** (mismas columnas, acciones `ON DELETE/UPDATE` y estado confiable).
+Un descubrimiento previo de dependencias aborta si aparece cualquier objeto
+distinto de los esperados, para no perder restricciones.
 
 - Doble interruptor de autorización `@AuthorizeDdl` / `@BackupVerified` (ambos en `0`).
 - Guarda de identidad (servidor `TI-DESK-01\SIFHADEV`, instancia `SIFHADEV`, base `SIFHA_Tickets_DEV`).
-- Prechequeos: 24 tablas; `UQ_departments_organization_id`; FK que referencian
-  `departments(organization_id, id)`; estadísticas manuales/columnas calculadas que
-  bloquearían el `ALTER`; 97 registros; CMUCE única; 25 depts sin NULL ni ajenos;
-  `users` sin NULL; tipo `INT`.
+- Prechequeos: 24 tablas; los dos `UNIQUE` que incluyen `organization_id` y las FK
+  que referencian `departments(organization_id, …)`; descubrimiento de **todas** las
+  dependencias (se aborta ante objetos inesperados); estadísticas manuales/objetos de
+  esquema que bloquearían el `ALTER`; 97 registros; CMUCE única; 25 depts sin NULL ni
+  ajenos; `users` sin NULL; tipo `INT`.
 - **Transacción única** con `TRY/CATCH` + `XACT_ABORT ON`, revalidación interna con
   `UPDLOCK/HOLDLOCK`, verificación de nulabilidad **antes del `COMMIT`**.
 - **Idempotente**: si ya es NOT NULL, omite el `ALTER` e informa.
-- No usa `DROP/TRUNCATE/DELETE/NOCHECK`; no hay reversión automática post-COMMIT.
+- No usa `DROP TABLE/TRUNCATE/DELETE/NOCHECK`; verificación **antes del `COMMIT`** de
+  que los `UNIQUE`/FK recreados existen, están habilitados y confiables; no hay
+  reversión automática post-COMMIT.
 - Resumen propio `GRUPO D: GO` / `NO-GO`.
 
 ## 4. Grupo D — `verify-after-groupD.sql`
@@ -73,9 +87,14 @@ salida sigue siendo `VERIFICADOR FINAL: GO` / `NO-GO`.
 
 ## 6. Validación estática de los scripts SQL
 
-- `apply-groupD`: 0 caracteres no-ASCII; sin `DROP/TRUNCATE/DELETE/NOCHECK`
-  reales (solo en comentarios); estructura `BEGIN/END` coherente; 1 `BEGIN TRY` /
+- `apply-groupD`: 0 caracteres no-ASCII; `DROP` limitado a `DROP CONSTRAINT` de las
+  dependencias (soltadas y recreadas en la misma transacción), sin
+  `DROP TABLE/TRUNCATE/DELETE/NOCHECK`; estructura `BEGIN/END` coherente; 1 `BEGIN TRY` /
   1 `BEGIN CATCH`; 1 `BEGIN TRANSACTION`; `ALTER COLUMN` referido solo a la columna diana.
+  Probado end-to-end sobre una **copia aislada** de DEV (respaldo `COPY_ONLY` +
+  restauración como base scratch): resultado `GRUPO D: GO`, con la nulabilidad cambiada y
+  las 4 restricciones + 4 FK intactas/confiables; idempotencia y guards (identidad,
+  autorización y dependencias inesperadas) verificados.
 - `verify-after-groupD` y `verify-final-reconciliation`: 0 no-ASCII; **sin
   sentencias de escritura** (verificado por búsqueda de patrones).
 

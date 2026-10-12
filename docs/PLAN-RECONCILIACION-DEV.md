@@ -1159,11 +1159,17 @@ control C1**. Con `GO`, el grupo C queda cerrado y se desbloquea el grupo D (§1
 Además de la fase 8 del borrador, el grupo D puede ejecutarse con dos scripts propios,
 aislados de B y C (recomendado si se prefiere no re-ejecutar el borrador completo):
 
-- **`apply-groupD-not-null.sql`** — hace **solo** `ALTER TABLE dbo.departments ALTER COLUMN
-  organization_id INT NOT NULL`. Doble interruptor (`@AuthorizeDdl`, `@BackupVerified`),
-  guardas de identidad y abundantes prechequeos; revalida **dentro** de la transacción con
-  `UPDLOCK/HOLDLOCK`, verifica la nulabilidad **antes del `COMMIT`** y es idempotente. Resumen
-  `GRUPO D: GO`. **No** toca `users.organization_id`.
+- **`apply-groupD-not-null.sql`** — cambia la **nulabilidad** de
+  `dbo.departments.organization_id` a `INT NOT NULL`. Doble interruptor (`@AuthorizeDdl`,
+  `@BackupVerified`), guardas de identidad y abundantes prechequeos; revalida **dentro** de
+  la transacción con `UPDLOCK/HOLDLOCK`, verifica la nulabilidad **antes del `COMMIT`** y es
+  idempotente. **Gestiona dependencias:** en SQL Server 2022 el `ALTER COLUMN` falla si la
+  columna pertenece a un índice/`UNIQUE`; por ello suelta y recrea, en la misma transacción,
+  los `UNIQUE` que incluyen `organization_id` (`UQ_departments_organization_id`,
+  `UQ_departments_organization_name`) y las FK compuestas que dependen de ellos
+  (`FK_users_department_same_org`, `FK_tickets_department_same_org`), idénticos y confiables;
+  un descubrimiento previo aborta ante dependencias inesperadas. Resumen `GRUPO D: GO`.
+  **No** toca `users.organization_id`.
 - **`verify-after-groupD.sql`** — verificador solo lectura post-D: 24 tablas, 97 registros,
   CMUCE única, 25 depts/0 NULL/0 ajenos, `departments.organization_id INT NOT NULL`,
   `users.organization_id` NULL-able, UQ/FK/IX nucleares, 0 huérfanos; resumen

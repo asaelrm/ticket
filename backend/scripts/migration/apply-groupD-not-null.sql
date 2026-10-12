@@ -16,24 +16,50 @@
  *   4. CMUCE existe UNA sola vez y los 25 departamentos pertenecen a ella.
  *   5. departments.organization_id no tiene ninguna fila NULL.
  *   6. El tipo real de departments.organization_id es INT (igual que el canonico).
- *   7. Existen UQ_departments_organization_id y las FK que referencian
- *      departments(organization_id, id), habilitadas y confiables.
+ *   7. Existen los UNIQUE y las FK que dependen de departments(organization_id):
+ *        - UQ_departments_organization_id      UNIQUE (organization_id, id)
+ *        - UQ_departments_organization_name    UNIQUE (organization_id, name)
+ *        - FK_departments_organization          (departments -> organizations)
+ *        - FK_users_department_same_org        (users -> departments(org, id))
+ *        - FK_tickets_department_same_org      (tickets -> departments(org, id))
+ *      habilitadas y confiables.
  *   8. Backend detenido; ventana de mantenimiento; respaldo verificado.
  *
+ * POR QUE ESTE SCRIPT GESTIONA DEPENDENCIAS (hallazgo verificado)
+ *   En SQL Server 2022, ALTER TABLE ... ALTER COLUMN falla con
+ *   "one or more objects access this column" cuando la columna pertenece a un
+ *   indice/UNIQUE (confirmado empiricamente sobre una copia aislada). Las FK no
+ *   bloquean por si mismas, pero las FK compuestas que usan
+ *   UQ_departments_organization_id (organization_id, id) obligan a disponer de
+ *   ese indice unico; por tanto el orden correcto es:
+ *       (a) soltar las FK dependientes (users/tickets),
+ *       (b) soltar los UNIQUE que incluyen organization_id,
+ *       (c) ALTER COLUMN,
+ *       (d) recrear los UNIQUE con la MISMA definicion,
+ *       (e) recrear las FK con WITH CHECK (quedan confiables),
+ *   todo dentro de UNA SOLA TRANSACCION.
+ *
  * GARANTIAS DE SEGURIDAD
- *   - UNA SOLA TRANSACCION atomica para el ALTER: si algo falla, ROLLBACK deja
- *     la nulabilidad como estaba.
+ *   - Descubre TODAS las dependencias (indices/UNIQUE y FK) que incluyen
+ *     organization_id y ABORTA si aparecen objetos distintos de los esperados,
+ *     para no perder silenciosamente ninguna restriccion.
+ *   - UNA SOLA TRANSACCION atomica: si algo falla, ROLLBACK deja la nulabilidad,
+ *     las restricciones y las FK como estaban.
  *   - El ALTER se re-valida DENTRO de la transaccion, con bloqueos
  *     (UPDLOCK/HOLDLOCK), justo antes de ejecutarse.
  *   - Solo cambia la NULABILIDAD de departments.organization_id. NO cambia el
- *     tipo, no borra datos, no elimina ni deshabilita restricciones/FK/indices.
- *   - Idempotente: si la columna ya es NOT NULL, no se ejecuta el ALTER y se
+ *     tipo, no borra datos, no elimina permanentemente restricciones/FK/indices
+ *     (los suelta y los recrea identicos).
+ *   - Idempotente: si la columna ya es NOT NULL, no se ejecuta ningun DDL y se
  *     informa; el resumen sigue siendo GO si el resto del estado es correcto.
- *   - NO usa DROP/TRUNCATE/DELETE, NO usa NOCHECK, NO altera otras columnas.
+ *   - NO usa DROP TABLE/TRUNCATE/DELETE, NO usa NOCHECK, NO altera otras columnas.
+ *   - Verificacion post-D: comprueba que las restricciones UNIQUE, las FK y los
+ *     datos siguen intactos antes del COMMIT y de nuevo al final.
  *
  * ATOMICIDAD
- *   - ALTER TABLE ... ALTER COLUMN es transaccional en SQL Server. El bloque usa
- *     BEGIN TRANSACTION + TRY/CATCH + XACT_ABORT ON y ROLLBACK si algo falla.
+ *   - ALTER TABLE ... ALTER COLUMN y el DROP/ADD de restricciones son
+ *     transaccionales en SQL Server. El bloque usa BEGIN TRAN + TRY/CATCH +
+ *     XACT_ABORT ON y ROLLBACK si algo falla.
  *
  * NO REVERSION AUTOMATICA POST-COMMIT
  *   - Antes del COMMIT: TRY/CATCH + XACT_ABORT revierte.
@@ -147,7 +173,8 @@ BEGIN
 END;
 PRINT N'[2] OK: 24/24 tablas presentes.';
 
-/* Columna diana e integridad de dependencias: UQ + FK que referencian departments(organization_id, id). */
+/* Columna diana e integridad de dependencias: UQ + FK que referencian
+   departments(organization_id, ...). */
 IF COL_LENGTH(N'dbo.departments', N'organization_id') IS NULL
 BEGIN
     RAISERROR(N'ABORTADO: falta dbo.departments.organization_id. Ejecute y verifique B antes.', 16, 1);
@@ -156,7 +183,13 @@ END;
 
 IF NOT EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'UQ_departments_organization_id')
 BEGIN
-    RAISERROR(N'ABORTADO: falta UQ_departments_organization_id (la exige FK_users_department_same_org). Ejecute y verifique B antes.', 16, 1);
+    RAISERROR(N'ABORTADO: falta UQ_departments_organization_id (la exigen las FK compuestas). Ejecute y verifique B antes.', 16, 1);
+    RETURN;
+END;
+
+IF NOT EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'UQ_departments_organization_name')
+BEGIN
+    RAISERROR(N'ABORTADO: falta UQ_departments_organization_name. Ejecute y verifique B antes.', 16, 1);
     RETURN;
 END;
 
@@ -178,7 +211,18 @@ BEGIN
     RETURN;
 END;
 
-/* Objetos que impedirian el ALTER COLUMN: estadisticas no automaticas y columnas calculadas dependientes. */
+IF NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys
+    WHERE name = N'FK_tickets_department_same_org' AND is_disabled = 0 AND is_not_trusted = 0
+)
+BEGIN
+    RAISERROR(N'ABORTADO: FK_tickets_department_same_org ausente/deshabilitada/no confiable. Ejecute y verifique B antes.', 16, 1);
+    RETURN;
+END;
+
+/* Objetos que impedirian el ALTER COLUMN: estadisticas no automaticas y
+   cualquier objeto de esquema (columna calculada/vista/funcion) que lea la
+   columna. */
 IF EXISTS (
     SELECT 1
     FROM sys.stats AS s
@@ -196,17 +240,81 @@ END;
 
 IF EXISTS (
     SELECT 1
-    FROM sys.computed_columns AS cc
-    JOIN sys.sql_expression_dependencies AS sed
-         ON sed.referencing_id = cc.object_id AND sed.referenced_id = OBJECT_ID(N'dbo.departments')
-    WHERE cc.object_id = OBJECT_ID(N'dbo.departments')
+    FROM sys.sql_expression_dependencies AS sed
+    JOIN sys.columns AS c
+         ON c.object_id = sed.referenced_id AND c.column_id = sed.referenced_minor_id
+    WHERE sed.referenced_id = OBJECT_ID(N'dbo.departments')
+      AND c.name = N'organization_id'
 )
 BEGIN
-    RAISERROR(N'ABORTADO: dependencias sobre departments que podrian bloquear ALTER COLUMN. Revise antes.', 16, 1);
+    RAISERROR(N'ABORTADO: hay objetos de esquema que leen departments.organization_id (vista/columna calculada) y pueden bloquear ALTER COLUMN. Revise antes.', 16, 1);
     RETURN;
 END;
 
-PRINT N'[2] OK: UQ_departments_organization_id y FK sobre departments(organization_id, id) presentes y confiables.';
+/* Descubrimiento OBLIGATORIO de TODAS las dependencias que incluyen
+   organization_id. Si aparece algo distinto de lo esperado, se ABORTA para no
+   perder restricciones silenciosamente. */
+DECLARE @blocking_uq TABLE (name SYSNAME, type_desc NVARCHAR(60), key_cols NVARCHAR(MAX));
+DECLARE @blocking_fk TABLE (
+    name SYSNAME, parent_schema SYSNAME, parent_table SYSNAME,
+    parent_cols NVARCHAR(MAX), ref_cols NVARCHAR(MAX),
+    on_delete NVARCHAR(60), on_update NVARCHAR(60), not_for_repl BIT);
+
+INSERT INTO @blocking_uq (name, type_desc, key_cols)
+SELECT i.name, i.type_desc,
+       STUFF((SELECT N', ' + c2.name
+              FROM sys.index_columns AS ic2
+              JOIN sys.columns AS c2 ON c2.object_id = ic2.object_id AND c2.column_id = ic2.column_id
+              WHERE ic2.object_id = i.object_id AND ic2.index_id = i.index_id AND ic2.is_included_column = 0
+              ORDER BY ic2.key_ordinal FOR XML PATH(N'')), 1, 2, N'')
+FROM sys.indexes AS i
+WHERE i.object_id = OBJECT_ID(N'dbo.departments')
+  AND i.is_primary_key = 0
+  AND i.is_hypothetical = 0
+  AND EXISTS (
+      SELECT 1
+      FROM sys.index_columns AS ic
+      JOIN sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+      WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND c.name = N'organization_id');
+
+INSERT INTO @blocking_fk (name, parent_schema, parent_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl)
+SELECT fk.name,
+       SCHEMA_NAME(pt.schema_id), pt.name,
+       STUFF((SELECT N', ' + COL_NAME(fkc2.parent_object_id, fkc2.parent_column_id)
+              FROM sys.foreign_key_columns AS fkc2
+              WHERE fkc2.constraint_object_id = fk.object_id
+              ORDER BY fkc2.constraint_column_id FOR XML PATH(N'')), 1, 2, N''),
+       STUFF((SELECT N', ' + COL_NAME(fkc2.referenced_object_id, fkc2.referenced_column_id)
+              FROM sys.foreign_key_columns AS fkc2
+              WHERE fkc2.constraint_object_id = fk.object_id
+              ORDER BY fkc2.constraint_column_id FOR XML PATH(N'')), 1, 2, N''),
+       REPLACE(fk.delete_referential_action_desc, N'_', N' '),
+       REPLACE(fk.update_referential_action_desc, N'_', N' '),
+       fk.is_not_for_replication
+FROM sys.foreign_keys AS fk
+JOIN sys.tables AS pt ON pt.object_id = fk.parent_object_id
+WHERE fk.referenced_object_id = OBJECT_ID(N'dbo.departments')
+  AND EXISTS (
+      SELECT 1
+      FROM sys.foreign_key_columns AS fkc
+      JOIN sys.columns AS c ON c.object_id = fkc.referenced_object_id AND c.column_id = fkc.referenced_column_id
+      WHERE fkc.constraint_object_id = fk.object_id AND c.name = N'organization_id');
+
+IF (SELECT COUNT(*) FROM @blocking_uq) <> 2
+   OR EXISTS (SELECT 1 FROM @blocking_uq WHERE name NOT IN (N'UQ_departments_organization_id', N'UQ_departments_organization_name'))
+BEGIN
+    RAISERROR(N'ABORTADO: el conjunto de indices/UNIQUE que incluyen organization_id no es el esperado (UQ_departments_organization_id, UQ_departments_organization_name). Revise antes de aplicar D.', 16, 1);
+    RETURN;
+END;
+
+IF (SELECT COUNT(*) FROM @blocking_fk) <> 2
+   OR EXISTS (SELECT 1 FROM @blocking_fk WHERE name NOT IN (N'FK_users_department_same_org', N'FK_tickets_department_same_org'))
+BEGIN
+    RAISERROR(N'ABORTADO: el conjunto de FK que referencian departments(organization_id, ...) no es el esperado (FK_users_department_same_org, FK_tickets_department_same_org). Revise antes de aplicar D.', 16, 1);
+    RETURN;
+END;
+
+PRINT N'[2] OK: UNIQUE + FK dependientes descubiertos y son exactamente los esperados (se soltaran y recrearan identicos).';
 
 /* ---------------------------------------------------------------------------
  * 3. Prechequeo de datos (SIN escribir; se repite en la transaccion)
@@ -304,19 +412,30 @@ PRINT N'[3] OK: departments.organization_id es INT; nulabilidad actual = '
     + CASE WHEN @dept_nullable = 1 THEN N'NULL-able (pendiente de D)' ELSE N'NOT NULL (D ya aplicado)' END + N'.';
 
 /* ---------------------------------------------------------------------------
- * 4. TRANSACCION UNICA: re-validacion bloqueada + ALTER COLUMN + verificacion
+ * 4. TRANSACCION UNICA: re-validacion + (drop dependencias + ALTER + recrear) + verificacion
  * ------------------------------------------------------------------------- */
 DECLARE @cmuce_count_tx INT = -1;
 DECLARE @dept_null_tx BIGINT = -1;
 DECLARE @dept_total_tx BIGINT = -1;
 DECLARE @dept_foreign_tx BIGINT = -1;
+DECLARE @dept_total_mid BIGINT = -1;
 DECLARE @dept_nullable_tx BIGINT = -1;
 DECLARE @dept_nullable_after BIGINT = -1;
+DECLARE @cur_uq INT = -1;
+DECLARE @cur_fk INT = -1;
+DECLARE @uq_after INT = -1;
+DECLARE @fk_after INT = -1;
+DECLARE @fk_untrusted INT = -1;
+
+/* Variables de trabajo para los cursores de drop/recreate. */
+DECLARE @d_name SYSNAME, @d_schema SYSNAME, @d_table SYSNAME, @d_type NVARCHAR(60);
+DECLARE @d_pcols NVARCHAR(MAX), @d_rcols NVARCHAR(MAX), @d_del NVARCHAR(60), @d_upd NVARCHAR(60);
+DECLARE @d_kcols NVARCHAR(MAX), @d_nfr BIT;
 
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    /* 4.1 Revalidacion autoritativa con bloqueos, antes del ALTER. */
+    /* 4.1 Revalidacion autoritativa con bloqueos, antes del DDL. */
     SELECT @cmuce_count_tx = ISNULL(SUM(CASE WHEN code = @ExpectedOrgCode THEN 1 ELSE 0 END), 0)
     FROM dbo.organizations WITH (UPDLOCK, HOLDLOCK);
 
@@ -337,15 +456,100 @@ BEGIN TRY
     IF @dept_null_tx <> 0 OR @dept_foreign_tx <> 0
         RAISERROR(N'ABORTADO (grupo D): %I64d NULL y %I64d fuera de CMUCE. Se revierte.', 16, 1, @dept_null_tx, @dept_foreign_tx);
 
-    /* 4.2 ALTER COLUMN (solo si aun no es NOT NULL: idempotencia). */
+    /* Revalidar que el conjunto de dependencias no cambio desde el prechequeo. */
+    SELECT @cur_uq = COUNT(*)
+    FROM sys.indexes AS i
+    WHERE i.object_id = OBJECT_ID(N'dbo.departments') AND i.is_primary_key = 0 AND i.is_hypothetical = 0
+      AND EXISTS (SELECT 1 FROM sys.index_columns AS ic
+                  JOIN sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                  WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND c.name = N'organization_id');
+    SELECT @cur_fk = COUNT(*)
+    FROM sys.foreign_keys AS fk
+    WHERE fk.referenced_object_id = OBJECT_ID(N'dbo.departments')
+      AND EXISTS (SELECT 1 FROM sys.foreign_key_columns AS fkc
+                  JOIN sys.columns AS c ON c.object_id = fkc.referenced_object_id AND c.column_id = fkc.referenced_column_id
+                  WHERE fkc.constraint_object_id = fk.object_id AND c.name = N'organization_id');
+
+    IF @cur_uq <> (SELECT COUNT(*) FROM @blocking_uq) OR @cur_fk <> (SELECT COUNT(*) FROM @blocking_fk)
+        RAISERROR(N'ABORTADO (grupo D): las dependencias cambiaron desde el prechequeo (UNIQUE=%d FK=%d). Se revierte.', 16, 1, @cur_uq, @cur_fk);
+
+    /* 4.2 DDL (solo si aun no es NOT NULL: idempotencia). */
     IF @dept_nullable_tx = 0
-        PRINT N'[4] departments.organization_id ya es NOT NULL: ALTER omitido (idempotente).';
+        PRINT N'[4] departments.organization_id ya es NOT NULL: DDL omitido (idempotente).';
     ELSE
     BEGIN
+        /* (a) Soltar las FK dependientes del UNIQUE(organization_id, id). */
+        DECLARE cfk CURSOR LOCAL FAST_FORWARD FOR
+            SELECT name, parent_schema, parent_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl
+            FROM @blocking_fk;
+        OPEN cfk;
+        FETCH NEXT FROM cfk INTO @d_name, @d_schema, @d_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @sql = N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table)
+                     + N' DROP CONSTRAINT ' + QUOTENAME(@d_name) + N';';
+            EXEC sys.sp_executesql @sql;
+            PRINT N'[4] FK soltada temporalmente: ' + @d_name;
+            FETCH NEXT FROM cfk INTO @d_name, @d_schema, @d_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr;
+        END;
+        CLOSE cfk;
+        DEALLOCATE cfk;
+
+        /* (b) Soltar los UNIQUE que incluyen organization_id. */
+        DECLARE cuq CURSOR LOCAL FAST_FORWARD FOR SELECT name FROM @blocking_uq;
+        OPEN cuq;
+        FETCH NEXT FROM cuq INTO @d_name;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @sql = N'ALTER TABLE dbo.departments DROP CONSTRAINT ' + QUOTENAME(@d_name) + N';';
+            EXEC sys.sp_executesql @sql;
+            PRINT N'[4] UNIQUE soltado temporalmente: ' + @d_name;
+            FETCH NEXT FROM cuq INTO @d_name;
+        END;
+        CLOSE cuq;
+        DEALLOCATE cuq;
+
+        /* (c) ALTER COLUMN (solo nulabilidad). */
         SET @sql = N'ALTER TABLE dbo.departments ALTER COLUMN organization_id INT NOT NULL;';
         EXEC sys.sp_executesql @sql;
         PRINT N'[4] ALTER aplicado: departments.organization_id es NOT NULL.';
-    END;
+
+        /* (d) Recrear los UNIQUE con la MISMA definicion. */
+        DECLARE cuq2 CURSOR LOCAL FAST_FORWARD FOR SELECT name, type_desc, key_cols FROM @blocking_uq;
+        OPEN cuq2;
+        FETCH NEXT FROM cuq2 INTO @d_name, @d_type, @d_kcols;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @sql = N'ALTER TABLE dbo.departments ADD CONSTRAINT ' + QUOTENAME(@d_name)
+                     + N' UNIQUE ' + CASE WHEN @d_type = N'CLUSTERED' THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END
+                     + N' (' + @d_kcols + N');';
+            EXEC sys.sp_executesql @sql;
+            PRINT N'[4] UNIQUE recreado: ' + @d_name + N' (' + @d_kcols + N')';
+            FETCH NEXT FROM cuq2 INTO @d_name, @d_type, @d_kcols;
+        END;
+        CLOSE cuq2;
+        DEALLOCATE cuq2;
+
+        /* (e) Recrear las FK con WITH CHECK (quedan confiables). */
+        DECLARE cfk2 CURSOR LOCAL FAST_FORWARD FOR
+            SELECT name, parent_schema, parent_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl
+            FROM @blocking_fk;
+        OPEN cfk2;
+        FETCH NEXT FROM cfk2 INTO @d_name, @d_schema, @d_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @sql = N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table)
+                     + N' WITH CHECK ADD CONSTRAINT ' + QUOTENAME(@d_name)
+                     + N' FOREIGN KEY (' + @d_pcols + N') REFERENCES dbo.departments (' + @d_rcols + N')'
+                     + N' ON DELETE ' + @d_del + N' ON UPDATE ' + @d_upd
+                     + CASE WHEN @d_nfr = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END + N';';
+            EXEC sys.sp_executesql @sql;
+            PRINT N'[4] FK recreada (con validacion): ' + @d_name;
+            FETCH NEXT FROM cfk2 INTO @d_name, @d_schema, @d_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr;
+        END;
+        CLOSE cfk2;
+        DEALLOCATE cfk2;
+    END
 
     /* 4.3 Verificacion dentro de la transaccion, ANTES del COMMIT. */
     SELECT @dept_nullable_after = CASE WHEN c.is_nullable = 1 THEN 1 ELSE 0 END
@@ -355,12 +559,37 @@ BEGIN TRY
     IF @dept_nullable_after <> 0
         RAISERROR(N'ABORTADO (grupo D): la columna sigue siendo NULL-able tras el ALTER. Se revierte.', 16, 1);
 
+    SELECT @dept_total_mid = COUNT_BIG(*) FROM dbo.departments;
+    IF @dept_total_mid <> @dept_total_tx
+        RAISERROR(N'ABORTADO (grupo D): el numero de departamentos cambio (%I64d -> %I64d). Se revierte.', 16, 1, @dept_total_tx, @dept_total_mid);
+
+    /* Los 2 UNIQUE esperados deben existir tras recrear. */
+    SELECT @uq_after = COUNT(*) FROM sys.key_constraints
+    WHERE parent_object_id = OBJECT_ID(N'dbo.departments')
+      AND name IN (N'UQ_departments_organization_id', N'UQ_departments_organization_name');
+    IF @uq_after <> 2
+        RAISERROR(N'ABORTADO (grupo D): no se recrearon los 2 UNIQUE esperados (%d). Se revierte.', 16, 1, @uq_after);
+
+    /* Las 2 FK esperadas deben existir, habilitadas y confiables. */
+    SELECT @fk_after = COUNT(*) FROM sys.foreign_keys
+    WHERE name IN (N'FK_users_department_same_org', N'FK_tickets_department_same_org')
+      AND is_disabled = 0 AND is_not_trusted = 0;
+    IF @fk_after <> 2
+        RAISERROR(N'ABORTADO (grupo D): no se recrearon/confiaron las 2 FK esperadas (%d). Se revierte.', 16, 1, @fk_after);
+
+    /* Ninguna FK de departments debe quedar deshabilitada o no confiable. */
+    SELECT @fk_untrusted = COUNT(*) FROM sys.foreign_keys
+    WHERE (referenced_object_id = OBJECT_ID(N'dbo.departments') OR parent_object_id = OBJECT_ID(N'dbo.departments'))
+      AND (is_disabled = 1 OR is_not_trusted = 1);
+    IF @fk_untrusted <> 0
+        RAISERROR(N'ABORTADO (grupo D): hay %d FK de departments deshabilitada(s)/no confiable(s). Se revierte.', 16, 1, @fk_untrusted);
+
     COMMIT TRANSACTION;
-    PRINT N'[4] COMMIT. departments.organization_id es NOT NULL (comprobado antes del COMMIT).';
+    PRINT N'[4] COMMIT. departments.organization_id es NOT NULL; UNIQUE y FK recreadas y verificadas.';
 END TRY
 BEGIN CATCH
     IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
-    PRINT N'ERROR/ABORTADO en grupo D. Se revirtio la nulabilidad.';
+    PRINT N'ERROR/ABORTADO en grupo D. Se revirtio la nulabilidad y las dependencias.';
     THROW;
 END CATCH;
 
@@ -370,6 +599,8 @@ END CATCH;
 DECLARE @d_null_final BIGINT = -1;
 DECLARE @dept_nn_final BIGINT = -1;
 DECLARE @users_nn_final BIGINT = -1;
+DECLARE @uq_final INT = -1;
+DECLARE @fk_final INT = -1;
 DECLARE @orfanos BIGINT = 0;
 
 SET @sql = N'SELECT @n = COUNT_BIG(*) FROM dbo.departments WHERE organization_id IS NULL;';
@@ -379,6 +610,15 @@ SELECT @dept_nn_final = CASE WHEN c.is_nullable = 0 THEN 1 ELSE 0 END
 FROM sys.columns AS c WHERE c.object_id = OBJECT_ID(N'dbo.departments') AND c.name = N'organization_id';
 SELECT @users_nn_final = CASE WHEN c.is_nullable = 0 THEN 1 ELSE 0 END
 FROM sys.columns AS c WHERE c.object_id = OBJECT_ID(N'dbo.users') AND c.name = N'organization_id';
+
+/* Inventario final de restricciones: 2 UNIQUE y 4 FK de departments. */
+SELECT @uq_final = COUNT(*) FROM sys.key_constraints
+WHERE parent_object_id = OBJECT_ID(N'dbo.departments')
+  AND name IN (N'UQ_departments_organization_id', N'UQ_departments_organization_name');
+SELECT @fk_final = COUNT(*) FROM sys.foreign_keys
+WHERE name IN (N'FK_departments_organization', N'FK_users_department_same_org',
+               N'FK_tickets_department_same_org', N'FK_users_department')
+  AND is_disabled = 0 AND is_not_trusted = 0;
 
 /* Huerfanos de integridad (esperado 0): departments sin org valida y users sin org/rol/departamento same-org. */
 SET @sql = N'SELECT @n = COUNT_BIG(*) FROM dbo.departments AS d
@@ -408,6 +648,8 @@ SET @orfanos = @orfanos + @n;
 PRINT N'[5] departments.organization_id NULL: ' + CAST(@d_null_final AS NVARCHAR(20)) + N' (esperado 0).';
 PRINT N'[5] departments.organization_id NOT NULL: ' + CAST(@dept_nn_final AS NVARCHAR(10)) + N' (esperado 1).';
 PRINT N'[5] users.organization_id NOT NULL: ' + CAST(@users_nn_final AS NVARCHAR(10)) + N' (esperado 0 = NULL-able).';
+PRINT N'[5] UNIQUE dependientes presentes: ' + CAST(@uq_final AS NVARCHAR(10)) + N' (esperado 2).';
+PRINT N'[5] FK de departments presentes/confiables: ' + CAST(@fk_final AS NVARCHAR(10)) + N' (esperado 4).';
 PRINT N'[5] Huerfanos de integridad: ' + CAST(@orfanos AS NVARCHAR(20)) + N' (esperado 0).';
 
 /* ---------------------------------------------------------------------------
@@ -418,12 +660,16 @@ PRINT N'=== RESUMEN GRUPO D (departments.organization_id NOT NULL) ===';
 PRINT N'  departments.organization_id NOT NULL: ' + CAST(@dept_nn_final AS NVARCHAR(10)) + N' (esperado 1)';
 PRINT N'  departments.organization_id NULL: ' + CAST(@d_null_final AS NVARCHAR(20)) + N' (esperado 0)';
 PRINT N'  users.organization_id NOT NULL: ' + CAST(@users_nn_final AS NVARCHAR(10)) + N' (esperado 0)';
+PRINT N'  UNIQUE dependientes presentes: ' + CAST(@uq_final AS NVARCHAR(10)) + N' (esperado 2)';
+PRINT N'  FK de departments presentes/confiables: ' + CAST(@fk_final AS NVARCHAR(10)) + N' (esperado 4)';
 PRINT N'  Huerfanos de integridad: ' + CAST(@orfanos AS NVARCHAR(20)) + N' (esperado 0)';
 IF @dept_nn_final = 1
    AND @d_null_final = 0
    AND @users_nn_final = 0
+   AND @uq_final = 2
+   AND @fk_final = 4
    AND @orfanos = 0
-    PRINT N'GRUPO D: GO - departments.organization_id es NOT NULL. Ejecute verify-after-groupD.sql para el veredicto formal.';
+    PRINT N'GRUPO D: GO - departments.organization_id es NOT NULL y todas las restricciones/FK siguen intactas. Ejecute verify-after-groupD.sql para el veredicto formal.';
 ELSE
     PRINT N'GRUPO D: NO-GO (post-COMMIT) - DETENER, documentar y escalar al auditor; NO restaurar el respaldo automaticamente.';
 PRINT N'';
