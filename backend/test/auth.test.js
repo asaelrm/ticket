@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
 import { authRateLimit } from '../src/utils/rateLimit.js';
+import config from '../src/config.js';
 
 describe('Autenticación', () => {
   it('login con credenciales válidas devuelve el usuario', async () => {
@@ -60,6 +61,21 @@ describe('Autenticación', () => {
     assert.equal(res.status, 200);
     assert.ok(res.body.ok);
     assert.ok(!res.body.token);
+  });
+
+  it('forgot-password no devuelve el token fuera de desarrollo (p. ej. staging)', async () => {
+    const original = config.env;
+    config.env = 'staging';
+    try {
+      const c = createClient();
+      await c.get('/api/health');
+      const res = await c.post('/api/auth/forgot-password', { account: 'admin' });
+      assert.equal(res.status, 200);
+      assert.ok(!res.body.token, 'staging no debe recibir el token por HTTP');
+      assert.ok(!res.body.resetUrl, 'staging no debe recibir la URL de reset');
+    } finally {
+      config.env = original;
+    }
   });
 
   it('reset-password con token válido funciona', async () => {

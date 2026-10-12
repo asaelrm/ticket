@@ -220,6 +220,19 @@ describe('la configuración de producción se valida antes de arrancar', () => {
     assert.deepEqual(collectStartupProblems({}), { errors: [], warnings: [] });
   });
 
+  it('también valida fuera de producción (p. ej. staging)', () => {
+    const { errors } = collectStartupProblems({ NODE_ENV: 'staging' });
+    assert.ok(errors.some((e) => e.includes(FALLOS.SESSION_SECRET)), 'staging debe exigir SESSION_SECRET');
+    assert.ok(errors.some((e) => e.includes(FALLOS.PUBLIC_URL)), 'staging debe exigir PUBLIC_URL');
+
+    const completa = collectStartupProblems({
+      NODE_ENV: 'staging',
+      SESSION_SECRET: SECRETO_VALIDO,
+      PUBLIC_URL: 'https://tickets.example.com',
+    });
+    assert.deepEqual(completa.errors, []);
+  });
+
   it('avisa, sin impedir el arranque, si la cookie puede viajar sin cifrar', () => {
     const { errors, warnings } = collectStartupProblems({
       NODE_ENV: 'production',

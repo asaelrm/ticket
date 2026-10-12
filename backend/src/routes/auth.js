@@ -121,10 +121,11 @@ router.post('/forgot-password', authRateLimit(), async (req, res) => {
     const resetUrlBase = process.env.PUBLIC_URL || config.publicUrl;
     notifyPasswordReset(user, token, resetUrlBase);
 
-    // En desarrollo el token se devuelve para poder restablecer la contraseña.
-    // En producción debe llegar únicamente por correo.
+    // El token solo se devuelve en desarrollo explícito. Nunca en producción,
+    // staging ni cualquier otro entorno real: allí debe llegar únicamente por
+    // correo, para que nadie lo obtenga conociendo solo la cuenta.
     const payload = { ok: true, message: 'Se generó un enlace de recuperación. Validez: 24 horas.' };
-    if (config.env !== 'production') {
+    if (config.env === 'development') {
       payload.token = token;
       payload.resetUrl = `/reset-password?token=${token}`;
     }

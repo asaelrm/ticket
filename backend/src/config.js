@@ -153,8 +153,11 @@ export function collectStartupProblems(env = process.env) {
   const errors = [];
   const warnings = [];
 
-  // Desarrollo y pruebas arrancan con lo mínimo. Solo producción es la barrera.
-  if ((env.NODE_ENV || 'development') !== 'production') return { errors, warnings };
+  // Desarrollo y pruebas arrancan con lo mínimo. Cualquier otro entorno
+  // (producción, staging u otro despliegue real) exige configuración completa:
+  // el secreto de desarrollo es público y permitiría forjar cookies de sesión.
+  const nodeEnv = (env.NODE_ENV || 'development').trim().toLowerCase();
+  if (nodeEnv === 'development' || nodeEnv === 'test') return { errors, warnings };
 
   const secretProblem = checkSessionSecret(env.SESSION_SECRET);
   if (secretProblem) errors.push(secretProblem);
@@ -310,7 +313,11 @@ config.directory.snapshotFile = path.resolve(rootDir, config.directory.snapshotF
 // y de seed). Ocurre antes de crear directorios, migrar o insertar usuarios, de
 // modo que una instalación incompleta para aquí en vez de arrancar con secretos
 // conocidos del repositorio.
-if (config.env === 'production') assertStartupConfig(process.env);
+// Cualquier entorno que no sea desarrollo/pruebas valida su configuración antes
+// de arrancar. No solo producción: también staging u otro despliegue real, que
+// de otro modo arrancaría con el secreto de sesión público del repositorio.
+const bootEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
+if (bootEnv !== 'development' && bootEnv !== 'test') assertStartupConfig(process.env);
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 fs.mkdirSync(config.uploadDir, { recursive: true });
