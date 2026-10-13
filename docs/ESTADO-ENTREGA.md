@@ -611,3 +611,41 @@ responde, pero SQL Server rechazó el login configurado localmente.
   quedó bloqueada por el mismo rechazo de login.
 - Seguridad local: `npm audit --omit=dev` terminó sin vulnerabilidades en backend y
   frontend. No se modificaron datos, estructura, seeds ni migraciones.
+
+## 16. Diagnóstico definitivo de autenticación MSSQL (2026-10-13)
+
+- Configuración efectiva, sin exponer secretos: `DB_CLIENT=mssql`,
+  `DB_SERVER=localhost`, `DB_PORT=1433`, `DB_INSTANCE` ausente,
+  `DB_DATABASE=SIFHA_Tickets_DEV`, usuario y contraseña presentes,
+  `DB_ENCRYPT=true` y `DB_TRUST_SERVER_CERTIFICATE=true`. Es autenticación SQL
+  por contraseña; el driver por defecto (`tedious`) no usa Windows/Trusted
+  Connection.
+- El puerto TCP estático y `instanceName` son alternativas excluyentes en
+  `tedious`. La configuración actual usa el puerto 1433, por lo que no depende
+  de SQL Browser/UDP 1434. Solo debe usarse `DB_INSTANCE=SIFHADEV` si se elimina
+  `DB_PORT` y el administrador confirma que SQL Browser está disponible.
+- Resultado real del único probe: transporte y TLS alcanzaron SQL Server, pero
+  el driver devolvió `ELOGIN` / `Login failed for user '***'`. La autenticación
+  falló antes de poder confirmar la identidad de base por consulta. No se
+  reintentó con otras contraseñas ni se usaron cuentas administrativas.
+- No hay un archivo local de credenciales de prueba MSSQL ni una cuenta de solo
+  lectura verificable. Que un usuario/contraseña estén presentes no acredita
+  permisos de lectura ni autorización para DEV.
+
+### Procedimiento mínimo para cerrar el bloqueo
+
+1. El administrador debe confirmar qué instancia atiende `localhost:1433` y
+   entregar por un canal seguro una cuenta SQL dedicada, de solo lectura, para
+   `SIFHA_Tickets_DEV`; no incluirla en Git, documentos ni mensajes.
+2. La cuenta necesita como mínimo `CONNECT`, lectura de `dbo` y visibilidad de
+   metadatos (`VIEW DEFINITION`) para los verificadores. No debe tener
+   `db_datawriter`, DDL ni roles administrativos.
+3. Guardar el secreto únicamente en `backend/.env` local o en el almacén de
+   secretos del entorno. Mantener `DB_SERVER=localhost`, `DB_PORT=1433`,
+   `DB_INSTANCE` vacío, `DB_ENCRYPT=true`; sustituir la confianza al certificado
+   por una CA válida cuando esté disponible.
+4. Con la cuenta autorizada, ejecutar primero el probe `SELECT` de identidad;
+   solo si confirma `TI-DESK-01\\SIFHADEV` y `SIFHA_Tickets_DEV`, ejecutar Grupo
+   E con `MSSQL_RUNTIME=true` y `JOBS_ENABLED=false`. M5 usa exclusivamente
+   `SIFHA_Tickets_M5_Validation` y sus verificadores de solo lectura; no debe
+   apuntarse a DEV.
