@@ -57,7 +57,14 @@ export default function Notifications() {
   useEffect(() => {
     const eventSource = new EventSource('/api/notifications/stream');
     eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        // Un mensaje malformado del servidor no debe tumbar el panel ni la
+        // bandeja de eventos: se ignora y se espera al siguiente.
+        return;
+      }
       if (data.type === 'connected') {
         // Conexión (re)establecida: las pantallas reapuntan su caché en caso de
         // haber perdido eventos mientras la conexión estuvo caída.
@@ -114,6 +121,11 @@ export default function Notifications() {
 
   const readItemMutation = useMutation({
     mutationFn: (id) => api.post('/api/notifications/read', { ids: [id] }),
+    onError: () => {
+      // Si la lectura no se confirma, la resta optimista del contador no debe
+      // quedarse descontada de forma permanente: se vuelve a leer de la API.
+      queryClient.invalidateQueries({ queryKey: ['notifications-unread'] });
+    },
   });
 
   function markAllRead() {
@@ -152,6 +164,7 @@ export default function Notifications() {
         <div
           className="absolute right-0 z-50 mt-1 flex max-h-[70vh] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-pop"
           role="dialog"
+          aria-modal="true"
           aria-label="Notificaciones"
         >
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">

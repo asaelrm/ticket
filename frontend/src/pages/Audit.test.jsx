@@ -48,7 +48,7 @@ function setup(rows = [history()], { total = 90 } = {}) {
         actions: ACTIONS,
       });
     }
-    if (url === '/api/users') return Promise.resolve(USERS);
+    if (url === '/api/users' || url === '/api/users?perPage=100') return Promise.resolve(USERS);
     return Promise.reject(new Error(`404 ${url}`));
   });
 }
@@ -242,7 +242,7 @@ describe('Audit', () => {
     expect(select).toHaveTextContent('Todos');
     await user.click(select);
     expect(within(screen.getByRole('listbox')).getAllByRole('option').map((o) => o.textContent)).toEqual(['Todos', 'Ada Lovelace', 'Grace Hopper']);
-    expect(api.get).toHaveBeenCalledWith('/api/users');
+    expect(api.get).toHaveBeenCalledWith('/api/users?perPage=100');
   });
 
   it('pagina hacia atrás y adelante', async () => {

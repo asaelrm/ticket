@@ -20,6 +20,36 @@ export class ApiError extends Error {
   }
 }
 
+// Algunos endpoints devuelven 401 en flujos esperados (arranque sin sesión,
+// credenciales inválidas, recuperación pública): NO deben cerrar la sesión de
+// quien está en medio de su uso normal. Solo los 401 del resto de la API se
+// interpretan como sesión caducada.
+const PUBLIC_401_ENDPOINTS = new Set([
+  '/api/auth/login',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/auth/me',
+  '/api/auth/logout',
+]);
+
+const unauthorizedListeners = new Set();
+
+export function onUnauthorized(listener) {
+  unauthorizedListeners.add(listener);
+  return () => unauthorizedListeners.delete(listener);
+}
+
+function emitUnauthorized(path) {
+  if (PUBLIC_401_ENDPOINTS.has(String(path || '').split('?')[0])) return;
+  for (const listener of unauthorizedListeners) {
+    try {
+      listener();
+    } catch {
+      // Un listener que falle no debe romper la llamada que generó el aviso.
+    }
+  }
+}
+
 async function apiFetch(path, { method = 'GET', body, headers = {}, formData } = {}) {
   const opts = {
     method,
@@ -54,6 +84,7 @@ async function apiFetch(path, { method = 'GET', body, headers = {}, formData } =
   }
 
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized(path);
     const message = data?.error || `Error ${res.status}`;
     throw new ApiError(res.status, message, data?.fields);
   }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, formatDate, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -28,11 +28,25 @@ export function resetEnlace(token) {
 }
 
 function TextField({ label, value, onChange, type = 'text', help }) {
+  const inputId = useId();
   return (
     <div>
-      <label className="label">{label}</label>
-      <input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
-      {help && <p className="mt-1 text-xs text-slate-400">{help}</p>}
+      <label className="label" htmlFor={inputId}>
+        {label}
+      </label>
+      <input
+        className="input"
+        id={inputId}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-describedby={help ? `${inputId}-help` : undefined}
+      />
+      {help && (
+        <p id={`${inputId}-help`} className="mt-1 text-xs text-slate-400">
+          {help}
+        </p>
+      )}
     </div>
   );
 }

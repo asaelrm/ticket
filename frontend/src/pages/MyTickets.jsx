@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useTicketEventInvalidator } from '../lib/ticketEvents';
@@ -9,14 +10,35 @@ import { LoadingScreen, ErrorBox } from '../components/ui';
 const DEFAULT_FILTERS = { page: 1, perPage: 15 };
 
 export default function MyTickets() {
-  const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  const [debounced, setDebounced] = useState(DEFAULT_FILTERS);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filters, setFilters] = useState(() => ({
+    ...DEFAULT_FILTERS,
+    search: searchParams.get('search') || '',
+  }));
+  const [debounced, setDebounced] = useState(filters);
 
   // Debounce: evita una petición por cada tecla al escribir en la búsqueda.
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(filters), 250);
     return () => clearTimeout(timer);
   }, [filters]);
+
+  // La búsqueda global de la cabecera llega como ?search=…: cuando la URL cambia
+  // desde fuera (navegación, botón atrás), el filtro se alinea sin tocar el resto.
+  useEffect(() => {
+    const fromUrl = searchParams.get('search') || '';
+    setFilters((prev) => (prev.search === fromUrl ? prev : { ...prev, search: fromUrl }));
+  }, [searchParams]);
+
+  // Al terminar de escribir, el término se refleja en la URL con `replace` para
+  // que el historial no se llene de tecleo y el enlace sea compartible.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (debounced.search) next.set('search', debounced.search);
+    else next.delete('search');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced.search]);
 
   const { data: list, error: queryError } = useQuery({
     queryKey: ['my-tickets', debounced],
