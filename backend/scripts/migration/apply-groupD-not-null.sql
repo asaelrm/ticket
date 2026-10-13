@@ -254,20 +254,31 @@ END;
 /* Descubrimiento OBLIGATORIO de TODAS las dependencias que incluyen
    organization_id. Si aparece algo distinto de lo esperado, se ABORTA para no
    perder restricciones silenciosamente. */
-DECLARE @blocking_uq TABLE (name SYSNAME, type_desc NVARCHAR(60), key_cols NVARCHAR(MAX));
+DECLARE @blocking_uq TABLE (name SYSNAME, type_desc NVARCHAR(60), key_cols NVARCHAR(MAX),
+    data_space_name SYSNAME, data_space_type_desc NVARCHAR(60), is_padded BIT,
+    fill_factor TINYINT, ignore_dup_key BIT, allow_row_locks BIT, allow_page_locks BIT,
+    has_filter BIT, filter_definition NVARCHAR(MAX), optimize_for_sequential_key BIT);
 DECLARE @blocking_fk TABLE (
     name SYSNAME, parent_schema SYSNAME, parent_table SYSNAME,
+    ref_schema SYSNAME, ref_table SYSNAME,
     parent_cols NVARCHAR(MAX), ref_cols NVARCHAR(MAX),
-    on_delete NVARCHAR(60), on_update NVARCHAR(60), not_for_repl BIT);
+    on_delete NVARCHAR(60), on_update NVARCHAR(60), not_for_repl BIT,
+    is_disabled BIT, is_not_trusted BIT);
 
-INSERT INTO @blocking_uq (name, type_desc, key_cols)
+INSERT INTO @blocking_uq (name, type_desc, key_cols, data_space_name, data_space_type_desc,
+                          is_padded, fill_factor, ignore_dup_key, allow_row_locks, allow_page_locks,
+                          has_filter, filter_definition, optimize_for_sequential_key)
 SELECT i.name, i.type_desc,
-       STUFF((SELECT N', ' + c2.name
+       STUFF((SELECT N', ' + QUOTENAME(c2.name) + CASE WHEN ic2.is_descending_key = 1 THEN N' DESC' ELSE N' ASC' END
               FROM sys.index_columns AS ic2
               JOIN sys.columns AS c2 ON c2.object_id = ic2.object_id AND c2.column_id = ic2.column_id
               WHERE ic2.object_id = i.object_id AND ic2.index_id = i.index_id AND ic2.is_included_column = 0
-              ORDER BY ic2.key_ordinal FOR XML PATH(N'')), 1, 2, N'')
+       ORDER BY ic2.key_ordinal FOR XML PATH(N'')), 1, 2, N''),
+       ds.name, ds.type_desc, i.is_padded, i.fill_factor, i.ignore_dup_key,
+       i.allow_row_locks, i.allow_page_locks, i.has_filter, i.filter_definition,
+       i.optimize_for_sequential_key
 FROM sys.indexes AS i
+JOIN sys.data_spaces AS ds ON ds.data_space_id = i.data_space_id
 WHERE i.object_id = OBJECT_ID(N'dbo.departments')
   AND i.is_primary_key = 0
   AND i.is_hypothetical = 0
@@ -277,9 +288,10 @@ WHERE i.object_id = OBJECT_ID(N'dbo.departments')
       JOIN sys.columns AS c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND c.name = N'organization_id');
 
-INSERT INTO @blocking_fk (name, parent_schema, parent_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl)
+INSERT INTO @blocking_fk (name, parent_schema, parent_table, ref_schema, ref_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl, is_disabled, is_not_trusted)
 SELECT fk.name,
        SCHEMA_NAME(pt.schema_id), pt.name,
+       SCHEMA_NAME(rt.schema_id), rt.name,
        STUFF((SELECT N', ' + COL_NAME(fkc2.parent_object_id, fkc2.parent_column_id)
               FROM sys.foreign_key_columns AS fkc2
               WHERE fkc2.constraint_object_id = fk.object_id
@@ -290,9 +302,10 @@ SELECT fk.name,
               ORDER BY fkc2.constraint_column_id FOR XML PATH(N'')), 1, 2, N''),
        REPLACE(fk.delete_referential_action_desc, N'_', N' '),
        REPLACE(fk.update_referential_action_desc, N'_', N' '),
-       fk.is_not_for_replication
+       fk.is_not_for_replication, fk.is_disabled, fk.is_not_trusted
 FROM sys.foreign_keys AS fk
 JOIN sys.tables AS pt ON pt.object_id = fk.parent_object_id
+JOIN sys.tables AS rt ON rt.object_id = fk.referenced_object_id
 WHERE fk.referenced_object_id = OBJECT_ID(N'dbo.departments')
   AND EXISTS (
       SELECT 1
@@ -311,6 +324,20 @@ IF (SELECT COUNT(*) FROM @blocking_fk) <> 2
    OR EXISTS (SELECT 1 FROM @blocking_fk WHERE name NOT IN (N'FK_users_department_same_org', N'FK_tickets_department_same_org'))
 BEGIN
     RAISERROR(N'ABORTADO: el conjunto de FK que referencian departments(organization_id, ...) no es el esperado (FK_users_department_same_org, FK_tickets_department_same_org). Revise antes de aplicar D.', 16, 1);
+    RETURN;
+END;
+
+IF EXISTS (SELECT 1 FROM @blocking_uq WHERE data_space_type_desc <> N'ROWS_FILEGROUP')
+   OR EXISTS (SELECT 1 FROM @blocking_uq WHERE has_filter = 1)
+   OR EXISTS (
+        SELECT 1
+        FROM sys.partitions AS p
+        JOIN sys.indexes AS i ON i.object_id = p.object_id AND i.index_id = p.index_id
+        WHERE i.object_id = OBJECT_ID(N'dbo.departments')
+          AND i.name IN (N'UQ_departments_organization_id', N'UQ_departments_organization_name')
+          AND p.data_compression_desc <> N'NONE')
+BEGIN
+    RAISERROR(N'ABORTADO: una UNIQUE dependiente usa particionamiento, filtro o compresion y no puede reconstruirse fielmente con ALTER TABLE. No se modifico la base.', 16, 1);
     RETURN;
 END;
 
@@ -430,7 +457,10 @@ DECLARE @fk_untrusted INT = -1;
 /* Variables de trabajo para los cursores de drop/recreate. */
 DECLARE @d_name SYSNAME, @d_schema SYSNAME, @d_table SYSNAME, @d_type NVARCHAR(60);
 DECLARE @d_pcols NVARCHAR(MAX), @d_rcols NVARCHAR(MAX), @d_del NVARCHAR(60), @d_upd NVARCHAR(60);
-DECLARE @d_kcols NVARCHAR(MAX), @d_nfr BIT;
+DECLARE @d_kcols NVARCHAR(MAX), @d_nfr BIT, @d_ref_schema SYSNAME, @d_ref_table SYSNAME;
+DECLARE @d_is_disabled BIT, @d_is_not_trusted BIT;
+DECLARE @d_space SYSNAME, @d_space_type NVARCHAR(60), @d_padded BIT, @d_fill TINYINT;
+DECLARE @d_ignore BIT, @d_rowlocks BIT, @d_pagelocks BIT, @d_seq BIT;
 
 BEGIN TRY
     BEGIN TRANSACTION;
@@ -480,17 +510,17 @@ BEGIN TRY
     BEGIN
         /* (a) Soltar las FK dependientes del UNIQUE(organization_id, id). */
         DECLARE cfk CURSOR LOCAL FAST_FORWARD FOR
-            SELECT name, parent_schema, parent_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl
+            SELECT name, parent_schema, parent_table, ref_schema, ref_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl, is_disabled, is_not_trusted
             FROM @blocking_fk;
         OPEN cfk;
-        FETCH NEXT FROM cfk INTO @d_name, @d_schema, @d_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr;
+        FETCH NEXT FROM cfk INTO @d_name, @d_schema, @d_table, @d_ref_schema, @d_ref_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr, @d_is_disabled, @d_is_not_trusted;
         WHILE @@FETCH_STATUS = 0
         BEGIN
             SET @sql = N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table)
                      + N' DROP CONSTRAINT ' + QUOTENAME(@d_name) + N';';
             EXEC sys.sp_executesql @sql;
             PRINT N'[4] FK soltada temporalmente: ' + @d_name;
-            FETCH NEXT FROM cfk INTO @d_name, @d_schema, @d_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr;
+            FETCH NEXT FROM cfk INTO @d_name, @d_schema, @d_table, @d_ref_schema, @d_ref_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr, @d_is_disabled, @d_is_not_trusted;
         END;
         CLOSE cfk;
         DEALLOCATE cfk;
@@ -515,37 +545,47 @@ BEGIN TRY
         PRINT N'[4] ALTER aplicado: departments.organization_id es NOT NULL.';
 
         /* (d) Recrear los UNIQUE con la MISMA definicion. */
-        DECLARE cuq2 CURSOR LOCAL FAST_FORWARD FOR SELECT name, type_desc, key_cols FROM @blocking_uq;
+        DECLARE cuq2 CURSOR LOCAL FAST_FORWARD FOR SELECT name, type_desc, key_cols, data_space_name, data_space_type_desc, is_padded, fill_factor, ignore_dup_key, allow_row_locks, allow_page_locks, optimize_for_sequential_key FROM @blocking_uq;
         OPEN cuq2;
-        FETCH NEXT FROM cuq2 INTO @d_name, @d_type, @d_kcols;
+        FETCH NEXT FROM cuq2 INTO @d_name, @d_type, @d_kcols, @d_space, @d_space_type, @d_padded, @d_fill, @d_ignore, @d_rowlocks, @d_pagelocks, @d_seq;
         WHILE @@FETCH_STATUS = 0
         BEGIN
             SET @sql = N'ALTER TABLE dbo.departments ADD CONSTRAINT ' + QUOTENAME(@d_name)
                      + N' UNIQUE ' + CASE WHEN @d_type = N'CLUSTERED' THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END
-                     + N' (' + @d_kcols + N');';
+                     + N' (' + @d_kcols + N') WITH (PAD_INDEX = ' + CASE WHEN @d_padded = 1 THEN N'ON' ELSE N'OFF' END
+                     + N', FILLFACTOR = ' + CONVERT(NVARCHAR(3), @d_fill)
+                     + N', IGNORE_DUP_KEY = ' + CASE WHEN @d_ignore = 1 THEN N'ON' ELSE N'OFF' END
+                     + N', ALLOW_ROW_LOCKS = ' + CASE WHEN @d_rowlocks = 1 THEN N'ON' ELSE N'OFF' END
+                     + N', ALLOW_PAGE_LOCKS = ' + CASE WHEN @d_pagelocks = 1 THEN N'ON' ELSE N'OFF' END
+                     + N', OPTIMIZE_FOR_SEQUENTIAL_KEY = ' + CASE WHEN @d_seq = 1 THEN N'ON' ELSE N'OFF' END
+                     + N') ON ' + QUOTENAME(@d_space) + N';';
             EXEC sys.sp_executesql @sql;
             PRINT N'[4] UNIQUE recreado: ' + @d_name + N' (' + @d_kcols + N')';
-            FETCH NEXT FROM cuq2 INTO @d_name, @d_type, @d_kcols;
+            FETCH NEXT FROM cuq2 INTO @d_name, @d_type, @d_kcols, @d_space, @d_space_type, @d_padded, @d_fill, @d_ignore, @d_rowlocks, @d_pagelocks, @d_seq;
         END;
         CLOSE cuq2;
         DEALLOCATE cuq2;
 
         /* (e) Recrear las FK con WITH CHECK (quedan confiables). */
         DECLARE cfk2 CURSOR LOCAL FAST_FORWARD FOR
-            SELECT name, parent_schema, parent_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl
+            SELECT name, parent_schema, parent_table, ref_schema, ref_table, parent_cols, ref_cols, on_delete, on_update, not_for_repl, is_disabled, is_not_trusted
             FROM @blocking_fk;
         OPEN cfk2;
-        FETCH NEXT FROM cfk2 INTO @d_name, @d_schema, @d_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr;
+        FETCH NEXT FROM cfk2 INTO @d_name, @d_schema, @d_table, @d_ref_schema, @d_ref_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr, @d_is_disabled, @d_is_not_trusted;
         WHILE @@FETCH_STATUS = 0
         BEGIN
             SET @sql = N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table)
                      + N' WITH CHECK ADD CONSTRAINT ' + QUOTENAME(@d_name)
-                     + N' FOREIGN KEY (' + @d_pcols + N') REFERENCES dbo.departments (' + @d_rcols + N')'
+                      + N' FOREIGN KEY (' + @d_pcols + N') REFERENCES ' + QUOTENAME(@d_ref_schema) + N'.' + QUOTENAME(@d_ref_table) + N' (' + @d_rcols + N')'
                      + N' ON DELETE ' + @d_del + N' ON UPDATE ' + @d_upd
-                     + CASE WHEN @d_nfr = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END + N';';
+                      + CASE WHEN @d_nfr = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END + N';';
             EXEC sys.sp_executesql @sql;
+            IF @d_is_not_trusted = 1
+                EXEC (N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table) + N' NOCHECK CONSTRAINT ' + QUOTENAME(@d_name) + N';');
+            IF @d_is_disabled = 1
+                EXEC (N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table) + N' NOCHECK CONSTRAINT ' + QUOTENAME(@d_name) + N';');
             PRINT N'[4] FK recreada (con validacion): ' + @d_name;
-            FETCH NEXT FROM cfk2 INTO @d_name, @d_schema, @d_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr;
+            FETCH NEXT FROM cfk2 INTO @d_name, @d_schema, @d_table, @d_ref_schema, @d_ref_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr, @d_is_disabled, @d_is_not_trusted;
         END;
         CLOSE cfk2;
         DEALLOCATE cfk2;
@@ -569,6 +609,27 @@ BEGIN TRY
       AND name IN (N'UQ_departments_organization_id', N'UQ_departments_organization_name');
     IF @uq_after <> 2
         RAISERROR(N'ABORTADO (grupo D): no se recrearon los 2 UNIQUE esperados (%d). Se revierte.', 16, 1, @uq_after);
+
+    IF EXISTS (
+        SELECT 1
+        FROM @blocking_uq AS before_uq
+        LEFT JOIN sys.indexes AS after_i
+          ON after_i.object_id = OBJECT_ID(N'dbo.departments') AND after_i.name = before_uq.name
+        OUTER APPLY (
+            SELECT STUFF((SELECT N', ' + QUOTENAME(c2.name) + CASE WHEN ic2.is_descending_key = 1 THEN N' DESC' ELSE N' ASC' END
+                          FROM sys.index_columns AS ic2
+                          JOIN sys.columns AS c2 ON c2.object_id = ic2.object_id AND c2.column_id = ic2.column_id
+                          WHERE ic2.object_id = after_i.object_id AND ic2.index_id = after_i.index_id AND ic2.is_included_column = 0
+                          ORDER BY ic2.key_ordinal FOR XML PATH(N'')), 1, 2, N'') AS key_cols
+        ) AS after_cols
+        WHERE after_i.index_id IS NULL OR after_i.type_desc <> before_uq.type_desc
+           OR after_cols.key_cols <> before_uq.key_cols
+           OR after_i.is_padded <> before_uq.is_padded OR after_i.fill_factor <> before_uq.fill_factor
+           OR after_i.ignore_dup_key <> before_uq.ignore_dup_key
+           OR after_i.allow_row_locks <> before_uq.allow_row_locks OR after_i.allow_page_locks <> before_uq.allow_page_locks
+           OR after_i.data_space_id <> (SELECT data_space_id FROM sys.data_spaces WHERE name = before_uq.data_space_name)
+           OR after_i.optimize_for_sequential_key <> before_uq.optimize_for_sequential_key)
+        RAISERROR(N'ABORTADO (grupo D): una UNIQUE no conserva columnas, orden, tipo u opciones del indice. Se revierte.', 16, 1);
 
     /* Las 2 FK esperadas deben existir, habilitadas y confiables. */
     SELECT @fk_after = COUNT(*) FROM sys.foreign_keys
