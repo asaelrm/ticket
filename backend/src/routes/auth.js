@@ -74,6 +74,9 @@ router.post('/login', authRateLimit(), async (req, res) => {
       });
     });
   } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: 'Datos inválidos', fields: err.fields });
+    }
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -131,6 +134,9 @@ router.post('/forgot-password', authRateLimit(), async (req, res) => {
     }
     return res.json(payload);
   } catch (err) {
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: 'Datos inválidos', fields: err.fields });
+    }
     res.status(500).json({ error: 'Error interno' });
   }
 });

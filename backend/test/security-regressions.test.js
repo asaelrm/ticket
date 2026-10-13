@@ -185,6 +185,12 @@ describe('Login: coste constante para enumeración de cuentas', () => {
       `Un login de usuario inexistente tardó ${msInexistente.toFixed(1)} ms: no se ejecutó bcrypt (existente: ${msExistente.toFixed(1)} ms)`
     );
   });
+
+  it('un cuerpo de login sin cuenta devuelve 400 de validación, nunca un 500 interno', async () => {
+    const c = createClient();
+    const res = await c.post('/api/auth/login', { password: 'solo-una-clave' });
+    assert.equal(res.status, 400);
+  });
 });
 
 describe('Restablecimiento de contraseña por administrador', () => {
