@@ -55,7 +55,10 @@
     depends_on:
       - backend
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5173/"]
+      # Vite con --host 0.0.0.0 escucha solo IPv4; en Alpine "localhost"
+      # resuelve a ::1 primero y el wget de busybox falla (Connection refused).
+      # 127.0.0.1 evita el falso "unhealthy" aunque el puerto responda.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5173/"]
       interval: 30s
       timeout: 5s
       retries: 3
