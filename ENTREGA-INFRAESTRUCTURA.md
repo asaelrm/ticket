@@ -68,7 +68,7 @@ npm run build                  # comprueba el bundle
 
 Última ejecución registrada (rama `integracion-casa-oficina-11oct`):
 
-- Backend: **859 pruebas, 0 fallos, 2 omitidas** con `npm test` (SQLite temporal).
+- Backend: **865 pruebas, 863 pass, 0 fallos, 2 omitidas** con `npm test` (SQLite temporal).
   Las suites de integración contra SQL Server viven en `backend/test/mssql/` y se
   ejecutan aparte con `npm run test:mssql` contra la base aislada autorizada
   `SIFHA_Tickets_M5_Integration_Test` (requiere `.env.mssql-test`); sin ese

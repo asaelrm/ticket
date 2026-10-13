@@ -18,7 +18,7 @@ Documento de cierre para la entrega institucional. Complementa a
 |------|--------|
 | Código de funcionalidades críticas | **LISTO** |
 | Errores bloqueantes conocidos | **0** en el runtime SQLite; las suites MSSQL requieren entorno |
-| `npm test` (backend SQLite) | 859 pruebas, 0 fallos, 2 omitidas |
+| `npm test` (backend SQLite) | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
 | Frontend (vitest + build) | 1080/1080; build OK |
 | Migraciones Grupo D | Script corregido; **ejecución PENDIENTE de autorización** |
 | Migraciones M5 | **PENDIENTE** de autorización |

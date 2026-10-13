@@ -13,7 +13,7 @@ npm test            # node --test --import ./test/setup.js "test/*.test.js"
 
 - Crea una base **temporal** (setup en `backend/test/setup.js`); no escribe en
   `backend/data/tickets.db`.
-- Última ejecución registrada: **859 pruebas, 857 aprobadas, 0 fallos,
+- Última ejecución registrada: **865 pruebas, 863 aprobadas, 0 fallos,
   2 omitidas** (omitidas por depender de entorno real SMTP/adjuntos).
 
 ## Backend — integración contra SQL Server
@@ -72,7 +72,7 @@ npm run build        # compila el bundle de producción a dist/
 
 | Suite | Resultado |
 |-------|-----------|
-| Backend `npm test` | 859 pruebas, 0 fallos, 2 omitidas |
+| Backend `npm test` | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
 | Frontend `npx vitest run` | 44 archivos, 1080/1080 |
 | Build `npm run build` | OK |
 | Integración MSSQL `npm run test:mssql` | PENDIENTE (requiere entorno autorizado) |
