@@ -18,7 +18,7 @@ Documento de cierre para la entrega institucional. Complementa a
 |------|--------|
 | Código de funcionalidades críticas | **LISTO** |
 | Errores bloqueantes conocidos | **0**; integración MSSQL certificada 37/37 (2026-10-12) |
-| `npm test` (backend SQLite) | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
+| `npm test` (backend SQLite) | 887 pruebas, 885 pass, 0 fallos, 2 omitidas |
 | `npm run test:mssql` (integración MSSQL) | **37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` |
 | Frontend (vitest + build) | 1080/1080; build OK |
 | Migraciones Grupo D | **CERTIFICADO** en `SIFHA_GroupD_ScratchTest` (2026-10-13: POST-D GO / FINAL GO); `SIFHA_Tickets_DEV` **NO** migrada ni certificada |

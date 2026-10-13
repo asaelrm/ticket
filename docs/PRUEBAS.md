@@ -13,7 +13,7 @@ npm test            # node --test --import ./test/setup.js "test/*.test.js"
 
 - Crea una base **temporal** (setup en `backend/test/setup.js`); no escribe en
   `backend/data/tickets.db`.
-- Última ejecución registrada: **865 pruebas, 863 aprobadas, 0 fallos,
+- Última ejecución registrada: **887 pruebas, 885 aprobadas, 0 fallos,
   2 omitidas** (omitidas por depender de entorno real SMTP/adjuntos).
 
 ## Backend — integración contra SQL Server
@@ -33,8 +33,9 @@ npm run test:mssql                            # node --test --import ./test/setu
 - Suites: `mssql-integration` (auth, tickets, flujo, export),
   `mssql-reports-dashboard` (dashboard, reportes, configuración, aislamiento),
   `mssql-jobs` (SLA, escalaciones, poda).
-- Estado: **PENDIENTE** de certificación en un entorno con SQL Server autorizado
-  (no bloquea el código; requiere infraestructura).
+- Estado: **certificado 37/37** contra `SIFHA_Tickets_M5_Integration_Test`
+  (2026-10-12). Re-ejecutarla **escribe** filas de prueba y exige nueva
+  autorización del responsable.
 
 ## Frontend
 
@@ -72,10 +73,10 @@ npm run build        # compila el bundle de producción a dist/
 
 | Suite | Resultado |
 |-------|-----------|
-| Backend `npm test` | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
+| Backend `npm test` | 887 pruebas, 885 pass, 0 fallos, 2 omitidas |
 | Frontend `npx vitest run` | 44 archivos, 1080/1080 |
 | Build `npm run build` | OK |
-| Integración MSSQL `npm run test:mssql` | PENDIENTE (requiere entorno autorizado) |
+| Integración MSSQL `npm run test:mssql` | **37/37 pass** (2026-10-12; re-ejecutar escribe datos y requiere autorización) |
 
 ## Reglas
 

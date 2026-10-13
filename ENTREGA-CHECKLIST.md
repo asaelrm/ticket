@@ -9,7 +9,7 @@ hallazgos de la revisión de oficina).
 
 | Suite | Comando | Resultado |
 | --- | --- | --- |
-| Backend | `cd backend; npm test` | 865 pruebas, 863 pass, 0 fallos, 2 omitidas (SQLite temporal; las suites MSSQL viven en `test/mssql/` y salen con `npm run test:mssql`) |
+| Backend | `cd backend; npm test` | 887 pruebas, 885 pass, 0 fallos, 2 omitidas (SQLite temporal; las suites MSSQL viven en `test/mssql/` y salen con `npm run test:mssql`) |
 | Frontend | `docker exec -w /app/frontend ticket-dev-frontend npx vitest run` | 44 archivos, 1080 pass |
 | Build producción frontend | `npx vite build` (contenedor frontend) | OK |
 | Traducción SQLite→T-SQL | `node --test test/mssql-sql-translation.test.js` | 249 sentencias, 0 incompatibles |
@@ -62,11 +62,11 @@ hallazgos de la revisión de oficina).
 - **P1** — Ejecutar `npm run test:mssql` contra `SIFHA_Tickets_M5_Integration_Test`
   para certificar las suites de `backend/test/mssql/`.
 - **P2** — Proxy de Vite parametrizable por entorno (hoy fijo a `http://backend:4000`).
-- **P2** — Desconexión automática del frontend ante sesión caducada en una petición ya abierta.
+- **P2** — ~~Desconexión automática del frontend ante sesión caducada en una petición ya abierta~~ **corregido** (commit `c33367b`: bus `onUnauthorized` en `lib/api.js` + `AuthContext`).
 
 > Las suites MSSQL de integración ya no se ejecutan dentro de `npm test`: viven
 > en `backend/test/mssql/` y salen con `npm run test:mssql`. Con este cambio
-> `npm test` termina sin falsos fallos (865 pruebas, 863 pass, 0 fallos).
+> `npm test` termina sin falsos fallos (887 pruebas, 885 pass, 0 fallos).
 
 El detalle de cada pendiente, con su evidencia y alcance, está en
 `docs/PENDIENTES_ENTREGA_OFICINA.md`.

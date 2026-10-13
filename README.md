@@ -170,7 +170,7 @@ incluye las suites de integración contra SQL Server, que viven en
 base aislada autorizada (requiere `.env.mssql-test`, ver
 `.env.mssql-test.example`). Sin ese entorno, esas suites quedan fuera de `npm test`,
 que por tanto termina sin falsos fallos. Última ejecución registrada:
-**865 pruebas, 863 pass, 0 fallos, 2 omitidas**. Ver `docs/ESTADO-ENTREGA.md`.
+**887 pruebas, 885 pass, 0 fallos, 2 omitidas**. Ver `docs/ESTADO-ENTREGA.md`.
 
 ## Producción
 

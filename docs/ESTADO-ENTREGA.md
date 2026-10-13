@@ -17,7 +17,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 | 1 | Auditoría del repositorio (rama, módulos, pruebas, migraciones, docs) | P0 | COMPLETADO | Este documento |
 | 2 | Corregir falso positivo del guard UNIQUE del Grupo D (`ROWS_FILEGROUP`) | P0 | COMPLETADO | `backend/scripts/migration/apply-groupD-not-null*.sql`, `diagnose-groupD-unique-blocker.sql` |
 | 3 | Preparar comandos SQL del Grupo D para ejecución autorizada | P0 | COMPLETADO | Ejecutado sobre `SIFHA_GroupD_ScratchTest`; ver §5 |
-| 4 | Ejecutar `npm test` (backend SQLite) sin fallos | P1 | COMPLETADO | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
+| 4 | Ejecutar `npm test` (backend SQLite) sin fallos | P1 | COMPLETADO | 887 pruebas, 885 pass, 0 fallos, 2 omitidas |
 | 5 | Ejecutar pruebas frontend + build de producción | P1 | COMPLETADO | 1080/1080; `vite build` OK |
 | 6 | Reorganizar suites MSSQL de integración (`test/mssql/`) | P1 | COMPLETADO | `backend/package.json`, `backend/test/mssql/` |
 | 7 | Auditar secretos y `.env` versionados | P0 | COMPLETADO | `git ls-files`; `.gitignore` cubre `.env*`; `.env.mssql-test.example` saneado |
@@ -53,7 +53,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 
 | Suite | Comando | Resultado |
 |-------|---------|-----------|
-| Backend (SQLite temporal) | `npm test` | **865 pruebas, 863 pass, 0 fail, 2 skip** (~110 s) |
+| Backend (SQLite temporal) | `npm test` | **887 pruebas, 885 pass, 0 fail, 2 skip** (~130 s) |
 | Integración MSSQL (requiere entorno) | `npm run test:mssql` | **EJECUTADA: 37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` (ver §3.2) |
 | Frontend | `npx vitest run` | **44 archivos, 1080/1080 pass** (0 fail, ~93 s) |
 | Build producción frontend | `npm run build` | **OK** (`dist/` generado) |
@@ -281,9 +281,11 @@ usuario ADMIN y permisos conservados, respaldo previo verificado.
 - **Dependencias (`npm audit`, 2026-10-12, sin `--force`):**
   - Backend producción: **2 moderadas** (`uuid` vía `exceljs`). Arreglo
     propuesto (`exceljs@3.4.0`) es *breaking*; **pendiente de decisión**.
-  - Frontend producción: **1 moderada** (`react-router`/`react-router-dom`,
+  - Frontend producción: ~~1 moderada (`react-router`/`react-router-dom`,
     redirección abierta). Arreglo propuesto (`react-router-dom@7`) es salto de
-    mayor (6→7); **pendiente de decisión**.
+    mayor (6→7); **pendiente de decisión**~~ **RESUELTA** en el commit
+    `c33367b`: `react-router-dom` 6.28.1 → **7.18.4**, verificado con 1080/1080
+    y `vite build` OK.
   - Frontend solo-*dev*: `vite` (alta) y `tinypool`/`vitest` (críticas) en la
     cadena de pruebas/compilación; **no** afectan al bundle distribuido. Arreglo
     `vitest@5` es *breaking*; **pendiente de decisión**.
@@ -300,11 +302,18 @@ documentación. Los artefactos de diagnóstico de la raíz (`inventario-grupoD.t
 
 ## 8. Plan de commits
 
-Ejecutado hasta `a4ef5b9` (publicado en `origin/integracion-casa-oficina-11oct`,
-2026-10-13). Queda **1 commit local pendiente de publicación**: el de esta
-actualización (fix `FILLFACTOR=0` en `apply-groupD-not-null*.sql` + certificación
-de Grupo D en el scratch + documentación). Comando de publicación (cuando el
-dueño autorice): `git push origin integracion-casa-oficina-11oct`.
+`origin/integracion-casa-oficina-11oct` está en `a4ef5b9`. Por delante quedan
+**commits locales pendientes de publicación** (no se hace push sin autorización):
+
+- `28f29a2` fix(migracion): corregir `FILLFACTOR=0` al recrear UNIQUE y certificar Grupo D en scratch.
+- `279f756` fix(seguridad): remediar hallazgos de auditoría en backend.
+- `c33367b` fix(frontend): búsqueda global, sesión caducada, auditoría y a11y.
+- `ab1815f` docs(seguridad): segunda ronda de auditoría y decisiones de dependencias.
+- Continuación (CI, scripts DEV solo lectura, documentación e informe): los
+  commits de esta sesión.
+
+Comando de publicación (cuando el dueño autorice):
+`git push origin integracion-casa-oficina-11oct`.
 
 ## 9. Bloqueos que requieren intervención
 
@@ -326,3 +335,70 @@ dueño autorice): `git push origin integracion-casa-oficina-11oct`.
   vitest). No se aplican sin autorización.
 - **P2** — ~~Publicar los commits locales~~ **completado** (`9f64117..5c5a9ea`).
 - **P2** — Añadir ESLint/`lint` (recomendación no bloqueante).
+
+## 10. Continuación tras el apagón (2026-10-13)
+
+Sesión de recuperación desde `ab1815f`. Working tree limpio al inicio; no se
+repitió ninguna tarea ya certificada (Grupo D en scratch; integración MSSQL
+37/37). Se completaron las fases pendientes: CI, documentación, preparación de
+migraciones DEV en modo solo lectura y revisión del PR #1.
+
+### 10.1 Integración continua (nueva)
+
+- Añadido `.github/workflows/ci.yml` (no existía ningún workflow): dos jobs
+  independientes en Node 24 —
+  - **Backend**: `npm ci` + `npm test` (SQLite temporal; las suites MSSQL no se
+    ejecutan en CI).
+  - **Frontend**: `npm ci` + `npx vitest run` + `npm run build`.
+- Disparadores: `push` a `main`/`integracion-casa-oficina-11oct`,
+  `pull_request` y `workflow_dispatch`, con `concurrency` para cancelar
+  ejecuciones obsoletas y `permissions: contents: read`.
+- Pendiente real: el workflow no puede ejercitarse en GitHub hasta que el dueño
+  haga `push` (no se hace push sin autorización); la sintaxis y los comandos se
+  validaron localmente.
+
+### 10.2 Migraciones DEV en modo solo lectura (nueva)
+
+- Nuevo `backend/scripts/migration/diagnose-dev-account-readonly.sql`: preflight
+  **100% de solo lectura** (sin `EXEC`/SQL dinámico) que, con guarda de identidad
+  `SIFHA_Tickets_DEV` + `SIFHADEV`, informa los permisos de la cuenta
+  (`db_owner`, `db_ddladmin`, `ALTER` en `SCHEMA::dbo`, `VIEW DEFINITION`), un
+  veredicto `GO`/`NO-GO` para ejecutar B→C→D→E y el artefacto de visibilidad de
+  metadatos (tablas visibles vs 24). No se ejecutó contra SQL Server.
+- Nueva regresión estática `backend/test/dev-readonly-scripts.test.js` (13
+  pruebas): exige guarda de identidad y ausencia de escrituras persistentes en
+  los 6 scripts DEV de solo lectura, y prohíbe SQL dinámico en el diagnóstico.
+  **Hallazgo real corregido por esta prueba:** el encabezado del nuevo script
+  contenía `sys.*/funciones`, cuyo `*/` cerraba el comentario SQL antes de
+  tiempo; corregido a `(sys.*), funciones`.
+
+### 10.3 Documentación
+
+- Cifras de pruebas alineadas a la ejecución vigente (**887/885/0/2** backend;
+  1080/1080 frontend) en README, `ENTREGA-CHECKLIST`, `ENTREGA-INFRAESTRUCTURA`,
+  `docs/DEPLOY-MSSQL`, `docs/ENTREGA-FINAL` y `docs/PRUEBAS`.
+- `docs/PRUEBAS.md` deja de marcar la integración MSSQL como pendiente (está
+  certificada 37/37; re-ejecutar escribe y exige autorización).
+- `ENTREGA-CHECKLIST.md`: el P2 «sesión caducada» pasa a corregido (`c33367b`).
+
+### 10.4 Revisión del PR #1
+
+- PR #1 «Integracion casa-oficina: certificacion MSSQL 37/37 y preparacion final
+  de entrega» (head `integracion-casa-oficina-11oct` → base `main`): **abierto**,
+  1 participante, **sin revisiones**, **sin checks** (no existía workflow; el CI
+  nuevo los generará al publicar).
+- El cuerpo del PR describe 4 archivos y 863 pass; el historial actual incluye
+  los 4 commits locales posteriores. `gh` **no está instalado** en este equipo,
+  por lo que actualizar cuerpo/estado del PR requiere acción manual del dueño
+  tras el push.
+- Sin secretos añadidos; no debe mergearse hasta cerrar los pendientes de
+  certificación DEV/M5 (ventana autorizada).
+
+## 11. Pendientes reales tras esta sesión
+
+- **Requiere autorización (no ejecutable aquí):** secuencia B→C→D→E y M5 en
+  `SIFHA_Tickets_DEV` (cuenta privilegiada + respaldo verificado + ventana);
+  verificación `VERIFYONLY` del respaldo M5; `push` de los commits locales.
+- **Requiere decisión:** arreglos *breaking* de `npm audit` (backend `exceljs`
+  → `uuid`; frontend dev-only `vite`/`vitest`).
+- **Mejora no bloqueante:** añadir ESLint/script `lint`.

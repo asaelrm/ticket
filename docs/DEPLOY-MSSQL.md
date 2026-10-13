@@ -281,7 +281,7 @@ cd backend && npm test
 El glob `test/*.test.js` cubre el backend sobre SQLite temporal y **no** incluye
 las suites de integración contra SQL Server, que viven en `backend/test/mssql/` y
 se ejecutan aparte con `npm run test:mssql`. Última ejecución registrada:
-**865 pruebas, 863 pass, 0 fallos, 2 omitidas**.
+**887 pruebas, 885 pass, 0 fallos, 2 omitidas**.
 
 ### Pruebas MSSQL (requiere base aislada)
 ```bash
