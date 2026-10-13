@@ -114,3 +114,36 @@ Los tres hallazgos **Media** son riesgos de **endurecimiento de configuración/d
 3. Limitar la devolución del token de reseteo a un flag explícito de desarrollo (hallazgo 3).
 
 Se recomienda, además, actualizar las dependencias (`npm audit fix`) y cerrar los hallazgos **Baja** como parte del plan de mantenimiento.
+
+---
+
+## Segunda ronda (2026-10-13) — hallazgos puntuales y remediación aplicada
+
+- **Tipo:** auditorías dirigidas sobre `backend/` y `frontend/` (análisis estático asistido, sin arrancar servidor ni tocar la base de datos).
+- **Resultado:** posturas globales sólidas (SQL parametrizado, tenancy en servidor, CSRF, magic bytes, doble validación de permisos). Se corrigieron hallazgos puntuales, todos verificados con pruebas de regresión.
+- **Validación:** backend 874/872 (2 skip), con 9 regresiones nuevas; frontend 1080/1080 + `vite build` OK.
+
+### Backend — corregido
+
+1. **[Alta] Inyección de fórmulas en exportaciones CSV/XLSX** (reports.js ~482, tickets.js ~733). Las celdas iniciadas con `=`, `+`, `-`, `@`, tab o CR eran interpretadas como fórmula al abrir en Excel/Sheets. Remediado con `csvSafe` (prefijo `'`) unificado para CSV y XLSX. Cubierto con **9 regresiones nuevas** en `backend/test/security-regressions.test.js` (`=2+2`, `+41`, `-1+2`, `@SUM(A1)`, `='+1+1'`, `=HOLA()`, `-42`…).
+2. **[Media] Wildcard de `LIKE` sin escapar** (`users.js` search, `audit.js` search). `%`/`_`/`\` de la búsqueda se trataban como comodines. Remediado con `escapeLike` + cláusula `ESCAPE '\'`.
+3. **[Media] `GET /users/:id/tickets` sin filtro de organización en la consulta** (`users.js`). El objetivo se validaba por org, pero las consultas de tickets no filtraban → posible fuga entre organizaciones. Remediado añadiendo `AND t.organization_id = ?` a COUNT, byStatus y listado.
+4. **[Media] Token de reset devuelto en claro en `POST /users/:id/reset-password`** (`users.js`). Remediado siguiendo la política de `auth.js`: `notifyPasswordReset` envía el token por correo y este solo se devuelve en la respuesta cuando `config.env === 'development'`.
+5. **[Baja] Filtrado de CR/LF en nombres de archivo** (`fileType.js`) y **[Baja] salto de línea en el asunto del correo** (`mailer.js`, `sendMail`): saneado de `[\r\n\t]` para prevenir cabeceras/adjuntos malformados.
+
+### Frontend — corregido
+
+1. **[Alta] `MyTickets` ignoraba `?search=`** (búsqueda global de la cabecera). Remediado con `useSearchParams`: inicializa el filtro desde la URL, se realinea si la URL cambia desde fuera y refleja el término en la URL con `replace: true`.
+2. **[Media] Sin manejo global de sesión caducada (401).** Remediado en `lib/api.js` con un bus `onUnauthorized`/`emitUnauthorized` que excluye los endpoints públicos y `/api/auth/me`; `AuthContext` se suscribe y al recibir el aviso hace `queryClient.clear()` + `setUser(null)` para que `Protected` redirija a `/login`.
+3. **[Media] Filtro de usuarios de auditoría limitado a 15.** Remediado solicitando `perPage=100`. Además, si el rol tiene `settings.manage` pero no `user.view` (403 del directorio), el filtro se **oculta** en vez de fallar en silencio.
+4. **[Baja] `JSON.parse` del SSE sin protección** (`Notifications.jsx`): un mensaje malformado no tumba el panel.
+5. **[Baja] Decremento optimista de no leídas sin rollback**: si `POST /api/notifications/read` falla, se invalida `notifications-unread` para volver a leer el contador.
+6. **[Baja] Escape cerraba toasts y panel a la vez**: el diálogo del panel ahora declara `aria-modal="true"`, que el manejador de `Toast` ya respeta para no robar el Escape.
+7. **[Baja] `TextField` de `Users` sin asociación label-input**: `useId` + `htmlFor`/`id` + `aria-describedby` del texto de ayuda.
+
+### Dependencias — decisión y bloqueos documentados
+
+- `react-router-dom` 6.28.1 → **7.18.4**: upgrade aplicado y verificado (1080/1080, build OK). Sin cambios de código: la API usada (BrowserRouter, MemoryRouter, useSearchParams, Routes/Route, Link) es compatible. Se mantiene.
+- `vite` 5.4.x / `vitest` 2.1.x / `esbuild` / `tinypool` (`npm audit`: 6 hallazgos, todos de la **toolchain de desarrollo**): los fixes exigen `vite@8`/`vitest@5`, upgrades breaking que no afectan al bundle de producción. **Bloqueado/diferido** al mantenimiento dev-only.
+- Backend `uuid <11.1.1` (2 moderadas vía `exceljs`): el advisory GHSA-w5hq-g745-h8pq afecta a `v3/v5/v6` con `buf` provisto; `exceljs` usa v4 internamente, no explotable desde la API. El fix exige `exceljs@3.4.0` (mayor previa). **Bloqueado** con justificación.
+- Debounce en búsquedas de `Users`/`KnowledgeAdmin`: **no implementado** (cambio de comportamiento con riesgo para los tests existentes con timers; valor bajo). Pendiente solo documental.
