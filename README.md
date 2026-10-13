@@ -164,9 +164,13 @@ Lance siempre los tests con `npm test`. Si los arranca a mano con
 `node --test test/loquesea.test.js` **sin** el `--import`, los archivos que no
 usan `test/helpers.js` se conectan con la base de datos real.
 
-`npm test` recoge también las suites `mssql-*.test.js` (integración con SQL
-Server). Sin un SQL Server configurado esos archivos fallan; la suite dedicada es
-`npm run test:mssql`. Ver `docs/PENDIENTES_ENTREGA_OFICINA.md`.
+La suite por defecto (`npm test`) cubre el backend sobre SQLite temporal y **no**
+incluye las suites de integración contra SQL Server, que viven en
+`backend/test/mssql/` y se ejecutan aparte con `npm run test:mssql` contra una
+base aislada autorizada (requiere `.env.mssql-test`, ver
+`.env.mssql-test.example`). Sin ese entorno, esas suites quedan fuera de `npm test`,
+que por tanto termina sin falsos fallos. Última ejecución registrada:
+**859 pruebas, 0 fallos, 2 omitidas**. Ver `docs/ESTADO-ENTREGA.md`.
 
 ## Producción
 

@@ -225,3 +225,25 @@ son duplicados históricos: **no commitear**.)
 **Conclusión general:** el código y la documentación están **listos para revisión y
 subida a GitHub**. La certificación sobre SQL Server queda **PENDIENTE** de ejecutar
 la secuencia B→C→D→E en la instancia autorizada con respaldo verificado.
+
+---
+
+## 15. Actualización (2026-10-12)
+
+La `docs/ESTADO-ENTREGA.md` registra la fase siguiente. Cambios relevantes:
+
+- **SQL Grupo D:** corregido el falso positivo que abortaba la ejecución en
+  scratch: el guard comparaba `type_desc` contra `N'ROWS_FILEGROUPS'` y el valor
+  real es `ROWS_FILEGROUP` (singular). Cambiado en `apply-groupD-not-null*.sql`
+  y `diagnose-groupD-unique-blocker.sql`. La protección ante particionamiento /
+  filtro / compresión se conserva. Ejecución pendiente de autorización.
+- **Pruebas:** las suites de integración MSSQL se movieron a
+  `backend/test/mssql/`; `npm test` ya no las recoge y termina con
+  **859 pruebas, 0 fallos, 2 omitidas**; `npm run test:mssql` las ejecuta
+  (`test/mssql/*.test.js`). Frontend 1080/1080 y build OK (reconfirmados).
+- **Seguridad:** `.env.mssql-test.example` saneado (servidor/usuario reales
+  sustituidos por marcadores). Sin secretos versionados.
+- **Documentación:** agregadas `docs/INSTALACION.md`, `CONFIGURACION.md`,
+  `BASE-DE-DATOS.md`, `PRUEBAS.md`, `SEGURIDAD.md`, `ENTREGA-FINAL.md` y
+  `ESTADO-ENTREGA.md`; actualizados README, `ENTREGA-CHECKLIST.md`,
+  `ENTREGA-INFRAESTRUCTURA.md` y `docs/DEPLOY-MSSQL.md`.

@@ -66,16 +66,16 @@ npx vitest run
 npm run build                  # comprueba el bundle
 ```
 
-Última ejecución registrada (rama `trabajo-oficina-10oct`):
+Última ejecución registrada (rama `integracion-casa-oficina-11oct`):
 
-- Backend: **860 pruebas, 3 fallos**. Los tres son las suites `mssql-*.test.js`,
-  que el glob `test/*.test.js` recoge y que requieren un SQL Server real;
-  pendientes de validación MSSQL (ver `docs/PENDIENTES_ENTREGA_OFICINA.md`).
+- Backend: **859 pruebas, 0 fallos, 2 omitidas** con `npm test` (SQLite temporal).
+  Las suites de integración contra SQL Server viven en `backend/test/mssql/` y se
+  ejecutan aparte con `npm run test:mssql` contra la base aislada autorizada
+  `SIFHA_Tickets_M5_Integration_Test` (requiere `.env.mssql-test`); sin ese
+  entorno no forman parte de `npm test`.
 - Frontend: **1080 pruebas, 44 archivos, 0 fallos**; `npm run build` sin errores.
 
 Hay además 2 pruebas omitidas, condicionales a un entorno real (SMTP/adjuntos).
-Las suites MSSQL de integración se ejecutan aparte con `npm run test:mssql`
-(requiere `.env.mssql-test` y un SQL Server autorizado); no se ejecutaron aquí.
 Repita ambas suites antes de cualquier despliegue.
 
 ## 6. Variables de entorno (sin secretos)

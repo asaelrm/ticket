@@ -278,27 +278,27 @@ RESTORE LOG SIFHA_Tickets_PROD FROM DISK='...' WITH RECOVERY, STOPAT='2026-10-10
 ```bash
 cd backend && npm test
 ```
-El glob `test/*.test.js` recoge también las suites `mssql-*.test.js`, que sin un
-SQL Server configurado registran **3 fallos** (pendientes de validación MSSQL;
-ver `docs/PENDIENTES_ENTREGA_OFICINA.md`). Última ejecución registrada:
-**860 pruebas, 3 fallos**.
+El glob `test/*.test.js` cubre el backend sobre SQLite temporal y **no** incluye
+las suites de integración contra SQL Server, que viven en `backend/test/mssql/` y
+se ejecutan aparte con `npm run test:mssql`. Última ejecución registrada:
+**859 pruebas, 0 fallos, 2 omitidas**.
 
 ### Pruebas MSSQL (requiere base aislada)
 ```bash
 # 1. Configurar .env.mssql-test (ver .env.mssql-test.example)
-# 2. Base de pruebas DEBE llamarse *_test_*
+# 2. Base de pruebas DEBE llamarse exactamente SIFHA_Tickets_M5_Integration_Test
 cp .env.mssql-test.example .env.mssql-test
-# Editar con credenciales de base de pruebas
+# Editar con credenciales de base de pruebas (no versionar contraseñas reales)
 
 # 3. Ejecutar
 npm run test:mssql
 ```
 
-**Pruebas MSSQL incluidas:**
+**Pruebas MSSQL incluidas** (`backend/test/mssql/`):
 - `mssql-integration.test.js` — Auth, tickets, flujo, export
 - `mssql-reports-dashboard.test.js` — Dashboard, reportes, settings, notificaciones
 - `mssql-jobs.test.js` — Mantenimiento SLA, escalaciones, poda
-- Suites estáticas: dialect, schema, contract, startup (112 tests)
+- Suites estáticas: dialect, schema, contract, startup (se ejecutan en `npm test`)
 
 ---
 

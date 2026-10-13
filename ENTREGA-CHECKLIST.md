@@ -9,7 +9,7 @@ hallazgos de la revisión de oficina).
 
 | Suite | Comando | Resultado |
 | --- | --- | --- |
-| Backend | `cd backend; npm test` | 860 pruebas, 3 fallos pendientes de validación MSSQL (los recoge el glob `test/*.test.js`; ver `docs/PENDIENTES_ENTREGA_OFICINA.md`) |
+| Backend | `cd backend; npm test` | 859 pruebas, 0 fallos, 2 omitidas (SQLite temporal; las suites MSSQL viven en `test/mssql/` y salen con `npm run test:mssql`) |
 | Frontend | `docker exec -w /app/frontend ticket-dev-frontend npx vitest run` | 44 archivos, 1080 pass |
 | Build producción frontend | `npx vite build` (contenedor frontend) | OK |
 | Traducción SQLite→T-SQL | `node --test test/mssql-sql-translation.test.js` | 249 sentencias, 0 incompatibles |
@@ -54,9 +54,17 @@ hallazgos de la revisión de oficina).
 ## 5. Clasificación de pendientes
 
 - **P0** — Corregir las dos diferencias de `dbo.notifications` en M5 y validar.
+- **P0** — Ejecutar el Grupo D y la secuencia B→C→D→E en el entorno autorizado
+  (ver `docs/ESTADO-ENTREGA.md` §5).
 - **P1** — Prueba de instalación desde cero (ver §7) antes de la entrega.
+- **P1** — Ejecutar `npm run test:mssql` contra `SIFHA_Tickets_M5_Integration_Test`
+  para certificar las suites de `backend/test/mssql/`.
 - **P2** — Proxy de Vite parametrizable por entorno (hoy fijo a `http://backend:4000`).
 - **P2** — Desconexión automática del frontend ante sesión caducada en una petición ya abierta.
+
+> Las suites MSSQL de integración ya no se ejecutan dentro de `npm test`: viven
+> en `backend/test/mssql/` y salen con `npm run test:mssql`. Con este cambio
+> `npm test` termina sin falsos fallos (859 pruebas, 0 fallos).
 
 El detalle de cada pendiente, con su evidencia y alcance, está en
 `docs/PENDIENTES_ENTREGA_OFICINA.md`.
