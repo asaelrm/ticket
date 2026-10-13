@@ -347,3 +347,28 @@ describe('Restablecimiento de contraseña por administrador: token', () => {
     }
   });
 });
+
+describe('Endurecimiento de respuestas (CORS y health)', () => {
+  it('declara Vary: Origin para que ningún caché reutilice una respuesta CORS', async () => {
+    const c = createClient();
+    const res = await c.get('/api/health', { headers: { Origin: 'https://tickets.lan' } });
+    assert.equal(res.status, 200);
+    // Sin Vary, un proxy/CDN podría cachear la respuesta de un origen permitido
+    // y reservírsela a otro: la corrección añade la cabecera.
+    assert.match(String(res.headers.vary || ''), /(^|,\s*)Origin(\s*,|$)/i);
+  });
+
+  it('sin cabecera Origin no declara Vary: Origin', async () => {
+    const c = createClient();
+    const res = await c.get('/api/health');
+    assert.ok(!/(^|,\s*)Origin(\s*,|$)/i.test(String(res.headers.vary || '')));
+  });
+
+  it('/api/health no revela el entorno (NODE_ENV)', async () => {
+    const c = createClient();
+    const res = await c.get('/api/health');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.env, undefined, 'el entorno no debe exponerse en un endpoint anónimo');
+  });
+});

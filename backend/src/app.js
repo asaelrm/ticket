@@ -102,6 +102,11 @@ export function createApp(options = {}) {
 
   app.use((req, res, next) => {
     const origin = req.headers.origin;
+    // La respuesta depende del Origin de la petición (se refleja en
+    // Access-Control-Allow-Origin). Declararlo en `Vary` evita que un proxy/CDN
+    // cachee la respuesta de un origen y la reutilice para otro, concediendo CORS
+    // a quien no le corresponde.
+    if (origin) res.vary('Origin');
     if (origin && allowedOrigins.includes(origin)) {
       res.set('Access-Control-Allow-Origin', origin);
       res.set('Access-Control-Allow-Credentials', 'true');
@@ -129,7 +134,10 @@ export function createApp(options = {}) {
     })
   );
 
-  app.get('/api/health', (req, res) => res.json({ ok: true, env: config.env, time: new Date().toISOString() }));
+  // Chequeo de liveness/readiness. No revela el entorno (NODE_ENV) ni ninguna
+  // otra información de reconocimiento: antes devolvía `env`, que permitía a un
+  // atacante anónimo distinguir una instancia de producción de una de pruebas.
+  app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 
   app.use('/api', ensureCsrfCookie, csrfProtect, rateLimit({ windowMs: 60_000, max: 600 }));
   // wrapAsyncRouter: Express 4 ignora las promesas rechazadas de los
