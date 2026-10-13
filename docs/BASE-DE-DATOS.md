@@ -39,7 +39,7 @@ viven en `backend/scripts/migration/` y se **autoprotegen** (guarda de
 |-------|----------|--------|
 | B | Reconciliación de la base (`verify-after-groupB.sql`, verificación) | VALIDADO (no ejecutado en DEV) |
 | C | Backfill de la organización `CMUCE` y FK compuestas `same_org` (`backfill-organization-CMUCE.sql`, `fix-users-department-same-org.sql`) | VALIDADO (no ejecutado en DEV) |
-| D | `departments.organization_id` → `INT NOT NULL` (`apply-groupD-not-null.sql`) | Script corregido; ejecución PENDIENTE de autorización |
+| D | `departments.organization_id` → `INT NOT NULL` (`apply-groupD-not-null.sql`) | **CERTIFICADO en `SIFHA_GroupD_ScratchTest`** (2026-10-13, POST-D GO / FINAL GO); en `SIFHA_Tickets_DEV` NO ejecutado |
 | M5 | `notifications.organization_id` → NULL-able + `CK_notifications_ticket_requires_org` (`notifications-organization-nullable.sql`) | CUMPLIDO en `SIFHA_Tickets_M5_Validation` (verificado solo lectura) |
 | E | Verificación final (`verify-final-reconciliation.sql`) | PENDIENTE de ejecución |
 
@@ -59,6 +59,12 @@ viven en `backend/scripts/migration/` y se **autoprotegen** (guarda de
 - Los scripts de prueba para la base aislada `SIFHA_GroupD_ScratchTest` son
   `apply-groupD-not-null-scratch-test(-authorized).sql` y
   `verify-after-groupD-scratch-test.sql`.
+- **Fix de recreación de UNIQUE (`Msg 129 — FILLFACTOR=0`):** la recreación de
+  los UNIQUE emitía siempre `FILLFACTOR = <fill_factor>`; con `fill_factor = 0`
+  (default) SQL Server rechaza `FILLFACTOR = 0` y la transacción abortaba.
+  Corregido en los 3 scripts (`apply-groupD-not-null*.sql`) para emitir la
+  cláusula solo cuando `@d_fill BETWEEN 1 AND 100`; con 0 se omite (default del
+  servidor). Cambio mínimo: 1 línea por archivo.
 
 ## Reglas operativas
 

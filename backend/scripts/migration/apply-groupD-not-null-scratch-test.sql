@@ -553,7 +553,7 @@ BEGIN TRY
             SET @sql = N'ALTER TABLE dbo.departments ADD CONSTRAINT ' + QUOTENAME(@d_name)
                      + N' UNIQUE ' + CASE WHEN @d_type = N'CLUSTERED' THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END
                      + N' (' + @d_kcols + N') WITH (PAD_INDEX = ' + CASE WHEN @d_padded = 1 THEN N'ON' ELSE N'OFF' END
-                     + N', FILLFACTOR = ' + CONVERT(NVARCHAR(3), @d_fill)
+                     + CASE WHEN @d_fill BETWEEN 1 AND 100 THEN N', FILLFACTOR = ' + CONVERT(NVARCHAR(3), @d_fill) ELSE N'' END
                      + N', IGNORE_DUP_KEY = ' + CASE WHEN @d_ignore = 1 THEN N'ON' ELSE N'OFF' END
                      + N', ALLOW_ROW_LOCKS = ' + CASE WHEN @d_rowlocks = 1 THEN N'ON' ELSE N'OFF' END
                      + N', ALLOW_PAGE_LOCKS = ' + CASE WHEN @d_pagelocks = 1 THEN N'ON' ELSE N'OFF' END

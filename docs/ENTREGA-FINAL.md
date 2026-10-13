@@ -21,14 +21,14 @@ Documento de cierre para la entrega institucional. Complementa a
 | `npm test` (backend SQLite) | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
 | `npm run test:mssql` (integración MSSQL) | **37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` |
 | Frontend (vitest + build) | 1080/1080; build OK |
-| Migraciones Grupo D | Script corregido; **ejecución PENDIENTE de autorización** |
+| Migraciones Grupo D | **CERTIFICADO** en `SIFHA_GroupD_ScratchTest` (2026-10-13: POST-D GO / FINAL GO); `SIFHA_Tickets_DEV` **NO** migrada ni certificada |
 | Migraciones M5 | Objetivo **CUMPLIDO** en `SIFHA_Tickets_M5_Validation`; **certificación en `SIFHA_Tickets_DEV` pendiente** (secuencia B→C→D→E, cuenta privilegiada + respaldo) |
 | Documentación | Completa (README + `docs/`) |
 | Seguridad crítica | Sin hallazgos Altos |
 
-**Veredicto final: LISTO PARA ENTREGA DEL CÓDIGO**, con certificación en SQL
-Server y ejecución de migraciones **pendientes** de autorización/infraestructura
-(no bloquean el artefacto de código).
+**Veredicto final: LISTO PARA ENTREGA DEL CÓDIGO**, con la secuencia B→C→D→E en
+`SIFHA_Tickets_DEV` pendiente de autorización/infraestructura (no bloquea el
+artefacto de código; el Grupo D del scratch ya está certificado).
 
 ## 3. Qué se entregó en esta fase
 
@@ -48,12 +48,17 @@ Server y ejecución de migraciones **pendientes** de autorización/infraestructu
 6. **Certificación MSSQL**: `npm run test:mssql` **37/37** contra
    `SIFHA_Tickets_M5_Integration_Test`; aserciones alineadas al modelo
    multiempresa (claves globales solo SUPERADMIN; permisos anidados por rol).
+7. **Grupo D certificado en el scratch (2026-10-13)**: `GRUPO D: GO`,
+   `VERIFICADOR POST-D: GO` y `VERIFICADOR FINAL: GO` sobre
+   `SIFHA_GroupD_ScratchTest` ejecutado con cuenta privilegiada; incluye el fix
+   `FILLFACTOR=0` en `apply-groupD-not-null*.sql` y la evidencia documentada en
+   `docs/ESTADO-ENTREGA.md` §5.4.
 
 ## 4. Pendientes que requieren intervención del responsable
 
 | # | Pendiente | Prioridad |
 |---|-----------|-----------|
-| 1 | Ejecutar Grupo D sobre `SIFHA_GroupD_ScratchTest` (comandos en `docs/ESTADO-ENTREGA.md` §5) | P0 |
+| 1 | ~~Ejecutar Grupo D sobre `SIFHA_GroupD_ScratchTest`~~ **COMPLETADO** (2026-10-13: POST-D GO / FINAL GO; `docs/ESTADO-ENTREGA.md` §5.4) | P0 |
 | 2 | Secuencia B→C→D→E en `SIFHA_Tickets_DEV` con respaldo verificado | P0 |
 | 3 | Certificar **M5 en `SIFHA_Tickets_DEV`** (secuencia B→C→D→E) con respaldo verificado y cuenta privilegiada; en `M5_Validation` el objetivo está cumplido | P1 |
 | 4 | Re-ejecutar `npm run test:mssql` solo bajo nueva autorización (la suite escribe datos) | P1 |

@@ -1,10 +1,11 @@
 # Estado de entrega — SIFHA Ticket
 
-**Fecha:** 2026-10-12
+**Fecha:** 2026-10-13
 **Rama:** `integracion-casa-oficina-11oct`
-**Último commit publicado:** `03cc40a` (en `origin/integracion-casa-oficina-11oct`, 2026-10-12).
-**Commits locales pendientes de push:** `bf6b317` (aserciones MSSQL al contrato multiempresa) y el de esta actualización de documentación.
-**Alcance:** auditoría de entrega, corrección del bloqueo SQL del Grupo D,
+**Último commit publicado:** `a4ef5b9` (en `origin/integracion-casa-oficina-11oct`).
+**Commits locales pendientes de push:** el de esta actualización (fix `FILLFACTOR=0` del Grupo D + certificación del scratch).
+**Alcance:** auditoría de entrega, corrección del bloqueo SQL del Grupo D, fix
+`FILLFACTOR=0`, **certificación de Grupo D en el scratch (POST-D GO / FINAL GO)**,
 limpieza de la suite de pruebas, verificación de secretos y preparación de commits.
 
 ---
@@ -15,7 +16,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 |---|-------|-----------|--------|-----------|
 | 1 | Auditoría del repositorio (rama, módulos, pruebas, migraciones, docs) | P0 | COMPLETADO | Este documento |
 | 2 | Corregir falso positivo del guard UNIQUE del Grupo D (`ROWS_FILEGROUP`) | P0 | COMPLETADO | `backend/scripts/migration/apply-groupD-not-null*.sql`, `diagnose-groupD-unique-blocker.sql` |
-| 3 | Preparar comandos SQL del Grupo D para ejecución autorizada | P0 | PENDIENTE (BLOQUEADO) | Requiere ejecución sobre `SIFHA_GroupD_ScratchTest`; ver §5 |
+| 3 | Preparar comandos SQL del Grupo D para ejecución autorizada | P0 | COMPLETADO | Ejecutado sobre `SIFHA_GroupD_ScratchTest`; ver §5 |
 | 4 | Ejecutar `npm test` (backend SQLite) sin fallos | P1 | COMPLETADO | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
 | 5 | Ejecutar pruebas frontend + build de producción | P1 | COMPLETADO | 1080/1080; `vite build` OK |
 | 6 | Reorganizar suites MSSQL de integración (`test/mssql/`) | P1 | COMPLETADO | `backend/package.json`, `backend/test/mssql/` |
@@ -30,6 +31,8 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 | 15 | Comprobaciones de SOLO LECTURA contra SQL Server (`SIFHA_GroupD_ScratchTest`) | P0 | COMPLETADO | Conexión OK; inventario + verificador; ver §5 |
 | 16 | Ejecutar `npm run test:mssql` (integración MSSQL) | P1 | COMPLETADO | **37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test`; ver §3.2 |
 | 17 | Alinear aserciones MSSQL al contrato multiempresa M5 | P1 | COMPLETADO | Commit `bf6b317` |
+| 18 | Corregir `FILLFACTOR=0` al recrear los UNIQUE del Grupo D | P0 | COMPLETADO | `apply-groupD-not-null*.sql` (1 línea por archivo); ver §5.4 |
+| 19 | Certificar Grupo D en `SIFHA_GroupD_ScratchTest` (POST-D GO / FINAL GO) | P0 | COMPLETADO | 2026-10-13, verificadores con cuenta privilegiada; ver §5.4 |
 
 ## 2. Estado de módulos funcionales
 
@@ -112,7 +115,7 @@ dashboard, reportes, settings (contrato 403), notificaciones y usuarios.
 |-------|--------|---------|
 | B (reconciliación base) | VALIDADO (no ejecutado en DEV) | Verificadores solo lectura |
 | C (backfill CMUCE + FK compuestas) | VALIDADO (no ejecutado en DEV) | `backfill-organization-CMUCE.sql`, `fix-users-department-same-org.sql` |
-| D (departments.organization_id NOT NULL) | SCRIPT CORREGIDO, ejecución PENDIENTE | Scratch ya en estado post-C; ver §5 |
+| D (departments.organization_id NOT NULL) | **CERTIFICADO en `SIFHA_GroupD_ScratchTest`** (2026-10-13, POST-D GO / FINAL GO); **DEV NO ejecutado** | Script corregido (fix FILLFACTOR) en `apply-groupD-not-null*.sql`; ver §5.4 |
 | M5 (notifications nullable) | CUMPLIDO en `SIFHA_Tickets_M5_Validation`; **certificación en `SIFHA_Tickets_DEV` pendiente** | Columna `organization_id` INT NULL + `CK_notifications_ticket_requires_org` presentes y confiables; ver §5.3 |
 | Secuencia B→C→D→E en `SIFHA_Tickets_DEV` | NO EJECUTADA | Requiere ventana de mantenimiento + respaldo |
 
@@ -219,6 +222,38 @@ defecto de la instancia (`C:\Program Files\Microsoft SQL Server\MSSQL16.SIFHADEV
 **no** es posible con `sifha_ticket_dev` (exigen permiso `CREATE DATABASE`), así
 que la comprobación del archivo queda pendiente de una cuenta privilegiada.
 
+### 5.4 Certificación de Grupo D en el scratch (2026-10-13)
+
+**Fix `FILLFACTOR=0` (Msg 129).** Al recrear los UNIQUE del Grupo D, la cláusula
+`WITH (...)` emitía siempre `FILLFACTOR = <fill_factor>`; con `fill_factor = 0`
+(default) SQL Server rechaza `FILLFACTOR = 0` y la transacción abortaba. La
+primera ejecución autorizada falló en ese punto; el rollback automático dejó la
+base intacta (verificado solo lectura: `departments.organization_id` NULL-able,
+25 filas, 0 NULL, UNIQUE y FK restaurados sin duplicados). La corrección en los
+**3** scripts (`apply-groupD-not-null*.sql`, authorized/scratch/dev) es **mínima:
+1 línea por archivo**, y emite `FILLFACTOR` solo cuando `@d_fill BETWEEN 1 AND
+100` (con 0 se omite y se usa el default del servidor); no cambia valores ni
+otros atributos. Sintaxis validada sin DDL para los 2 UNIQUE reales (fill 0) y
+regresión `test/groupD-scratch-verifiers.test.js` + suites de migración en verde.
+
+**Resultado oficial (SSMS, cuenta con permisos administrativos, 13/10/2026):**
+
+- `SIFHA_GroupD_ScratchTest` — aplicación de Grupo D: **GRUPO D: GO** (COMMIT).
+- Verificador post-D: **`VERIFICADOR POST-D: GO`** — `departments.organization_id`
+  INT **NOT NULL**, 25 departamentos, 0 NULL.
+- Verificador final: **`VERIFICADOR FINAL: GO`** — reconciliación completa.
+
+Evidencia verificada: **24/24 tablas**, **97 registros**, 1 organización `CMUCE`,
+25 departamentos, `users.organization_id` NULL-able (canónico), **9/9**
+longitudes NVARCHAR correctas, **0** UQ/FK/índices faltantes (FK habilitadas y
+confiables), **0** registros huérfanos, **0** desviaciones de paridad canónica,
+usuario ADMIN y permisos conservados, respaldo previo verificado.
+
+> Alcance: **solo el scratch**. `SIFHA_Tickets_DEV` **NO** ha sido migrada ni
+> certificada (secuencia B→C→D→E pendiente: cuenta privilegiada, respaldo
+> verificado y ventana de mantenimiento). No se ejecutó DDL ni DML fuera del
+> scratch; no hubo push ni merge.
+
 ## 6. Seguridad
 
 - **0 hallazgos Altos.** Sin inyección SQL (parametrización uniforme y listas
@@ -265,17 +300,18 @@ documentación. Los artefactos de diagnóstico de la raíz (`inventario-grupoD.t
 
 ## 8. Plan de commits
 
-Ejecutado hasta `03cc40a` (push 2026-10-12: `9f64117..5c5a9ea..03cc40a`). Quedan
-2 commits locales pendientes de publicación: `bf6b317` (pruebas MSSQL) y el de
-esta documentación. Comando de publicación (cuando el dueño autorice):
-`git push origin integracion-casa-oficina-11oct`.
+Ejecutado hasta `a4ef5b9` (publicado en `origin/integracion-casa-oficina-11oct`,
+2026-10-13). Queda **1 commit local pendiente de publicación**: el de esta
+actualización (fix `FILLFACTOR=0` en `apply-groupD-not-null*.sql` + certificación
+de Grupo D en el scratch + documentación). Comando de publicación (cuando el
+dueño autorice): `git push origin integracion-casa-oficina-11oct`.
 
 ## 9. Bloqueos que requieren intervención
 
-- **P0** — Aplicar el Grupo D contra `SIFHA_GroupD_ScratchTest` (§5): el scratch ya
-  está post-C, pero `sifha_ticket_dev` **no** tiene `ALTER`, así que se requiere el
-  login `SIFHA_GroupD_ScratchTestRunner` (u otra cuenta con `ALTER ON SCHEMA::dbo`)
-  y respaldo previo.
+- **P0 — COMPLETADO (2026-10-13):** Grupo D aplicado y certificado en
+  `SIFHA_GroupD_ScratchTest` (`GRUPO D: GO`, `VERIFICADOR POST-D: GO`,
+  `VERIFICADOR FINAL: GO`; §5.4). Ejecutado con cuenta privilegiada
+  (`ALTER ON SCHEMA::dbo`, respaldo previo).
 - **P0** — Secuencia B→C→D→E en `SIFHA_Tickets_DEV`: la cuenta de migración tiene
   `db_owner=0` en DEV, por lo que **no puede** ejecutar el DDL; requiere cuenta
   privilegiada, respaldo verificado y ventana de mantenimiento. El estado real de
