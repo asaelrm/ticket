@@ -4,7 +4,7 @@
 **Rama:** `integracion-casa-oficina-11oct`
 **Base publicada:** `origin/integracion-casa-oficina-11oct` = `a4ef5b9`
 **Punto de partida de esta auditoría:** `9ef0105` (árbol limpio)
-**Commits nuevos (locales, sin push):** `938feb0`, `62a934c`, `61de202`
+**Commits nuevos (locales, sin push):** `938feb0`, `62a934c`, `61de202`, `72ee460`
 **Referencias:** `docs/SEGURIDAD-AUDITORIA.md` (tercera ronda), `docs/ESTADO-ENTREGA.md` §10.5, `docs/INFORME-FINAL-DESARROLLO.md`.
 
 ---
@@ -16,7 +16,7 @@
 > residual **documentado y no bloqueante** (identificadores de infraestructura
 > interna y exposición histórica de credenciales demo).
 
-El push de los 10 commits locales **no se ha ejecutado** (requiere autorización
+El push de los commits locales **no se ha ejecutado** (requiere autorización
 expresa). Comando propuesto:
 
 ```bash
@@ -80,7 +80,8 @@ validaron con las suites completas y el build antes de fijarlos.
 
 ## Estado de publicación
 
-- **Commits locales pendientes:** 10 (incluidos los 3 nuevos de esta auditoría).
+- **Commits locales pendientes:** los de esta auditoría (`938feb0`, `62a934c`,
+  `61de202`, `72ee460`) más los 7 previos, todos por encima de `a4ef5b9`.
 - **Árbol de trabajo:** limpio.
 - **PR #1:** abierto (`integracion-casa-oficina-11oct` → `main`); `gh` no está
   instalado, por lo que actualizar cuerpo/checks requiere acción manual tras el
