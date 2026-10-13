@@ -144,6 +144,33 @@ Se recomienda, además, actualizar las dependencias (`npm audit fix`) y cerrar l
 ### Dependencias — decisión y bloqueos documentados
 
 - `react-router-dom` 6.28.1 → **7.18.4**: upgrade aplicado y verificado (1080/1080, build OK). Sin cambios de código: la API usada (BrowserRouter, MemoryRouter, useSearchParams, Routes/Route, Link) es compatible. Se mantiene.
-- `vite` 5.4.x / `vitest` 2.1.x / `esbuild` / `tinypool` (`npm audit`: 6 hallazgos, todos de la **toolchain de desarrollo**): los fixes exigen `vite@8`/`vitest@5`, upgrades breaking que no afectan al bundle de producción. **Bloqueado/diferido** al mantenimiento dev-only.
-- Backend `uuid <11.1.1` (2 moderadas vía `exceljs`): el advisory GHSA-w5hq-g745-h8pq afecta a `v3/v5/v6` con `buf` provisto; `exceljs` usa v4 internamente, no explotable desde la API. El fix exige `exceljs@3.4.0` (mayor previa). **Bloqueado** con justificación.
+- `vite` 5.4.x / `vitest` 2.1.x / `esbuild` / `tinypool` (`npm audit`: 6 hallazgos, 2 críticos, todos de la **toolchain de desarrollo**): **RESUELTO en la tercera ronda** actualizando a `vite@7.3.7` + `vitest@4.1.11` + `@vitejs/plugin-react@4.7.0` (`@tailwindcss/vite` 4.3.3 ya admite Vite 7). Verificado con 1080/1080 y `vite build` OK; `npm audit` pasa a **0 hallazgos**. No cambia el bundle de producción.
+- Backend `uuid <11.1.1` (2 moderadas vía `exceljs`): **RESUELTO en la tercera ronda** con un `overrides` de npm a `uuid@11.1.1`. `exceljs` solo usa `uuid.v4()` (sin `buf`), por lo que el cambio no altera su comportamiento; verificado con la suite backend completa. `npm audit` pasa a **0 hallazgos**.
 - Debounce en búsquedas de `Users`/`KnowledgeAdmin`: **no implementado** (cambio de comportamiento con riesgo para los tests existentes con timers; valor bajo). Pendiente solo documental.
+
+---
+
+## Tercera ronda (2026-10-13) — dependencias y endurecimiento de respuestas
+
+- **Tipo:** auditoría final de seguridad orientada a publicación (análisis estático + `npm audit` + pruebas locales). No se modificó ninguna base de datos ni se ejecutó nada contra SQL Server.
+- **Validación:** backend **888/890 (2 omitidas)**, frontend **1080/1080**, `vite build` OK, `npm audit` **0 hallazgos** en backend y frontend.
+
+### Resuelto
+
+1. **[Baja] Backend `uuid@8.3.2` (vía `exceljs`) → `uuid@11.1.1`.** Advisory GHSA-w5hq-g745-h8pq (CVSS 7.5) sobre `v3/v5/v6` con `buf` provisto. Se añadió `"overrides": { "uuid": "^11.1.1" }` en `backend/package.json`. `exceljs` únicamente invoca `uuid.v4()` (`node_modules/exceljs/lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js`), por lo que no hay cambio de comportamiento; lo confirma la suite backend (exportaciones incluidas).
+2. **[Crítica/Media] Frontend toolchain `vite` 5.4.x · `vitest` 2.1.x · `esbuild` · `tinypool` · `@vitest/mocker` · `vite-node`.** 6 hallazgos (`tinypool` crítico por RCE, `vitest` crítico por lectura/ejecución de ficheros con el UI server escuchando). Actualizado a `vite@^7.3.7`, `vitest@^4.1.11` y `@vitejs/plugin-react@^4.7.0`. Son dependencias de desarrollo (no entran en el bundle), pero la build y las 1080 pruebas siguen verdes. `npm audit` pasa a 0.
+3. **[Baja] CORS sin `Vary: Origin`** (`app.js`). Se añadió `res.vary('Origin')` cuando la petición trae `Origin`, para que un proxy/CDN no reutilice una respuesta CORS de un origen para otro. Regresión en `backend/test/security-regressions.test.js`.
+4. **[Baja] `/api/health` exponía `env`** (`app.js`). El endpoint anónimo devolvía `NODE_ENV`, útil para reconocimiento. Se eliminó el campo; la respuesta queda en `{ ok, time }`. Regresión en `security-regressions.test.js`.
+
+### Verificado sin cambios (postura correcta)
+
+- **Sin secretos ni credenciales reales versionadas:** `git grep` sobre todo el árbol (patrones `PASSWORD=`, `SECRET=`, `api_key`, claves AWS/GitHub/Azure, `BEGIN PRIVATE KEY`, `Authorization: Basic`) no devuelve valores reales; solo marcadores, credenciales de fixtures de test y variables de entorno sin asignar. Los `.example` están saneados.
+- **XSS frontend:** `lib/markdown.js` escapa el HTML antes de aplicar el subconjunto de Markdown y **nunca** genera `href/src/style/on*` desde el texto del usuario; `lib/print.js` escapa cada interpolación con `esc()`. No hay tokens de sesión en `localStorage` (sesión por cookie `httpOnly`); el token de reseteo usa `sessionStorage` por pestaña y se borra de la URL.
+- **Adjuntos:** `routes/files.js` exige sesión, `canViewTicket`, permiso `ticket.note` para notas internas, `attachmentPath` bloquea path traversal y los nombres se sanean al persistir (`fileType.persistUpload`), evitando inyección de cabeceras en `Content-Disposition`.
+- **Acciones administrativas y aislamiento multiempresa:** sin cambios; el canal `/api/organizations` sigue reservado a `SUPERADMIN` y las consultas filtran por `organization_id`.
+
+### Riesgo residual (no corregible sin romper el proyecto)
+
+- **Identificadores de infraestructura interna en el repositorio público:** `100.100.4.60` (IP de la red Tailscale), `TI-DESK-01\SIFHADEV` (host/instancia SQL) y el hostname interno `tickets.lan` aparecen en documentación y, sobre todo, en los **scripts de migración como guardas de identidad** (p. ej. `apply-groupD-not-null*.sql`, `backup-m5.sql`, `m5-preflight.js`). Son funcionales: pruebas de regresión exigen su presencia. Eliminarlos rompería la seguridad de las migraciones (evitan ejecutar sobre el servidor equivocado) y las suites. La IP `100.100.4.60` está en el rango CGNAT de Tailscale y **no es enrutable desde Internet**; aun así, se recomienda mantener el repositorio **privado** o aceptar su exposición como información de baja sensibilidad. No se reescribió historial ni se hizo force push (por restricción expresa).
+- **Exposición histórica de credenciales demo** (hallazgo 1, primera ronda): sigue presente en el historial publicado; el `.example` actual está saneado y las credenciales de la base de pruebas fueron regeneradas. Se recomienda rotarlas si el host fuera accesible, y decidir si se saneaba el historial antes de una publicación pública amplia.
+- **Duplicados de borrador versionados** (`backend/scripts/migration/reconcile-dev-draft-corregido (1).sql`, `…-corregido-v2.sql`): copias de trabajo del `.sql` de referencia. Se dejan intactos por la restricción de no descartar trabajo; se recomienda eliminarlos en una limpieza aparte.

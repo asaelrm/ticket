@@ -247,3 +247,19 @@ La `docs/ESTADO-ENTREGA.md` registra la fase siguiente. Cambios relevantes:
   `BASE-DE-DATOS.md`, `PRUEBAS.md`, `SEGURIDAD.md`, `ENTREGA-FINAL.md` y
   `ESTADO-ENTREGA.md`; actualizados README, `ENTREGA-CHECKLIST.md`,
   `ENTREGA-INFRAESTRUCTURA.md` y `docs/DEPLOY-MSSQL.md`.
+
+---
+
+## 16. Actualización (2026-10-13)
+
+Documento **histórico** (snapshot 2026-10-12). El estado vigente está en
+`docs/ESTADO-ENTREGA.md` e `docs/INFORME-FINAL-DESARROLLO.md`. Cambios posteriores
+que **resuelven** pendientes de §14:
+
+- **Integración MSSQL:** certificada **37/37** (`SIFHA_Tickets_M5_Integration_Test`);
+  ya no hay «3 fallos» pendientes.
+- **Seguridad:** `npm audit` a **0 hallazgos** (backend `uuid@11.1.1` por override;
+  frontend `vite@7.3.7`/`vitest@4.1.11`), más endurecimiento CORS (`Vary: Origin`)
+  y `/api/health`. Tercera ronda en `docs/SEGURIDAD-AUDITORIA.md`.
+- **Cifras backend:** suite vigente **890/888 (0 fallos, 2 omitidas)**.
+- **CI:** añadido `.github/workflows/ci.yml` (backend + frontend).

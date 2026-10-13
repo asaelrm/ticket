@@ -17,7 +17,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 | 1 | Auditoría del repositorio (rama, módulos, pruebas, migraciones, docs) | P0 | COMPLETADO | Este documento |
 | 2 | Corregir falso positivo del guard UNIQUE del Grupo D (`ROWS_FILEGROUP`) | P0 | COMPLETADO | `backend/scripts/migration/apply-groupD-not-null*.sql`, `diagnose-groupD-unique-blocker.sql` |
 | 3 | Preparar comandos SQL del Grupo D para ejecución autorizada | P0 | COMPLETADO | Ejecutado sobre `SIFHA_GroupD_ScratchTest`; ver §5 |
-| 4 | Ejecutar `npm test` (backend SQLite) sin fallos | P1 | COMPLETADO | 887 pruebas, 885 pass, 0 fallos, 2 omitidas |
+| 4 | Ejecutar `npm test` (backend SQLite) sin fallos | P1 | COMPLETADO | 890 pruebas, 888 pass, 0 fallos, 2 omitidas |
 | 5 | Ejecutar pruebas frontend + build de producción | P1 | COMPLETADO | 1080/1080; `vite build` OK |
 | 6 | Reorganizar suites MSSQL de integración (`test/mssql/`) | P1 | COMPLETADO | `backend/package.json`, `backend/test/mssql/` |
 | 7 | Auditar secretos y `.env` versionados | P0 | COMPLETADO | `git ls-files`; `.gitignore` cubre `.env*`; `.env.mssql-test.example` saneado |
@@ -53,7 +53,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 
 | Suite | Comando | Resultado |
 |-------|---------|-----------|
-| Backend (SQLite temporal) | `npm test` | **887 pruebas, 885 pass, 0 fail, 2 skip** (~130 s) |
+| Backend (SQLite temporal) | `npm test` | **890 pruebas, 888 pass, 0 fail, 2 skip** (~130 s) |
 | Integración MSSQL (requiere entorno) | `npm run test:mssql` | **EJECUTADA: 37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` (ver §3.2) |
 | Frontend | `npx vitest run` | **44 archivos, 1080/1080 pass** (0 fail, ~93 s) |
 | Build producción frontend | `npm run build` | **OK** (`dist/` generado) |
@@ -278,18 +278,19 @@ usuario ADMIN y permisos conservados, respaldo previo verificado.
   (p. ej. sin `account`) devolvía 500; ahora devuelve **400 `Datos inválidos`**
   con `fields` (`backend/src/routes/auth.js`; regresión en
   `test/security-regressions.test.js`).
-- **Dependencias (`npm audit`, 2026-10-12, sin `--force`):**
-  - Backend producción: **2 moderadas** (`uuid` vía `exceljs`). Arreglo
-    propuesto (`exceljs@3.4.0`) es *breaking*; **pendiente de decisión**.
-  - Frontend producción: ~~1 moderada (`react-router`/`react-router-dom`,
-    redirección abierta). Arreglo propuesto (`react-router-dom@7`) es salto de
-    mayor (6→7); **pendiente de decisión**~~ **RESUELTA** en el commit
-    `c33367b`: `react-router-dom` 6.28.1 → **7.18.4**, verificado con 1080/1080
-    y `vite build` OK.
-  - Frontend solo-*dev*: `vite` (alta) y `tinypool`/`vitest` (críticas) en la
-    cadena de pruebas/compilación; **no** afectan al bundle distribuido. Arreglo
-    `vitest@5` es *breaking*; **pendiente de decisión**.
-  - Ninguna vulnerabilidad crítica o alta afecta al artefacto de producción.
+- **Dependencias (`npm audit`, 2026-10-13, sin `--force`):** **0 hallazgos** en
+  backend y frontend.
+  - Backend producción: ~~2 moderadas (`uuid` vía `exceljs`)~~ **RESUELTA**
+    (tercera ronda) con `overrides: { "uuid": "^11.1.1" }`; `exceljs` solo usa
+    `uuid.v4()` (sin `buf`), verificado con la suite backend completa.
+  - Frontend producción: **RESUELTA** en `c33367b` (`react-router-dom` 6.28.1 →
+    **7.18.4**, verificado con 1080/1080 y `vite build` OK).
+  - Frontend solo-*dev* (`vite`/`vitest`/`tinypool`/`esbuild`): ~~críticas y
+    altas en la cadena de pruebas/compilación~~ **RESUELTA** (tercera ronda) con
+    `vite@7.3.7` + `vitest@4.1.11` + `@vitejs/plugin-react@4.7.0`; 1080/1080 y
+    build OK; no afecta al bundle distribuido.
+  - Ninguna vulnerabilidad afecta ya al artefacto de producción ni a la
+    toolchain de desarrollo.
 
 ## 7. Cambios pendientes de revisar (origen)
 
@@ -331,8 +332,11 @@ Comando de publicación (cuando el dueño autorice):
 - **P1** — M5: objetivo cumplido (§5.3) y respaldo
   `SIFHA_Tickets_M5_Validation_FULL_20261012_221132.bak` creado (2026-10-12);
   su verificación queda pendiente de una cuenta con `CREATE DATABASE`.
-- **P1** — Decidir los arreglos *breaking* de `npm audit` (exceljs, react-router,
-  vitest). No se aplican sin autorización.
+- **P1** — ~~Decidir los arreglos *breaking* de `npm audit` (exceljs, react-router,
+  vitest). No se aplican sin autorización.~~ **RESUELTO (2026-10-13):** `npm audit`
+  a **0 hallazgos** en backend y frontend (§10.5). `react-router-dom@7` en
+  `c33367b`; `uuid@11.1.1` (override) y `vite@7.3.7`/`vitest@4.1.11` en la
+  tercera ronda, verificados con las suites y la build.
 - **P2** — ~~Publicar los commits locales~~ **completado** (`9f64117..5c5a9ea`).
 - **P2** — Añadir ESLint/`lint` (recomendación no bloqueante).
 
@@ -374,7 +378,7 @@ migraciones DEV en modo solo lectura y revisión del PR #1.
 
 ### 10.3 Documentación
 
-- Cifras de pruebas alineadas a la ejecución vigente (**887/885/0/2** backend;
+- Cifras de pruebas alineadas a la ejecución vigente (**890/888/0/2** backend;
   1080/1080 frontend) en README, `ENTREGA-CHECKLIST`, `ENTREGA-INFRAESTRUCTURA`,
   `docs/DEPLOY-MSSQL`, `docs/ENTREGA-FINAL` y `docs/PRUEBAS`.
 - `docs/PRUEBAS.md` deja de marcar la integración MSSQL como pendiente (está
@@ -394,11 +398,23 @@ migraciones DEV en modo solo lectura y revisión del PR #1.
 - Sin secretos añadidos; no debe mergearse hasta cerrar los pendientes de
   certificación DEV/M5 (ventana autorizada).
 
+### 10.5 Tercera ronda de seguridad (dependencias y endurecimiento)
+
+- **`npm audit`: 0 hallazgos** en backend y frontend (antes: 2 moderadas
+  backend, 6 dev frontend con 2 críticas).
+- Backend: `overrides` a `uuid@11.1.1` (vía `exceljs`), verificado con la suite.
+- Frontend: `vite@7.3.7`, `vitest@4.1.11`, `@vitejs/plugin-react@4.7.0`
+  (toolchain dev); 1080/1080 y build OK.
+- Endurecimiento: `Vary: Origin` en CORS y `/api/health` deja de exponer
+  `NODE_ENV`; 3 regresiones nuevas en `security-regressions.test.js`.
+- Sin secretos reales versionados; se documentan como riesgo residual los
+  identificadores de infraestructura interna (funcionales a las guardas de
+  migración) y la exposición histórica de credenciales demo. Detalle en
+  `docs/SEGURIDAD-AUDITORIA.md` (tercera ronda).
+
 ## 11. Pendientes reales tras esta sesión
 
 - **Requiere autorización (no ejecutable aquí):** secuencia B→C→D→E y M5 en
   `SIFHA_Tickets_DEV` (cuenta privilegiada + respaldo verificado + ventana);
   verificación `VERIFYONLY` del respaldo M5; `push` de los commits locales.
-- **Requiere decisión:** arreglos *breaking* de `npm audit` (backend `exceljs`
-  → `uuid`; frontend dev-only `vite`/`vitest`).
 - **Mejora no bloqueante:** añadir ESLint/script `lint`.

@@ -43,15 +43,17 @@ ejecutaron migraciones ni pruebas MSSQL con escritura. No hubo push ni merge.
 
 | Suite | Comando | Resultado |
 |-------|---------|-----------|
-| Backend (SQLite temporal) | `npm test` (en `backend/`) | **887 pruebas, 885 pass, 0 fail, 2 omitidas** (~130 s) |
+| Backend (SQLite temporal) | `npm test` (en `backend/`) | **890 pruebas, 888 pass, 0 fail, 2 omitidas** (~130 s) |
 | Regresión nueva DEV | `node --test test/dev-readonly-scripts.test.js` | **13/13 pass** |
 | Frontend | `npx vitest run` (en `frontend/`) | **44 archivos, 1080/1080 pass** (~132 s) |
 | Build de producción | `npm run build` (en `frontend/`) | **OK** (`dist/` generado) |
+| `npm audit` backend/frontend | `npm audit` | **0 hallazgos** (antes 2 / 6) |
 | Integración MSSQL | `npm run test:mssql` | **NO ejecutada** (requiere autorización y escribe) |
 
 El commit de seguridad `279f756` anunciaba 874/872 (con 9 regresiones nuevas);
-esta sesión añade 13 pruebas más (`test/dev-readonly-scripts.test.js`), de modo
-que la suite vigente queda en **887/885**.
+la continuación añade 13 pruebas (`test/dev-readonly-scripts.test.js`) y la
+tercera ronda de seguridad 3 más (`security-regressions.test.js`), de modo que
+la suite vigente queda en **890/888**.
 
 ## 4. Cambios y commits locales de esta sesión
 
@@ -69,6 +71,13 @@ que la suite vigente queda en **887/885**.
    scripts DEV de solo lectura.
 4. **Documentación** — cifras y pendientes alineados; sección de continuación en
    `docs/ESTADO-ENTREGA.md`; este informe.
+5. **Dependencias (tercera ronda)** — `npm audit` a **0 hallazgos**: backend con
+   `overrides` a `uuid@11.1.1` (vía `exceljs`, que solo usa `uuid.v4()`); frontend
+   con `vite@7.3.7` + `vitest@4.1.11` + `@vitejs/plugin-react@4.7.0` (toolchain
+   dev), verificado con 1080/1080 y build OK.
+6. **Endurecimiento de respuestas (tercera ronda)** — `res.vary('Origin')` en el
+   middleware CORS y `/api/health` deja de exponer `NODE_ENV`; 3 regresiones
+   nuevas en `backend/test/security-regressions.test.js`.
 
 ## 5. Problemas reales corregidos
 
@@ -77,9 +86,13 @@ que la suite vigente queda en **887/885**.
   `*/` cerraba el comentario `/* ... */` antes de tiempo y el resto del
   encabezado se habría interpretado como SQL inválido. Lo detectó la regresión
   estática nueva. Corregido a `(sys.*), funciones`.
+- **2 vulnerabilidades moderadas en backend** (`uuid` transitivo) y **6 en la
+  toolchain de frontend** (2 críticas): resueltas sin `--force` (ver §4).
+- **CORS sin `Vary: Origin`** y **`/api/health` exponiendo `NODE_ENV`**:
+  corregidos con regresión estática/HTTP.
 - **Cifras de pruebas obsoletas** (865/863) en README, `ENTREGA-CHECKLIST`,
   `ENTREGA-INFRAESTRUCTURA`, `docs/DEPLOY-MSSQL`, `docs/ENTREGA-FINAL` y
-  `docs/PRUEBAS`, ahora 887/885.
+  `docs/PRUEBAS`, ahora 890/888.
 - **Pendiente ya resuelto marcado como abierto:** el P2 «sesión caducada» del
   `ENTREGA-CHECKLIST` ya lo corrigió `c33367b`; la integración MSSQL figuraba
   como PENDIENTE en `docs/PRUEBAS.md` cuando está certificada 37/37.
@@ -103,8 +116,6 @@ que la suite vigente queda en **887/885**.
 - **Requieren autorización** (fuera del alcance local): `push` de los commits;
   secuencia B→C→D→E y M5 sobre `SIFHA_Tickets_DEV` con cuenta privilegiada,
   respaldo verificado y ventana; `VERIFYONLY` del respaldo M5.
-- **Requieren decisión:** arreglos *breaking* de `npm audit` (`exceljs` → `uuid`
-  en backend; `vite`/`vitest` dev-only en frontend).
 - **Mejora no bloqueante:** ESLint + script `lint`.
 
 ## 8. Restricciones respetadas
@@ -113,6 +124,8 @@ que la suite vigente queda en **887/885**.
   MSSQL con escritura; no se repitió el Grupo D ya certificado; no se descartó
   trabajo; no hubo push ni merge.
 - `npm test` siguió usando su base temporal aislada; el frontend no tocó datos.
+- No se usó `npm audit fix --force`; los saltos de versión mayor se validaron con
+  las suites completas y la build antes de fijarlos.
 
 **Conclusión:** el código y la documentación quedan listos para publicación. El
 CI y el preflight DEV de solo lectura cierran los huecos de proceso; la
