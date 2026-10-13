@@ -470,3 +470,44 @@ Tras la corrección, ejecutado con la cuenta Windows `cmucesd\lrosario`
 - Duplicados de borrador (`reconcile-dev-draft-corregido (1).sql`,
   `reconcile-dev-draft-corregido-v2.sql`): se mantienen intactos (decisión de la
   auditoría previa); limpieza recomendada como tarea aparte.
+
+## 13. Cierre de sesión documental (2026-10-13, segunda tanda)
+
+Sesión autónoma sobre el árbol limpio de §12. Sin push, sin merge, sin tocar SQL
+Server; no se repitió ninguna certificación cerrada.
+
+### 13.1 Documentación nueva
+
+- `docs/GUIA-MIGRACION-DEV.md` — guía operativa consolidada: inventario real de
+  scripts, orden/dependencias/GO-NO-GO (Fase 2), respaldo y recuperación SSMS
+  (Fase 3), guía administrativa paso a paso con M5 (Fase 4) y checklist de
+  entrega a infraestructura (Fase 5).
+- `docs/INFORME-CIERRE-DESARROLLO-2026-10-13.md` — informe final en español
+  (Fase 6).
+- `docs/PR-1-CUERPO-ACTUALIZADO.md` — cuerpo listo para pegar en el PR #1
+  (`gh` no está instalado; actualización manual).
+
+### 13.2 Hallazgo clave (migración dirigida por estado)
+
+El preflight (§12.3) confirma que `SIFHA_Tickets_DEV` ya responde con **24/24
+tablas** y `notifications.organization_id` **NULL-able**; `departments.organization_id`
+sigue NULL-able (**Grupo D pendiente**). Por tanto la secuencia **no se aplica a
+ciegas**: hay que ejecutar primero los cuatro verificadores (solo lectura) y
+**omitir** las fases ya `GO`. Regla: **verificador primero, DDL después**.
+
+### 13.3 M5 en DEV
+
+En DEV el objetivo M5 se comprueba por lectura (`notifications.organization_id`
+NULL-able + `CK_notifications_ticket_requires_org` activo y confiable). Los
+scripts M5 del repositorio están **sellados** a `SIFHA_Tickets_M5_Validation` y
+abortan en DEV: **no se ejecutan en `SIFHA_Tickets_DEV`**.
+
+### 13.4 Git y pendiente operativo
+
+- Árbol limpio; rama `integracion-casa-oficina-11oct` adelantada respecto a
+  `origin` por los commits locales de cierre (`5d58040`, `36b92b9`, `db1d629` y
+  los de esta tanda).
+- `git diff --check` sin incidencias; sin secretos reales versionados.
+- **Pendiente (requiere autorización):** `git push origin integracion-casa-oficina-11oct`
+  y actualizar el cuerpo del PR #1 con `docs/PR-1-CUERPO-ACTUALIZADO.md`.
+  No mergear hasta cerrar los pendientes de DEV/M5 en ventana autorizada.
