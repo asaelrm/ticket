@@ -42,9 +42,9 @@ artefacto de código; el Grupo D del scratch ya está certificado).
 4. **Documentación**: `docs/ESTADO-ENTREGA.md`, `INSTALACION.md`,
    `CONFIGURACION.md`, `BASE-DE-DATOS.md`, `PRUEBAS.md`, `SEGURIDAD.md`,
    `ENTREGA-FINAL.md`; README/checklists/cifras actualizados.
-5. **Commits publicados** hasta `03cc40a` el 2026-10-12; quedan **2 commits
-   locales pendientes de push** (`bf6b317` + documentación; ver
-   `docs/ESTADO-ENTREGA.md` §8).
+5. **Commits publicados** hasta `7723d87` (rama `integracion-casa-oficina-11oct`
+   sincronizada con `origin`, árbol limpio). CI de GitHub Actions en verde y
+   PR #1 limpio (ver `docs/ESTADO-ENTREGA.md` §12).
 6. **Certificación MSSQL**: `npm run test:mssql` **37/37** contra
    `SIFHA_Tickets_M5_Integration_Test`; aserciones alineadas al modelo
    multiempresa (claves globales solo SUPERADMIN; permisos anidados por rol).
@@ -63,7 +63,7 @@ artefacto de código; el Grupo D del scratch ya está certificado).
 | 3 | Certificar **M5 en `SIFHA_Tickets_DEV`** (secuencia B→C→D→E) con respaldo verificado y cuenta privilegiada; en `M5_Validation` el objetivo está cumplido | P1 |
 | 4 | Re-ejecutar `npm run test:mssql` solo bajo nueva autorización (la suite escribe datos) | P1 |
 | 5 | Prueba de instalación desde cero (`ENTREGA-CHECKLIST.md` §7) | P1 |
-| 6 | Push a GitHub (autorización) | — |
+| 6 | ~~Push a GitHub~~ **COMPLETADO** (`origin` en `7723d87`; CI en verde) | — |
 
 ## 5. Referencias
 

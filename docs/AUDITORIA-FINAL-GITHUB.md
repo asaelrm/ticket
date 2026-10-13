@@ -2,10 +2,14 @@
 
 **Fecha:** 2026-10-13
 **Rama:** `integracion-casa-oficina-11oct`
-**Base publicada:** `origin/integracion-casa-oficina-11oct` = `a4ef5b9`
+**Base publicada:** `origin/integracion-casa-oficina-11oct` = `7723d87`
 **Punto de partida de esta auditoría:** `9ef0105` (árbol limpio)
 **Commits nuevos (locales, sin push):** `938feb0`, `62a934c`, `61de202`, `72ee460`
 **Referencias:** `docs/SEGURIDAD-AUDITORIA.md` (tercera ronda), `docs/ESTADO-ENTREGA.md` §10.5, `docs/INFORME-FINAL-DESARROLLO.md`.
+
+> **Estado posterior (2026-10-13):** los commits de esta auditoría y los del CI,
+> preflight DEV y documentación **ya se publicaron** (`origin` en `7723d87`); el
+> CI de GitHub Actions quedó en **verde**. Ver `docs/ESTADO-ENTREGA.md` §12.
 
 ---
 
@@ -16,8 +20,9 @@
 > residual **documentado y no bloqueante** (identificadores de infraestructura
 > interna y exposición histórica de credenciales demo).
 
-El push de los commits locales **no se ha ejecutado** (requiere autorización
-expresa). Comando propuesto:
+El push de los commits locales **se ejecutó** (los commits de esta auditoría y la
+serie posterior quedaron publicados en `origin/integracion-casa-oficina-11oct`,
+cabeza `7723d87`; CI en verde):
 
 ```bash
 git push origin integracion-casa-oficina-11oct
@@ -80,13 +85,14 @@ validaron con las suites completas y el build antes de fijarlos.
 
 ## Estado de publicación
 
-- **Commits locales pendientes:** los de esta auditoría (`938feb0`, `62a934c`,
-  `61de202`, `72ee460`) más los 7 previos, todos por encima de `a4ef5b9`.
+- **Commits publicados:** los de esta auditoría (`938feb0`, `62a934c`,
+  `61de202`, `72ee460`) más los previos y la serie de CI/preflight/documentación,
+  todos publicados en `origin` (cabeza `7723d87`).
 - **Árbol de trabajo:** limpio.
-- **PR #1:** abierto (`integracion-casa-oficina-11oct` → `main`); `gh` no está
-  instalado, por lo que actualizar cuerpo/checks requiere acción manual tras el
-  push. El CI nuevo generará checks.
-- **Pendientes que requieren autorización:** push; secuencia B→C→D→E y M5 sobre
+- **PR #1:** abierto (`integracion-casa-oficina-11oct` → `main`);
+  `mergeable: true`, `mergeable_state: clean`; **checks en verde**. `gh` no está
+  instalado, por lo que actualizar el cuerpo (cifras) requiere acción manual.
+- **Pendientes que requieren autorización:** secuencia B→C→D→E y M5 sobre
   `SIFHA_Tickets_DEV`; `VERIFYONLY` del respaldo M5.
 
 ## Tras el push (acciones del responsable)

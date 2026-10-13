@@ -11,6 +11,26 @@
 > que **no se ejecutó** por restricción de alcance. No se marca como validado en
 > SQL Server nada que solo se haya revisado en código.
 
+---
+
+> **Actualización (2026-10-13) — documento histórico.** Esta revisión describe la
+> rama `trabajo-oficina-10oct` (`ec0ae32`). El trabajo se integró después en
+> `integracion-casa-oficina-11oct`, publicada en `7723d87`. Estado de sus
+> pendientes:
+>
+> - **§2 `IMG_PNG`/`TEST_ADMIN_USER` (P1): RESUELTO.** Las suites MSSQL viven en
+>   `backend/test/mssql/`; `npm test` ya no las recoge y termina **890/888, 0
+>   fallos, 2 omitidas**.
+> - **§3.4 documentación MSSQL (P2): corregido.**
+> - **§3.5 sesión caducada (P2): corregido** (`c33367b`); el proxy de Vite
+>   parametrizable sigue como mejora P2.
+> - **§6 tres fallos MSSQL: superados** (integración certificada **37/37**).
+> - **P0 M5 / secuencia B→C→D→E:** en `M5_Validation` cumplido; en
+>   `SIFHA_Tickets_DEV` sigue **pendiente de autorización**. La cuenta Windows
+>   `cmucesd\lrosario` es privilegiada en DEV (`db_owner=1`, preflight `GO`).
+>
+> Estado vigente en `docs/ESTADO-ENTREGA.md` §12.
+
 ## Alcance y restricciones de esta revisión
 
 No se modificaron `backend/src/routes/tickets.js` ni

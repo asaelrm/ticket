@@ -2,8 +2,8 @@
 
 **Fecha:** 2026-10-13
 **Rama:** `integracion-casa-oficina-11oct`
-**Último commit publicado:** `a4ef5b9` (en `origin/integracion-casa-oficina-11oct`).
-**Commits locales pendientes de push:** el de esta actualización (fix `FILLFACTOR=0` del Grupo D + certificación del scratch).
+**Último commit publicado:** `7723d87` (en `origin/integracion-casa-oficina-11oct`; rama sincronizada, árbol limpio).
+**Commits locales pendientes de push:** ninguno hasta `7723d87` (todo publicado). La sesión de finalización del 2026-10-13 añade commits locales nuevos (ver §12).
 **Alcance:** auditoría de entrega, corrección del bloqueo SQL del Grupo D, fix
 `FILLFACTOR=0`, **certificación de Grupo D en el scratch (POST-D GO / FINAL GO)**,
 limpieza de la suite de pruebas, verificación de secretos y preparación de commits.
@@ -25,7 +25,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 | 9 | Revisar seguridad básica (inyección SQL, attach, CORS, CSRF, HSTS) | P1 | COMPLETADO | Suite + `docs/SEGURIDAD-AUDITORIA.md` (0 Alta; 3 Medios de endurecimiento) |
 | 10 | Documentación de entrega | P2 | EN PROCESO | README, ENTREGA-CHECKLIST, ENTREGA-INFRAESTRUCTURA, DEPLOY-MSSQL actualizados; falta revisar el resto |
 | 11 | Commits locales descriptivos | P2 | COMPLETADO | 14 commits (`7c748c2`…`5c5a9ea`); ver §8 |
-| 12 | Push a GitHub | — | COMPLETADO | `origin/integracion-casa-oficina-11oct` en `5c5a9ea` |
+| 12 | Push a GitHub | — | COMPLETADO | `origin/integracion-casa-oficina-11oct` publicado hasta `7723d87` |
 | 13 | Corregir arranque y login en Docker (conflicto de capitalización de username) | P0 | COMPLETADO | `directorySync.js` (COLLATE NOCASE), `docker-compose.dev.yml` (healthcheck IPv4); login real verificado |
 | 14 | Corregir guarda de identidad de los verificadores scratch del Grupo D | P0 | COMPLETADO | `verify-after-groupD-scratch-test.sql`, `verify-final-reconciliation-scratch-test.sql`, `test/groupD-scratch-verifiers.test.js` |
 | 15 | Comprobaciones de SOLO LECTURA contra SQL Server (`SIFHA_GroupD_ScratchTest`) | P0 | COMPLETADO | Conexión OK; inventario + verificador; ver §5 |
@@ -292,26 +292,21 @@ usuario ADMIN y permisos conservados, respaldo previo verificado.
   - Ninguna vulnerabilidad afecta ya al artefacto de producción ni a la
     toolchain de desarrollo.
 
-## 7. Cambios pendientes de revisar (origen)
+## 7. Cambios publicados (origen)
 
-No se descartó nada. La serie `7c748c2`…`03cc40a` (14 commits) está publicada.
-En este ciclo se añadieron 2 commits locales pendientes de push: `bf6b317`
-(aserciones MSSQL al contrato multiempresa) y la actualización de esta
-documentación. Los artefactos de diagnóstico de la raíz (`inventario-grupoD.txt`,
-`resultado-verificacion-D.txt`, respaldos `*.bak`) **no** se versionan
-(gitignored).
+No se descartó nada. La serie `7c748c2`…`7723d87` está **publicada** en
+`origin/integracion-casa-oficina-11oct` (rama sincronizada, sin commits por
+delante ni por detrás). Los artefactos de diagnóstico de la raíz
+(`inventario-grupoD.txt`, `resultado-verificacion-D.txt`, respaldos `*.bak`)
+**no** se versionan (gitignored).
 
 ## 8. Plan de commits
 
-`origin/integracion-casa-oficina-11oct` está en `a4ef5b9`. Por delante quedan
-**commits locales pendientes de publicación** (no se hace push sin autorización):
-
-- `28f29a2` fix(migracion): corregir `FILLFACTOR=0` al recrear UNIQUE y certificar Grupo D en scratch.
-- `279f756` fix(seguridad): remediar hallazgos de auditoría en backend.
-- `c33367b` fix(frontend): búsqueda global, sesión caducada, auditoría y a11y.
-- `ab1815f` docs(seguridad): segunda ronda de auditoría y decisiones de dependencias.
-- Continuación (CI, scripts DEV solo lectura, documentación e informe): los
-  commits de esta sesión.
+`origin/integracion-casa-oficina-11oct` está en `7723d87` e incluye toda la serie
+(`28f29a2`, `279f756`, `c33367b`, `ab1815f`, CI `458cc4e`, preflight `599543a`,
+seguridad `938feb0`/`62a934c`/`61de202`, informes `72ee460`/`7723d87`). No quedan
+commits publicables pendientes de esta ronda; los de la sesión de finalización
+(§12) se agregan localmente y **no** se publican sin autorización.
 
 Comando de publicación (cuando el dueño autorice):
 `git push origin integracion-casa-oficina-11oct`.
@@ -357,9 +352,9 @@ migraciones DEV en modo solo lectura y revisión del PR #1.
 - Disparadores: `push` a `main`/`integracion-casa-oficina-11oct`,
   `pull_request` y `workflow_dispatch`, con `concurrency` para cancelar
   ejecuciones obsoletas y `permissions: contents: read`.
-- Pendiente real: el workflow no puede ejercitarse en GitHub hasta que el dueño
-  haga `push` (no se hace push sin autorización); la sintaxis y los comandos se
-  validaron localmente.
+- Verificado en GitHub tras la publicación (`7723d87`): **2 ejecuciones, ambas en
+  verde** — job **Backend (SQLite temporal)** y job **Frontend (vitest + build)**,
+  `conclusion: success`.
 
 ### 10.2 Migraciones DEV en modo solo lectura (nueva)
 
@@ -388,13 +383,13 @@ migraciones DEV en modo solo lectura y revisión del PR #1.
 ### 10.4 Revisión del PR #1
 
 - PR #1 «Integracion casa-oficina: certificacion MSSQL 37/37 y preparacion final
-  de entrega» (head `integracion-casa-oficina-11oct` → base `main`): **abierto**,
-  1 participante, **sin revisiones**, **sin checks** (no existía workflow; el CI
-  nuevo los generará al publicar).
-- El cuerpo del PR describe 4 archivos y 863 pass; el historial actual incluye
-  los 4 commits locales posteriores. `gh` **no está instalado** en este equipo,
-  por lo que actualizar cuerpo/estado del PR requiere acción manual del dueño
-  tras el push.
+  de entrega» (head `integracion-casa-oficina-11oct` `7723d87` → base `main`
+  `f7cebed`): **abierto**, `mergeable: true`, `mergeable_state: clean` (sin
+  conflictos), **sin revisiones**; el CI nuevo ya genera **checks en verde**.
+- Alcance real del PR: **56 commits**, 200 archivos (`+31916 / −3099`). El cuerpo
+  del PR sigue describiendo 4 archivos y 863 pass (desactualizado): `gh` **no
+  está instalado** en este equipo, por lo que actualizar cuerpo/estado requiere
+  acción manual del dueño.
 - Sin secretos añadidos; no debe mergearse hasta cerrar los pendientes de
   certificación DEV/M5 (ventana autorizada).
 
@@ -415,6 +410,63 @@ migraciones DEV en modo solo lectura y revisión del PR #1.
 ## 11. Pendientes reales tras esta sesión
 
 - **Requiere autorización (no ejecutable aquí):** secuencia B→C→D→E y M5 en
-  `SIFHA_Tickets_DEV` (cuenta privilegiada + respaldo verificado + ventana);
-  verificación `VERIFYONLY` del respaldo M5; `push` de los commits locales.
+  `SIFHA_Tickets_DEV` (respaldo verificado + ventana; ver §12 para el estado de
+  cuenta); verificación `VERIFYONLY` del respaldo M5; `push` de los commits
+  locales de esta sesión.
 - **Mejora no bloqueante:** añadir ESLint/script `lint`.
+
+## 12. Finalización integral (2026-10-13)
+
+Sesión autónoma de cierre sobre `7723d87` (árbol limpio, sincronizado). No se
+repitió ninguna certificación ya cerrada (Grupo D en scratch, integración MSSQL
+37/37). Sin push, sin merge, sin modificar SQL Server.
+
+### 12.1 Estado verificado
+
+- **Repositorio:** rama `integracion-casa-oficina-11oct` en `7723d87`; `origin`
+  sincronizado; 724 commits; `main` en `f7cebed`.
+- **CI (GitHub Actions):** run `38393456778` sobre `7723d87` =
+  **`conclusion: success`** (jobs *Backend (SQLite temporal)* y
+  *Frontend (vitest + build)* en verde).
+- **PR #1:** abierto, `mergeable: true`, `mergeable_state: clean`.
+- **Pruebas locales reconfirmadas:** backend **890/888 pass, 0 fallos,
+  2 omitidas**; frontend **44 archivos, 1080/1080**; `vite build` **OK**.
+- **Dependencias:** `npm audit` **0 hallazgos** en backend y frontend.
+- **Secretos:** solo `.env.example`/`.env.mssql-test.example` versionados;
+  `.gitignore` cubre `.env*`, certificados/claves, respaldos, `dist` y logs.
+
+### 12.2 Hallazgo corregido (defecto real en script de solo lectura)
+
+`backend/scripts/migration/diagnose-dev-account-readonly.sql` **no compilaba**:
+usaba las variables `@is_db_datareader`/`@is_db_datawriter` (líneas del `SELECT`
+final) sin declararlas; estaban declaradas como `@is_datareader`/`@is_datawriter`.
+Ejecutado contra `SIFHA_Tickets_DEV` fallaba con
+`Msg 137: Must declare the scalar variable "@is_db_datareader"`. **Corregido**
+(se renombraron las declaraciones a `@is_db_datareader`/`@is_db_datawriter`) y
+**revalidado**.
+
+### 12.3 Preflight de solo lectura contra `SIFHA_Tickets_DEV` (nuevo)
+
+Tras la corrección, ejecutado con la cuenta Windows `cmucesd\lrosario`
+(`sqlcmd -E`), resultado:
+
+- Identidad: base `SIFHA_Tickets_DEV`, instancia `SIFHADEV`, usuario base `dbo`.
+- Permisos: `db_owner=1`, `db_ddladmin=1`, `ALTER` en `SCHEMA::dbo=1`,
+  `VIEW DEFINITION=1` → **`puede_ejecutar_secuencia = GO`**.
+- Visibilidad: **24/24 tablas** (`VISIBILIDAD COMPLETA`).
+- `departments.organization_id` → `allows_null = 1` (**Grupo D pendiente en DEV**).
+- `notifications.organization_id` → `allows_null = 1` (ya NULL-able en DEV).
+- **No se modificó ningún dato** (el script es 100 % `SELECT`).
+
+> Nota: el bloqueo §9/P0 «la cuenta de migración tiene `db_owner=0` en DEV» se
+> refiere al login SQL de migración; la cuenta Windows `cmucesd\lrosario` **sí**
+> es privilegiada en DEV. Persisten como requisitos el respaldo verificado, la
+> ventana de mantenimiento y la autorización expresa.
+
+### 12.4 Limpieza menor
+
+- `README.md`: eliminado el comentario residual
+  `<!-- Prueba auto-push 09/20/2026 23:18:30 -->` (artefacto de automatización).
+- Duplicados de borrador (`reconcile-dev-draft-corregido (1).sql`,
+  `reconcile-dev-draft-corregido-v2.sql`): se mantienen intactos (decisión de la
+  auditoría previa); limpieza recomendada como tarea aparte.
