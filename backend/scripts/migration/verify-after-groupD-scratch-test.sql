@@ -8,9 +8,9 @@
  * ejecutarse con un login de solo lectura.
  *
  * Cuando ejecutarlo:
- *   DESPUES del grupo D (apply-groupD-not-null.sql) y ANTES de arrancar el
- *   backend contra DEV. Tambien vale como comprobacion previa (mostrara NO-GO
- *   en la seccion [4] si el grupo D aun no se ha aplicado).
+ *   DESPUES del grupo D sobre el scratch (apply-groupD-not-null-scratch-test-authorized.sql)
+ *   y ANTES de arrancar el backend contra DEV. Tambien vale como comprobacion
+ *   previa (mostrara NO-GO en la seccion [4] si el grupo D aun no se ha aplicado).
  *
  * Resultado esperado (post-D, pre-arranque):
  *   - 24/24 tablas presentes.
@@ -34,10 +34,10 @@ DECLARE @inst NVARCHAR(128) = LTRIM(RTRIM(CONVERT(NVARCHAR(128), SERVERPROPERTY(
 DECLARE @srv NVARCHAR(128) = LTRIM(RTRIM(CONVERT(NVARCHAR(128), SERVERPROPERTY('ServerName'))));
 
 SELECT @db AS base_actual, @srv AS servidor, @inst AS instancia,
-       CASE WHEN UPPER(@db) = N'SIFHA_TICKETS_DEV' AND UPPER(ISNULL(@inst, N'')) = N'SIFHADEV'
+       CASE WHEN UPPER(@db) = UPPER(N'SIFHA_GroupD_ScratchTest') AND UPPER(ISNULL(@inst, N'')) = N'SIFHADEV'
             THEN N'OK' ELSE N'NO AUTORIZADA' END AS contexto;
 
-IF UPPER(@db) <> N'SIFHA_TICKETS_DEV' OR UPPER(ISNULL(@inst, N'')) <> N'SIFHADEV'
+IF UPPER(@db) <> UPPER(N'SIFHA_GroupD_ScratchTest') OR UPPER(ISNULL(@inst, N'')) <> N'SIFHADEV'
 BEGIN
     RAISERROR(N'ABORTADO: este verificador solo aplica a SIFHA_GroupD_ScratchTest en SIFHADEV.', 16, 1);
     RETURN;

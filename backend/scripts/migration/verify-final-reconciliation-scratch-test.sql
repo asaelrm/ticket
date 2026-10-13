@@ -45,10 +45,10 @@ DECLARE @srv NVARCHAR(128) = LTRIM(RTRIM(CONVERT(NVARCHAR(128), SERVERPROPERTY('
 SELECT @db AS base_actual,
        @srv AS servidor,
        @inst AS instancia,
-       CASE WHEN UPPER(@db) = N'SIFHA_TICKETS_DEV' AND UPPER(ISNULL(@inst, N'')) = N'SIFHADEV'
+       CASE WHEN UPPER(@db) = UPPER(N'SIFHA_GroupD_ScratchTest') AND UPPER(ISNULL(@inst, N'')) = N'SIFHADEV'
             THEN N'OK' ELSE N'NO AUTORIZADA' END AS contexto;
 
-IF UPPER(@db) <> N'SIFHA_TICKETS_DEV' OR UPPER(ISNULL(@inst, N'')) <> N'SIFHADEV'
+IF UPPER(@db) <> UPPER(N'SIFHA_GroupD_ScratchTest') OR UPPER(ISNULL(@inst, N'')) <> N'SIFHADEV'
 BEGIN
     RAISERROR(N'ABORTADO: este verificador solo aplica a SIFHA_GroupD_ScratchTest en SIFHADEV.', 16, 1);
     RETURN;
