@@ -101,7 +101,7 @@ export async function sendMail({ to, subject, text = '', html = '', kind = 'gene
     const results = [];
 
     for (const recipient of recipients) {
-      const subjectSafe = String(subject ?? '').slice(0, 200);
+      const subjectSafe = String(subject ?? '').replace(/[\r\n]+/g, ' ').slice(0, 200);
       const row = {
         kind,
         to: recipient,

@@ -479,7 +479,13 @@ router.get('/export', async (req, res) => {
   const requested = String(req.query.sections || '').split(',').filter((section) => EXPORT_SECTIONS.has(section));
   const sections = new Set(requested.length ? requested : EXPORT_SECTIONS);
   const sep = ';';
-  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  // Neutraliza inyección de fórmulas: si la celda inicia con = + - @ o tab/CR,
+  // antepone una comilla simple para que la hoja de cálculo la trate como texto.
+  const csvSafe = (v) => {
+    const s = String(v ?? '');
+    return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  };
+  const esc = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`;
   const row = (...cells) => cells.map(esc).join(sep);
   const lines = [];
 

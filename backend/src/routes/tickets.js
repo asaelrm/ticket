@@ -730,12 +730,12 @@ router.get('/export', requirePermission('ticket.export'), asyncHandler(async (re
     'Resuelto', 'Cerrado', 'Fecha de cierre', 'Vencimiento SLA', 'Vencido',
   ];
   const sep = ';';
-  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  // Neutraliza inyección de fórmulas al abrir el XLSX (celdas que inician con = + - @).
-  const xlsxSafe = (v) => {
+  // Neutraliza inyección de fórmulas (celdas que inician con = + - @ o tab/CR).
+  const csvSafe = (v) => {
     const s = String(v ?? '');
-    return /^[=+\-@]/.test(s) ? `'${s}` : s;
+    return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
   };
+  const esc = (v) => `"${csvSafe(v).replace(/"/g, '""')}"`;
   const lines = [cols.map(esc).join(sep)];
   for (const r of rows) {
     lines.push([
@@ -772,9 +772,9 @@ router.get('/export', requirePermission('ticket.export'), asyncHandler(async (re
     sheet.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + cols.length)}1` };
     for (const r of rows) {
       sheet.addRow([
-        xlsxSafe(r.ticket_number), xlsxSafe(r.title), STATUS_LABEL[r.status] || r.status,
-        PRIORITY_LABEL[r.priority] || r.priority, xlsxSafe(r.category_name), xlsxSafe(r.department_name),
-        xlsxSafe(r.reporter_name), xlsxSafe(r.reporter_email || ''), xlsxSafe(r.assigned_name), xlsxSafe(r.team_name),
+        csvSafe(r.ticket_number), csvSafe(r.title), STATUS_LABEL[r.status] || r.status,
+        PRIORITY_LABEL[r.priority] || r.priority, csvSafe(r.category_name), csvSafe(r.department_name),
+        csvSafe(r.reporter_name), csvSafe(r.reporter_email || ''), csvSafe(r.assigned_name), csvSafe(r.team_name),
         r.created_at, r.updated_at || '', r.resolved_at || '', r.closed_at || '',
         r.resolved_at || r.closed_at || '', r.sla_due_at || '', r.is_overdue ? 'Sí' : 'No',
       ]);

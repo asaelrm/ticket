@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
 import express from 'express';
+import config from '../config.js';
 import runtime from '../db/runtime.js';
 import { nowIso } from '../utils/time.js';
 import { hashPassword } from '../utils/password.js';
+import { notifyPasswordReset } from '../utils/mailer.js';
 import { validate, rules, safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission, requireAnyPermission, publicUser } from '../middleware/auth.js';
 import { saveDirectorySnapshot } from '../directorySync.js';
@@ -32,6 +34,10 @@ function userWhere() {
   return { conditions, params };
 }
 
+function escapeLike(term) {
+  return String(term).replace(/[\\%_]/g, (m) => `\\${m}`);
+}
+
 async function buildListQuery(req) {
   const { conditions, params } = userWhere();
   const org = currentOrgId(req.user);
@@ -42,8 +48,8 @@ async function buildListQuery(req) {
     conditions.push('1 = 0');
   }
   if (req.query.search) {
-    conditions.push('(u.name LIKE ? OR u.last_name LIKE ? OR u.username LIKE ? OR u.email LIKE ?)');
-    const like = `%${req.query.search}%`;
+    conditions.push("(u.name LIKE ? ESCAPE '\\' OR u.last_name LIKE ? ESCAPE '\\' OR u.username LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')");
+    const like = `%${escapeLike(req.query.search)}%`;
     params.push(like, like, like, like);
   }
   const dept = parseIntSafe(req.query.department);
@@ -187,9 +193,10 @@ router.get(
 router.get('/:id/tickets', async (req, res) => {
   try {
     const id = parseIntSafe(req.params.id);
+    const org = currentOrgId(req.user);
     const target = await runtime.queryOne(
       'SELECT id, name, last_name FROM users WHERE id = ? AND organization_id = ?',
-      id, currentOrgId(req.user)
+      id, org
     );
     if (!target) return res.status(404).json({ error: 'Usuario no encontrado' });
 
@@ -206,11 +213,11 @@ router.get('/:id/tickets', async (req, res) => {
     const page = Math.max(1, parseIntSafe(req.query.page) || 1);
     const perPage = Math.min(100, Math.max(1, parseIntSafe(req.query.perPage) || 10));
 
-    const total = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t WHERE ${col} = ?`, id)).n;
+    const total = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM tickets t WHERE ${col} = ? AND t.organization_id = ?`, id, org)).n;
 
     const byStatusRows = await runtime.queryMany(
-      `SELECT t.status, COUNT(*) AS n FROM tickets t WHERE ${col} = ? GROUP BY t.status`,
-      id
+      `SELECT t.status, COUNT(*) AS n FROM tickets t WHERE ${col} = ? AND t.organization_id = ? GROUP BY t.status`,
+      id, org
     );
     const byStatus = {};
     for (const r of byStatusRows) byStatus[r.status] = r.n;
@@ -231,10 +238,10 @@ router.get('/:id/tickets', async (req, res) => {
          LEFT JOIN departments d ON d.id = t.department_id
          LEFT JOIN users au ON au.id = t.assigned_to_id
          LEFT JOIN teams te ON te.id = t.assigned_team_id
-         WHERE ${col} = ?
+         WHERE ${col} = ? AND t.organization_id = ?
          ORDER BY t.created_at DESC, t.id DESC
          LIMIT ? OFFSET ?`,
-      id, perPage, (page - 1) * perPage
+      id, org, perPage, (page - 1) * perPage
     );
 
     res.json({
@@ -445,12 +452,19 @@ router.post('/:id/reset-password', requirePermission('user.manage'), async (req,
 
     await destroyUserSessions(id);
 
-    res.json({
+    // El token se devuelve solo en desarrollo explícito (misma política que
+    // forgot-password). En entornos reales llega únicamente por correo.
+    notifyPasswordReset(existing, token, process.env.PUBLIC_URL || config.publicUrl);
+    const payload = {
       ok: true,
-      token,
       expires,
-      message: 'Token generado. Compártalo de forma segura con el usuario. Caduca en 24 horas.',
-    });
+      message: 'Se generó un token de restablecimiento. Caduca en 24 horas.',
+    };
+    if (config.env === 'development') {
+      payload.token = token;
+      payload.resetUrl = `/reset-password?token=${token}`;
+    }
+    return res.json(payload);
   } catch (err) {
     res.status(500).json({ error: 'Error interno' });
   }

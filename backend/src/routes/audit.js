@@ -23,8 +23,9 @@ router.get('/', async (req, res) => {
     if (org) params.push(org);
 
     if (req.query.search) {
-      const like = `%${String(req.query.search).toLowerCase()}%`;
-      conds.push(`(lower(th.description) LIKE ? OR lower(t.ticket_number) LIKE ? OR lower(t.title) LIKE ?)`);
+      const term = String(req.query.search).toLowerCase().replace(/[\\%_]/g, (m) => `\\${m}`);
+      const like = `%${term}%`;
+      conds.push("(lower(th.description) LIKE ? ESCAPE '\\' OR lower(t.ticket_number) LIKE ? ESCAPE '\\' OR lower(t.title) LIKE ? ESCAPE '\\')");
       params.push(like, like, like);
     }
     if (req.query.action) {
