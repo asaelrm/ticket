@@ -88,8 +88,8 @@ SELECT
  * ------------------------------------------------------------------------- */
 DECLARE @is_db_owner BIT   = ISNULL(IS_ROLEMEMBER('db_owner'), 0);
 DECLARE @is_db_ddladmin BIT = ISNULL(IS_ROLEMEMBER('db_ddladmin'), 0);
-DECLARE @is_datareader BIT  = ISNULL(IS_ROLEMEMBER('db_datareader'), 0);
-DECLARE @is_datawriter BIT  = ISNULL(IS_ROLEMEMBER('db_datawriter'), 0);
+DECLARE @is_db_datareader BIT  = ISNULL(IS_ROLEMEMBER('db_datareader'), 0);
+DECLARE @is_db_datawriter BIT  = ISNULL(IS_ROLEMEMBER('db_datawriter'), 0);
 DECLARE @can_alter_schema INT = ISNULL(HAS_PERMS_BY_NAME(N'dbo', N'SCHEMA', N'ALTER'), 0);
 DECLARE @can_view_definition INT = ISNULL(HAS_PERMS_BY_NAME(DB_NAME(), N'DATABASE', N'VIEW DEFINITION'), 0);
 DECLARE @can_ddl BIT = CASE
