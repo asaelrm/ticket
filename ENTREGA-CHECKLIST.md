@@ -45,15 +45,17 @@ hallazgos de la revisión de oficina).
 
 ## 4. Bloqueos conocidos (P0 antes de usar MSSQL real)
 
-- [ ] **M5**: `dbo.notifications.organization_id` sigue `NOT NULL` y falta
-      `CK_notifications_ticket_requires_org`. Script y procedimiento listos;
-      **pendiente de autorización** para ejecutar.
+- [x] **M5**: verificado en `SIFHA_Tickets_M5_Validation` (solo lectura):
+      `dbo.notifications.organization_id` es `INT NULL` y
+      `CK_notifications_ticket_requires_org` existe, habilitada y confiable;
+      0 notificaciones con organización NULL.
 - [ ] `MSSQL_RUNTIME=true` **no** debe activarse hasta que el diagnóstico M5
       termine con código 0 y exista autorización explícita.
 
 ## 5. Clasificación de pendientes
 
-- **P0** — Corregir las dos diferencias de `dbo.notifications` en M5 y validar.
+- **P0** — ~~Corregir las dos diferencias de `dbo.notifications` en M5~~ **verificado**
+  en `SIFHA_Tickets_M5_Validation`; queda solo el respaldo opcional (`backup-m5.sql`).
 - **P0** — Ejecutar el Grupo D y la secuencia B→C→D→E en el entorno autorizado
   (ver `docs/ESTADO-ENTREGA.md` §5).
 - **P1** — Prueba de instalación desde cero (ver §7) antes de la entrega.

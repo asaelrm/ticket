@@ -21,7 +21,7 @@ Documento de cierre para la entrega institucional. Complementa a
 | `npm test` (backend SQLite) | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
 | Frontend (vitest + build) | 1080/1080; build OK |
 | Migraciones Grupo D | Script corregido; **ejecución PENDIENTE de autorización** |
-| Migraciones M5 | **PENDIENTE** de autorización |
+| Migraciones M5 | **CUMPLIDO** en `SIFHA_Tickets_M5_Validation` (columna `NULL` + `CK_notifications_ticket_requires_org` presentes) |
 | Documentación | Completa (README + `docs/`) |
 | Seguridad crítica | Sin hallazgos Altos |
 
@@ -50,7 +50,7 @@ Server y ejecución de migraciones **pendientes** de autorización/infraestructu
 |---|-----------|-----------|
 | 1 | Ejecutar Grupo D sobre `SIFHA_GroupD_ScratchTest` (comandos en `docs/ESTADO-ENTREGA.md` §5) | P0 |
 | 2 | Secuencia B→C→D→E en `SIFHA_Tickets_DEV` con respaldo verificado | P0 |
-| 3 | Cerrar M5 (`notifications-organization-nullable.sql`) | P0 |
+| 3 | M5 ya cumplido en `SIFHA_Tickets_M5_Validation`; respaldo opcional con `backup-m5.sql` | P1 |
 | 4 | Certificar `npm run test:mssql` frente a `SIFHA_Tickets_M5_Integration_Test` | P1 |
 | 5 | Prueba de instalación desde cero (`ENTREGA-CHECKLIST.md` §7) | P1 |
 | 6 | Push a GitHub (autorización) | — |

@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-10-12
 **Rama:** `integracion-casa-oficina-11oct`
-**Último commit rastreado:** `e709a68 chore: ignorar artefactos de diagnostico del grupo D` (7 commits locales por delante de `9f64117`, sin push)
+**Último commit rastreado:** `cea3488` (13 commits locales por delante de `9f64117`, sin push). El árbol de trabajo está limpio: las correcciones de runtime/login (`directorySync.js`), la validación 400 de `auth.js`, las guardas de los verificadores scratch y los `package-lock` de `npm audit fix` ya están commiteadas.
 **Alcance:** auditoría de entrega, corrección del bloqueo SQL del Grupo D,
 limpieza de la suite de pruebas, verificación de secretos y preparación de commits.
 
@@ -79,8 +79,8 @@ en Alpine fallaba): ambos contenedores quedan `healthy`.
 |-------|--------|---------|
 | B (reconciliación base) | VALIDADO (no ejecutado en DEV) | Verificadores solo lectura |
 | C (backfill CMUCE + FK compuestas) | VALIDADO (no ejecutado en DEV) | `backfill-organization-CMUCE.sql`, `fix-users-department-same-org.sql` |
-| D (departments.organization_id NOT NULL) | SCRIPT CORREGIDO, ejecución PENDIENTE | Ver §5 |
-| M5 (notifications nullable) | PENDIENTE de autorización | `notifications-organization-nullable.sql` |
+| D (departments.organization_id NOT NULL) | SCRIPT CORREGIDO, ejecución PENDIENTE | Scratch ya en estado post-C; ver §5 |
+| M5 (notifications nullable) | CUMPLIDO en `SIFHA_Tickets_M5_Validation` | Columna `organization_id` INT NULL + `CK_notifications_ticket_requires_org` presentes y confiables; ver §5.3 |
 | Secuencia B→C→D→E en `SIFHA_Tickets_DEV` | NO EJECUTADA | Requiere ventana de mantenimiento + respaldo |
 
 ### 5. Grupo D — diagnóstico y corrección del bloqueo SQL
@@ -138,24 +138,45 @@ riesgo de datos). **Corregido**: la guarda ahora exige
 Ejecutadas con la cuenta de migración existente (`sqlcmd`, autenticación SQL,
 `-C`), **sin DDL y sin modificar datos**:
 
-- Conexión verificada: `TI-DESK-01\SIFHADEV`, `SIFHA_GroupD_ScratchTest` ONLINE.
+- Conexión verificada: `TI-DESK-01\SIFHADEV`,
   `TcpTestSucceeded 100.100.4.60:1433 = True`.
-- Bases presentes: `SIFHA_Tickets_DEV` (ONLINE, **6 tablas** legacy),
-  `SIFHA_GroupD_ScratchTest` (ONLINE, **6 tablas**, creada hoy),
-  `SIFHA_Tickets_M5_Validation` (**24 tablas**), `SIFHA_Tickets_M5_Integration_Test`
-  (la cuenta de migración no tiene acceso).
-- Inventario del scratch: 6 tablas / 96 filas; `departments.organization_id`
-  aún **NULL-able**; **no** existen `organizations` ni CMUCE.
-- `verify-after-groupD-scratch-test.sql` → **NO-GO** (coherente con pre-D).
+- **Visibilidad de metadatos (hallazgo clave):** con `sifha_ticket_dev`
+  `sys.tables` solo devuelve **6 tablas** porque esa cuenta tiene GRANT a nivel de
+  objeto únicamente sobre `departments`, `permissions`, `role_permissions`,
+  `roles`, `sessions` y `users`. **No es la estructura real.** La lectura con el
+  login `SIFHA_GroupD_ScratchTestRunner` (VIEW DEFINITION + `ALTER ON SCHEMA::dbo`)
+  muestra el inventario verdadero.
+- `SIFHA_GroupD_ScratchTest`: recreado desde el respaldo
+  `SIFHA_Tickets_DEV_PreGrupoD_20261012.bak` (estado **post-C**): **24 tablas**,
+  **97 filas**, organización `CMUCE` presente y 25 departamentos dentro de ella.
+  `departments.organization_id` sigue **NULL-able** (D aún no aplicado); las FK
+  compuestas `FK_users_department_same_org` y `FK_tickets_department_same_org`
+  están presentes.
+- `SIFHA_Tickets_M5_Validation`: **24 tablas** y datos de validación (ver §5.3).
+- `SIFHA_Tickets_M5_Integration_Test`: la cuenta de migración **no** tiene acceso
+  (`Login failed` / `Cannot open database`).
+- `SIFHA_Tickets_DEV`: con `sifha_ticket_dev` también devuelve 6 tablas por el
+  artefacto de visibilidad; su estado real **no es verificable** con esta cuenta.
 
-**Hallazgo (bloqueante para el flujo §5):** las precondiciones de
-`apply-groupD-not-null-scratch-test-authorized.sql` exigen un estado **post-C**
-(24 tablas, 97 filas, CMUCE única y 25 departamentos dentro de ella). El scratch
-actual está en estado **legacy** (6 tablas, sin CMUCE), por lo que §5 tal cual no
-puede alcanzar GO: antes hay que reconciliar el scratch (B→C) o recrearlo desde
-un respaldo post-C. Recomendación para el operador: confirmar el origen del
-backup de `prepare-groupD-scratch-test.sql` y, si procede, incluir la secuencia
-B→C sobre el scratch antes de D.
+**Corrección respecto a la lectura previa:** la afirmación «scratch/DEV en estado
+legacy de 6 tablas» era el artefacto de visibilidad, no la estructura real. El
+scratch ya está **post-C**, de modo que las precondiciones de
+`apply-groupD-not-null-scratch-test-authorized.sql` (24 tablas, 97 filas, CMUCE
+única, 25 departamentos, 0 NULL en `departments.organization_id`) sí pueden
+cumplirse y §5 puede alcanzar GO bajo una cuenta con `ALTER ON SCHEMA::dbo`.
+
+### 5.3 Estado M5 en `SIFHA_Tickets_M5_Validation` (solo lectura)
+
+Verificado: 24 tablas `dbo`; `notifications.organization_id` **INT NULL**
+(nullable=1); `CK_notifications_ticket_requires_org` **existe, habilitada y
+confiable**, con 0 notificaciones de organización NULL; `departments.organization_id`
+**NOT NULL** con 0 nulos. Datos de validación presentes (1 organización `CMUCE`,
+25 departamentos, 9 tickets, 5 usuarios, 26 notificaciones…). Es decir, el objetivo
+de M5 **ya está cumplido** en esa base y el P0 «M5 pendiente» queda obsoleto.
+
+> Nota: `m5-preflight.js` y `verify-m5-validation.js` esperan un destino con 24
+> tablas y **0 filas**; como M5_Validation ya tiene datos, esos scripts fallarían
+> hoy. Son aplicables solo a un destino de migración vacío.
 
 ## 6. Seguridad
 
@@ -171,7 +192,12 @@ B→C sobre el scratch antes de D.
   `usuario_migracion`).
 - **Secretos:** ningún `.env`, `.env.local`, `.env.mssql-test`, certificado o
   clave está versionado (`.gitignore` §17-42, §89-93). `git ls-files` no muestra
-  credenciales reales.
+  contraseñas, claves ni tokens. **Hallazgo (riesgo medio):** `origin`
+  (`9f64117`) ya publica `backend/.env.mssql-test.example` con
+  `MSSQL_TEST_SERVER=100.100.4.60` y `MSSQL_TEST_USER=sifha_migration_dev` (IP
+  Tailscale interna + login, **sin contraseña**). El saneo está en el commit
+  local `dd3001e`, pero el historial ya publicado lo expone; la IP interna y
+  `TI-DESK-01` aparecen además en varios documentos/scripts M5.
 - **Validación de entrada en login/recuperación:** un cuerpo malformado
   (p. ej. sin `account`) devolvía 500; ahora devuelve **400 `Datos inválidos`**
   con `fields` (`backend/src/routes/auth.js`; regresión en
@@ -189,49 +215,37 @@ B→C sobre el scratch antes de D.
 
 ## 7. Cambios pendientes de revisar (origen)
 
-No se descartó nada. Además de los 7 commits de trabajo SQL/entrega, están sin
-commitear el arreglo de arranque/login (`directorySync.js`), la validación 400 de
-`auth.js`, sus pruebas, el healthcheck de `docker-compose.dev.yml`, la guarda de
-los verificadores scratch del Grupo D con su prueba, los `package-lock.json` de
-`npm audit fix`, y esta actualización de documentación. Los artefactos
-`inventario-grupoD.txt` y `resultado-verificacion-D.txt` de la raíz son salidas de
-diagnóstico y **no** se incluyen en los commits.
+No se descartó nada y **no queda trabajo sin commitear**: los 13 commits locales
+(`7c748c2`…`cea3488`) ya incluyen las correcciones SQL/entrega, el arranque/login
+(`directorySync.js`), la validación 400 de `auth.js` y sus pruebas, el healthcheck
+IPv4 de `docker-compose.dev.yml`, la guarda de los verificadores scratch del Grupo
+D con su prueba, los `package-lock.json` de `npm audit fix` y las actualizaciones
+de documentación. Los artefactos `inventario-grupoD.txt` y
+`resultado-verificacion-D.txt` de la raíz son salidas de diagnóstico y **no** se
+versionan (gitignored).
 
 ## 8. Plan de commits
 
-Los 7 commits de trabajo SQL/entrega ya están creados localmente
-(`7c748c2`…`e709a68`), sin push. Queda pendiente de commit el trabajo de esta
-jornada sobre el runtime y la documentación:
-
-1. `fix(backend): restaurar sesion con username en otra capitalizacion sin duplicar` —
-   `backend/src/directorySync.js`, `backend/test/directorySync.test.js`.
-2. `fix(backend): devolver 400 de validacion en login/recuperacion con cuerpo invalido` —
-   `backend/src/routes/auth.js`, `backend/test/security-regressions.test.js`.
-3. `fix(dev): healthcheck del frontend por IPv4 (127.0.0.1) en docker-compose.dev.yml` —
-   `docker-compose.dev.yml`.
-4. `fix(migracion): corregir guarda de identidad de los verificadores scratch del grupo D` —
-   `verify-after-groupD-scratch-test.sql`, `verify-final-reconciliation-scratch-test.sql`,
-   `test/groupD-scratch-verifiers.test.js`.
-5. `docs(entrega): cifras de pruebas y hallazgos de arranque/login, scratch y SQL Server` —
-   `README.md`, `ENTREGA-CHECKLIST.md`, `ENTREGA-INFRAESTRUCTURA.md`,
-   `docs/ESTADO-ENTREGA.md`, `docs/ENTREGA-FINAL.md`, `docs/PRUEBAS.md`,
-   `docs/DEPLOY-MSSQL.md`.
-6. `chore(security): actualizar package-lock tras npm audit fix` —
-   `backend/package-lock.json`, `frontend/package-lock.json`.
+Ejecutado. Los 13 commits locales (`7c748c2`…`cea3488`) están creados, sin push;
+`origin/integracion-casa-oficina-11oct` sigue en `9f64117`. La publicación
+(`git push`) queda pendiente de la autorización de push.
 
 ## 9. Bloqueos que requieren intervención
 
-- **P0** — El scratch `SIFHA_GroupD_ScratchTest` no está en estado post-C
-  (6 tablas legacy, sin CMUCE). Para ejecutar §5 hay que reconciliarlo (B→C) o
-  recrearlo desde un respaldo post-C; el `apply` de D aborta por precondiciones.
-- **P0** — Ejecutar el Grupo D contra `SIFHA_GroupD_ScratchTest` (§5) y, con
-  respaldo verificado, la secuencia B→C→D→E en `SIFHA_Tickets_DEV`. Requiere
-  autorización y ventana de mantenimiento.
-- **P0** — Cerrar M5 (`notifications.organization_id` NULL-able) en la base de
-  validación con el script `notifications-organization-nullable.sql`.
-- **P1** — Correr `npm run test:mssql` en un entorno con SQL Server autorizado
-  (base `SIFHA_Tickets_M5_Integration_Test`; la cuenta de migración actual **no**
-  tiene acceso a esa base).
+- **P0** — Aplicar el Grupo D contra `SIFHA_GroupD_ScratchTest` (§5): el scratch ya
+  está post-C, pero `sifha_ticket_dev` **no** tiene `ALTER`, así que se requiere el
+  login `SIFHA_GroupD_ScratchTestRunner` (u otra cuenta con `ALTER ON SCHEMA::dbo`)
+  y respaldo previo.
+- **P0** — Secuencia B→C→D→E en `SIFHA_Tickets_DEV`: la cuenta de migración tiene
+  `db_owner=0` en DEV, por lo que **no puede** ejecutar el DDL; requiere cuenta
+  privilegiada, respaldo verificado y ventana de mantenimiento. El estado real de
+  DEV no es verificable con la cuenta actual (artefacto de visibilidad).
+- **P1** — Correr `npm run test:mssql`: falta `backend/.env.mssql-test`; la cuenta
+  de migración **no** accede a `SIFHA_Tickets_M5_Integration_Test`; faltan las
+  contraseñas de los usuarios de prueba sembrados. Las suites **escriben** datos.
+- **P1** — M5: el objetivo ya está cumplido en `SIFHA_Tickets_M5_Validation`
+  (§5.3); queda solo decidir si se respalda con `backup-m5.sql`.
 - **P1** — Decidir los arreglos *breaking* de `npm audit` (exceljs, react-router,
   vitest). No se aplican sin autorización.
+- **P2** — Publicar los 13 commits locales (`git push`), pendiente de autorización.
 - **P2** — Añadir ESLint/`lint` (recomendación no bloqueante).

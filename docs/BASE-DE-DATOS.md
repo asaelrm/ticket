@@ -40,7 +40,7 @@ viven en `backend/scripts/migration/` y se **autoprotegen** (guarda de
 | B | Reconciliación de la base (`verify-after-groupB.sql`, verificación) | VALIDADO (no ejecutado en DEV) |
 | C | Backfill de la organización `CMUCE` y FK compuestas `same_org` (`backfill-organization-CMUCE.sql`, `fix-users-department-same-org.sql`) | VALIDADO (no ejecutado en DEV) |
 | D | `departments.organization_id` → `INT NOT NULL` (`apply-groupD-not-null.sql`) | Script corregido; ejecución PENDIENTE de autorización |
-| M5 | `notifications.organization_id` → NULL-able + `CK_notifications_ticket_requires_org` (`notifications-organization-nullable.sql`) | PENDIENTE de autorización |
+| M5 | `notifications.organization_id` → NULL-able + `CK_notifications_ticket_requires_org` (`notifications-organization-nullable.sql`) | CUMPLIDO en `SIFHA_Tickets_M5_Validation` (verificado solo lectura) |
 | E | Verificación final (`verify-final-reconciliation.sql`) | PENDIENTE de ejecución |
 
 ## Grupo D (detalle)
