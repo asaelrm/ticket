@@ -581,9 +581,17 @@ BEGIN TRY
                       + CASE WHEN @d_nfr = 1 THEN N' NOT FOR REPLICATION' ELSE N'' END + N';';
             EXEC sys.sp_executesql @sql;
             IF @d_is_not_trusted = 1
-                EXEC (N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table) + N' NOCHECK CONSTRAINT ' + QUOTENAME(@d_name) + N';');
+            BEGIN
+                SET @sql = N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table)
+                         + N' NOCHECK CONSTRAINT ' + QUOTENAME(@d_name) + N';';
+                EXEC sys.sp_executesql @sql;
+            END;
             IF @d_is_disabled = 1
-                EXEC (N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table) + N' NOCHECK CONSTRAINT ' + QUOTENAME(@d_name) + N';');
+            BEGIN
+                SET @sql = N'ALTER TABLE ' + QUOTENAME(@d_schema) + N'.' + QUOTENAME(@d_table)
+                         + N' NOCHECK CONSTRAINT ' + QUOTENAME(@d_name) + N';';
+                EXEC sys.sp_executesql @sql;
+            END;
             PRINT N'[4] FK recreada (con validacion): ' + @d_name;
             FETCH NEXT FROM cfk2 INTO @d_name, @d_schema, @d_table, @d_ref_schema, @d_ref_table, @d_pcols, @d_rcols, @d_del, @d_upd, @d_nfr, @d_is_disabled, @d_is_not_trusted;
         END;
@@ -622,12 +630,12 @@ BEGIN TRY
                           WHERE ic2.object_id = after_i.object_id AND ic2.index_id = after_i.index_id AND ic2.is_included_column = 0
                           ORDER BY ic2.key_ordinal FOR XML PATH(N'')), 1, 2, N'') AS key_cols
         ) AS after_cols
-        WHERE after_i.index_id IS NULL OR after_i.type_desc <> before_uq.type_desc
-           OR after_cols.key_cols <> before_uq.key_cols
+        WHERE after_i.index_id IS NULL OR after_i.type_desc COLLATE DATABASE_DEFAULT <> before_uq.type_desc COLLATE DATABASE_DEFAULT
+           OR after_cols.key_cols COLLATE DATABASE_DEFAULT <> before_uq.key_cols COLLATE DATABASE_DEFAULT
            OR after_i.is_padded <> before_uq.is_padded OR after_i.fill_factor <> before_uq.fill_factor
            OR after_i.ignore_dup_key <> before_uq.ignore_dup_key
            OR after_i.allow_row_locks <> before_uq.allow_row_locks OR after_i.allow_page_locks <> before_uq.allow_page_locks
-           OR after_i.data_space_id <> (SELECT data_space_id FROM sys.data_spaces WHERE name = before_uq.data_space_name)
+           OR after_i.data_space_id <> (SELECT data_space_id FROM sys.data_spaces WHERE name COLLATE DATABASE_DEFAULT = before_uq.data_space_name COLLATE DATABASE_DEFAULT)
            OR after_i.optimize_for_sequential_key <> before_uq.optimize_for_sequential_key)
         RAISERROR(N'ABORTADO (grupo D): una UNIQUE no conserva columnas, orden, tipo u opciones del indice. Se revierte.', 16, 1);
 

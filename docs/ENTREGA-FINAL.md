@@ -22,13 +22,13 @@ Documento de cierre para la entrega institucional. Complementa a
 | `npm run test:mssql` (integración MSSQL) | **37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` |
 | Frontend (vitest + build) | 1080/1080; build OK |
 | Migraciones Grupo D | **CERTIFICADO** en `SIFHA_GroupD_ScratchTest` (2026-10-13: POST-D GO / FINAL GO); `SIFHA_Tickets_DEV` **NO** migrada ni certificada |
-| Migraciones M5 | Objetivo **CUMPLIDO** en `SIFHA_Tickets_M5_Validation`; **certificación en `SIFHA_Tickets_DEV` pendiente** (secuencia B→C→D→E, cuenta privilegiada + respaldo) |
+| Grupo E y M5 en DEV | **NO-GO/PARCIAL**: transporte SQL alcanzable, pero el login local fue rechazado; faltan credenciales autorizadas de solo lectura para completar las consultas |
 | Documentación | Completa (README + `docs/`) |
 | Seguridad crítica | Sin hallazgos Altos |
 
-**Veredicto final: LISTO PARA ENTREGA DEL CÓDIGO**, con la secuencia B→C→D→E en
-`SIFHA_Tickets_DEV` pendiente de autorización/infraestructura (no bloquea el
-artefacto de código; el Grupo D del scratch ya está certificado).
+**Veredicto final: LISTO PARA ENTREGA DEL CÓDIGO**, con el cierre operativo de
+Grupo E/M5 en `SIFHA_Tickets_DEV` pendiente de una cuenta autorizada (no bloquea
+el artefacto de código; el Grupo D del scratch ya está certificado).
 
 ## 3. Qué se entregó en esta fase
 

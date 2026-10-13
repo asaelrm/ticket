@@ -527,7 +527,7 @@ ni se tocó M5/Scratch. Se distingue el estado de cada fase:
 | Verificador POST-D | **VERIFICADO (`GO`)** |
 | Verificador FINAL | **VERIFICADO (`GO`)** |
 | Estado DEV post-D | **CERTIFICADO** |
-| Grupo E (arranque en seco) | **PREPARADO** (no ejecutado) |
+| Grupo E (arranque en seco) | **NO-GO técnico**: conexión alcanzable, pero el login local fue rechazado; no se inició el backend |
 
 ### 14.1 Evidencia
 
@@ -580,14 +580,34 @@ quedó en estado intermedio**.
 
 ### 14.3 Riesgos residuales
 
-- `backend/scripts/migration/apply-groupD-not-null-scratch-test.sql` (variante **no
-  autorizada**, no usada) conserva el defecto `EXEC (N'ALTER TABLE ...')`. No se
-  tocó por la restricción “no tocar Scratch”; se recomienda corregirlo o retirarlo
-  en una tarea aparte.
+- La variante no autorizada `backend/scripts/migration/apply-groupD-not-null-scratch-test.sql`
+  fue corregida **estáticamente y sin ejecutarla**: usa SQL dinámico válido con
+  `sp_executesql`, bloques `BEGIN/END` y comparaciones de catálogo con collation
+  explícita. Sigue reservada para Scratch y no se autoriza su ejecución sobre DEV.
 - El Grupo E (arranque en seco con `MSSQL_RUNTIME=true`, `GET` de solo lectura) y la
-  verificación M5 en DEV **siguen pendientes** (requieren ventana y autorización).
+  verificación M5 en DEV requieren credenciales vigentes o una cuenta de solo
+  lectura autorizada.
 
 ### 14.4 Estado final de DEV
 
 `SIFHA_Tickets_DEV` queda **reconciliada y certificada post-D** (`VERIFICADOR FINAL:
-GO`), lista para el Grupo E. No se arrancó el backend contra DEV en esta sesión.
+GO`). El intento controlado de Grupo E no inició el backend: el transporte SQL
+responde, pero SQL Server rechazó el login configurado localmente.
+
+## 15. Cierre de comprobaciones seguras (2026-10-13)
+
+- El probe temporal de Node.js ejecutó exclusivamente `SELECT` de identidad. La
+  instancia fue alcanzable con las cuatro variantes; la configuración local llegó
+  al servidor, pero el login fue rechazado. Sin credenciales válidas no se hicieron
+  lecturas sobre DEV ni M5, ni se inició el runtime MSSQL.
+- Configuración Node.js a usar al contar con una cuenta autorizada: `DB_CLIENT=mssql`,
+  `MSSQL_RUNTIME=true`, `JOBS_ENABLED=false`, `DB_SERVER=TI-DESK-01`,
+  `DB_INSTANCE=SIFHADEV`, `DB_DATABASE=SIFHA_Tickets_DEV`, `DB_ENCRYPT=true` y una
+  política TLS válida. Para el certificado autofirmado de la instancia, la excepción
+  `DB_TRUST_SERVER_CERTIFICATE=true` debe estar explícitamente autorizada y limitada
+  al entorno correspondiente.
+- Grupo E: **NO-GO** por autenticación. M5: **PARCIAL**: el autodiagnóstico local
+  del contrato terminó en `pass` (24 tablas, 23 índices), pero la consulta remota
+  quedó bloqueada por el mismo rechazo de login.
+- Seguridad local: `npm audit --omit=dev` terminó sin vulnerabilidades en backend y
+  frontend. No se modificaron datos, estructura, seeds ni migraciones.
