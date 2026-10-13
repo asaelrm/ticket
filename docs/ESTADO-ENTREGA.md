@@ -508,6 +508,86 @@ abortan en DEV: **no se ejecutan en `SIFHA_Tickets_DEV`**.
   `origin` por los commits locales de cierre (`5d58040`, `36b92b9`, `db1d629` y
   los de esta tanda).
 - `git diff --check` sin incidencias; sin secretos reales versionados.
-- **Pendiente (requiere autorización):** `git push origin integracion-casa-oficina-11oct`
-  y actualizar el cuerpo del PR #1 con `docs/PR-1-CUERPO-ACTUALIZADO.md`.
-  No mergear hasta cerrar los pendientes de DEV/M5 en ventana autorizada.
+- **Push realizado** (2026-10-13): `7723d87..1cdd602` a
+  `origin/integracion-casa-oficina-11oct`.
+- **Pendiente:** actualizar el cuerpo del PR #1 con
+  `docs/PR-1-CUERPO-ACTUALIZADO.md` (`gh` no instalado). No mergear hasta cerrar
+  los pendientes de DEV/M5 en ventana autorizada.
+
+## 14. Grupo D EJECUTADO y CERTIFICADO en `SIFHA_Tickets_DEV` (2026-10-13)
+
+Ejecución controlada y autorizada del Grupo D sobre DEV. No se repitieron B ni C
+ni se tocó M5/Scratch. Se distingue el estado de cada fase:
+
+| Fase | Estado |
+|---|---|
+| Inspección y validación previa (solo lectura) | **VERIFICADO** |
+| Respaldo fresco + `RESTORE VERIFYONLY` | **EJECUTADO / VERIFICADO** |
+| Grupo D (`apply-groupD-not-null.sql`) | **EJECUTADO** |
+| Verificador POST-D | **VERIFICADO (`GO`)** |
+| Verificador FINAL | **VERIFICADO (`GO`)** |
+| Estado DEV post-D | **CERTIFICADO** |
+| Grupo E (arranque en seco) | **PREPARADO** (no ejecutado) |
+
+### 14.1 Evidencia
+
+- **Fecha/hora:** 2026-10-13 15:09 (local servidor) / 19:09 UTC.
+- **Servidor / instancia / base:** `TI-DESK-01\SIFHADEV` / `SIFHADEV` /
+  `SIFHA_Tickets_DEV`; login `cmucesd\lrosario` (`db_owner`, `db_ddladmin`,
+  `ALTER SCHEMA::dbo`, `VIEW DEFINITION`).
+- **Precondición Grupo C:** `VERIFICADOR POST-C: GO` (97 filas, CMUCE id=1,
+  25 deptos 0 NULL, 0 huérfanos).
+- **Respaldo:** `SIFHA_Tickets_DEV_PreGrupoD_20261013_190544.bak` (COPY_ONLY,
+  COMPRESSION, CHECKSUM; ~7 MB; ruta local del servidor).
+  `RESTORE VERIFYONLY ... WITH CHECKSUM` → **“The backup set on file 1 is valid.”**
+- **Script ejecutado:** `backend/scripts/migration/apply-groupD-not-null.sql`
+  con `@AuthorizeDdl=1` y `@BackupVerified=1`.
+- **Resultado Grupo D:** `COMMIT. departments.organization_id es NOT NULL;
+  UNIQUE y FK recreadas y verificadas.` → `GRUPO D: GO`.
+- **POST-D:** `VERIFICADOR POST-D: GO` (97 filas; `departments.organization_id`
+  `INT NOT NULL`; `users.organization_id` NULL-able; 0 UQ/FK/IX faltantes;
+  0 huérfanos).
+- **FINAL:** `VERIFICADOR FINAL: GO` (24/24 tablas; 97 registros; CMUCE id=1;
+  9/9 longitudes NVARCHAR; 0 UQ/FK/IX faltantes; 0 huérfanos; 0 desviaciones de
+  paridad canónica; rol ADMIN id=7 único; usuario ADMIN id 4 con rol 7,
+  departamento 68, en CMUCE; rol ADMIN conserva permisos).
+- **Cambios aplicados:** solo nulabilidad de `departments.organization_id`
+  (`INT NULL` → `INT NOT NULL`); los 2 `UNIQUE` y las 2 FK dependientes
+  (`FK_users_department_same_org`, `FK_tickets_department_same_org`) se soltaron
+  y **recrearon idénticos** (habilitados y confiables). 0 filas modificadas.
+
+### 14.2 Incidencias (defectos reales del script DEV, corregidos)
+
+El script `apply-groupD-not-null.sql` (versión DEV) **no compilaba/ejecutaba** por
+dos defectos ausentes en el script autorizado de scratch
+(`apply-groupD-not-null-scratch-test-authorized.sql`, que sí los tenía):
+
+1. **Sintaxis inválida** (líneas 584/586 originales):
+   `EXEC (N'ALTER TABLE ' + QUOTENAME(...))` → no es T-SQL válido (error 102,
+   compilación del batch → nada se ejecutó). Corregido a
+   `SET @sql = ...; EXEC sys.sp_executesql @sql;` con `BEGIN/END` para respetar el
+   `IF`.
+2. **Conflicto de collation** (error 468) en la verificación intra-transacción:
+   comparación de cadenas del catálogo (`Latin1_General_CI_AS_KS_WS`) con las del
+   `DATABASE_DEFAULT` (`Modern_Spanish_CI_AS`). Corregido añadiendo
+   `COLLATE DATABASE_DEFAULT` en `type_desc`, `key_cols` y el `data_space_name`.
+3. **Control de flujo**: el primer intento de corrección dejó el `EXEC` fuera del
+   `IF` (sin `BEGIN/END`), re-ejecutando el `ADD CONSTRAINT` (error 2714). Corregido
+   envolviendo en `BEGIN/END`.
+
+Todos los intentos fallidos revirtieron por `TRY/CATCH` + `XACT_ABORT`: **DEV no
+quedó en estado intermedio**.
+
+### 14.3 Riesgos residuales
+
+- `backend/scripts/migration/apply-groupD-not-null-scratch-test.sql` (variante **no
+  autorizada**, no usada) conserva el defecto `EXEC (N'ALTER TABLE ...')`. No se
+  tocó por la restricción “no tocar Scratch”; se recomienda corregirlo o retirarlo
+  en una tarea aparte.
+- El Grupo E (arranque en seco con `MSSQL_RUNTIME=true`, `GET` de solo lectura) y la
+  verificación M5 en DEV **siguen pendientes** (requieren ventana y autorización).
+
+### 14.4 Estado final de DEV
+
+`SIFHA_Tickets_DEV` queda **reconciliada y certificada post-D** (`VERIFICADOR FINAL:
+GO`), lista para el Grupo E. No se arrancó el backend contra DEV en esta sesión.

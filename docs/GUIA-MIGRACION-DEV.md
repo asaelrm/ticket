@@ -508,3 +508,23 @@ NODE_ENV=production npm start
   `BACKUP`/`RESTORE`/`DBCC`, no hubo push ni merge.
 - Los comandos de escritura son **plantillas para la ventana autorizada**.
 - Ante cualquier duda: **detener** y consultar al auditor.
+
+---
+
+## 7. Registro de ejecución del Grupo D (2026-10-13)
+
+> Actualización posterior a la redacción de §1–§6: con **autorización explícita**,
+> respaldo fresco verificado y ventana, se **ejecutó el Grupo D** sobre
+> `SIFHA_Tickets_DEV`. Detalle completo en `docs/ESTADO-ENTREGA.md` §14.
+
+- **Ejecutado:** `apply-groupD-not-null.sql` (`@AuthorizeDdl=1`,
+  `@BackupVerified=1`) → `GRUPO D: GO` + `COMMIT`.
+- **Verificado:** `VERIFICADOR POST-D: GO` y `VERIFICADOR FINAL: GO`.
+- **Respaldo:** `SIFHA_Tickets_DEV_PreGrupoD_20261013_190544.bak` (COPY_ONLY),
+  `RESTORE VERIFYONLY` válido.
+- **Correcciones al script DEV necesarias para ejecutar** (ya aplicadas): sustituir
+  `EXEC (N'...' + QUOTENAME(...))` por `EXEC sys.sp_executesql @sql` con
+  `BEGIN/END`, y añadir `COLLATE DATABASE_DEFAULT` en las comparaciones de
+  `type_desc`/`key_cols`/`data_space_name`. El script autorizado de scratch
+  (`apply-groupD-not-null-scratch-test-authorized.sql`) ya contaba con ambas.
+- **Pendiente:** Grupo E (arranque en seco, solo lectura) y verificación M5 en DEV.
