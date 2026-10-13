@@ -204,4 +204,45 @@ describe('una cuenta que solo existe en el directorio', () => {
       assert.equal(verifyPassword(intento, hash), false, `entró con "${intento}"`);
     }
   });
+
+  it('el mismo usuario con el username en otra capitalización no aborta ni duplica ni cambia su contraseña', async () => {
+    const base   = `cap_${Date.now()}`;
+    const mayus  = base.toUpperCase();
+    const minus  = base.toLowerCase();
+    const email  = `${base}@empresa.com`;
+    const orgId = db.prepare('SELECT id FROM organizations WHERE code = ?').get('UCE').id;
+    const roleId = db.prepare('SELECT id FROM roles WHERE code = ?').get('EMPLOYEE').id;
+
+    db.prepare(
+      `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      'Nombre Original', 'Apellido Original', mayus, email, hashPassword('ClaveOriginal9!'),
+      null, 'Puesto', roleId, 1, null, orgId
+    );
+    const fila = db.prepare('SELECT username, password_hash FROM users WHERE email = ?').get(email);
+
+    fs.writeFileSync(
+      snapshotFile,
+      JSON.stringify({
+        version: 2,
+        departments: [],
+        users: [
+          {
+            name: 'Importado', last_name: 'DelDirectorio', username: minus, email,
+            position: 'Puesto', active: 1, role_code: 'EMPLOYEE', department_name: null,
+          },
+        ],
+      })
+    );
+
+    await restoreDirectorySnapshot({ enabled: true, file: snapshotFile });
+
+    const tras = db.prepare('SELECT username, password_hash, name FROM users WHERE email = ?').get(email);
+    assert.equal(tras.username, mayus, 'el username existente se conserva, no se crea una fila nueva');
+    assert.equal(tras.password_hash, fila.password_hash, 'la contraseña no se toca');
+    assert.equal(tras.name, 'Importado', 'el perfil del directorio sí se aplica');
+
+    db.prepare('DELETE FROM users WHERE email = ?').run(email);
+  });
 });

@@ -193,11 +193,21 @@ export async function restoreDirectorySnapshot({ enabled, file } = {}) {
         }
       }
 
-      // La identidad es el `username`. Un `email` ya usado por OTRA cuenta
-      // aborta el restore en vez de fusionar cuentas equivocadas.
-      const porUsername = await tx.queryOne('SELECT id FROM users WHERE username = ?', user.username);
-      const porEmail = await tx.queryOne('SELECT username FROM users WHERE email = ?', user.email);
-      if (porEmail && porEmail.username !== user.username) {
+      // La identidad es el `username` y no distingue mayúsculas: escrito con
+      // otra capitalización (YFRANCISCO/yfrancisco) es la misma persona. La
+      // búsqueda ignora el caso para reencontrar la fila existente y
+      // actualizarla, nunca para crear un duplicado ni para tocar su
+      // contraseña. Un `email` ya usado por una cuenta cuyo username es
+      // GENUINAMENTE distinto aborta el restore en vez de fusionar cuentas
+      // equivocadas: la unicidad del correo sigue intacta.
+      const porUsername = await tx.queryOne('SELECT id FROM users WHERE username = ? COLLATE NOCASE', user.username);
+      const porEmail = await tx.queryOne('SELECT username FROM users WHERE email = ? COLLATE NOCASE', user.email);
+      const mismaPersona = Boolean(
+        porEmail
+        && user.username
+        && String(porEmail.username).toLowerCase() === String(user.username).toLowerCase()
+      );
+      if (porEmail && !mismaPersona) {
         throw new Error(
           `El correo "${user.email}" de "${user.username}" ya pertenece a la cuenta "${porEmail.username}"`
         );
