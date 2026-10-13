@@ -2,7 +2,7 @@
 
 **Fecha:** 2026-10-12
 **Rama:** `integracion-casa-oficina-11oct`
-**Último commit rastreado:** `cea3488` (13 commits locales por delante de `9f64117`, sin push). El árbol de trabajo está limpio: las correcciones de runtime/login (`directorySync.js`), la validación 400 de `auth.js`, las guardas de los verificadores scratch y los `package-lock` de `npm audit fix` ya están commiteadas.
+**Último commit rastreado:** `5c5a9ea` (publicado en `origin/integracion-casa-oficina-11oct` el 2026-10-12; 0 commits por delante/por detrás). El árbol de trabajo está limpio: las correcciones de runtime/login (`directorySync.js`), la validación 400 de `auth.js`, las guardas de los verificadores scratch y los `package-lock` de `npm audit fix` ya están commiteadas.
 **Alcance:** auditoría de entrega, corrección del bloqueo SQL del Grupo D,
 limpieza de la suite de pruebas, verificación de secretos y preparación de commits.
 
@@ -22,8 +22,8 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 | 8 | Revisar funcionamiento de módulos críticos | P1 | COMPLETADO | Cobertura de la suite (login, tickets, adjuntos, estados, permisos, aislamiento multi-org, SLA, auditoría, reportes) |
 | 9 | Revisar seguridad básica (inyección SQL, attach, CORS, CSRF, HSTS) | P1 | COMPLETADO | Suite + `docs/SEGURIDAD-AUDITORIA.md` (0 Alta; 3 Medios de endurecimiento) |
 | 10 | Documentación de entrega | P2 | EN PROCESO | README, ENTREGA-CHECKLIST, ENTREGA-INFRAESTRUCTURA, DEPLOY-MSSQL actualizados; falta revisar el resto |
-| 11 | Commits locales descriptivos | P2 | PENDIENTE | Preparado en §8; no ejecutado hasta autorización |
-| 12 | Push a GitHub | — | PENDIENTE (BLOQUEADO) | Requiere autorización explícita |
+| 11 | Commits locales descriptivos | P2 | COMPLETADO | 14 commits (`7c748c2`…`5c5a9ea`); ver §8 |
+| 12 | Push a GitHub | — | COMPLETADO | `origin/integracion-casa-oficina-11oct` en `5c5a9ea` |
 | 13 | Corregir arranque y login en Docker (conflicto de capitalización de username) | P0 | COMPLETADO | `directorySync.js` (COLLATE NOCASE), `docker-compose.dev.yml` (healthcheck IPv4); login real verificado |
 | 14 | Corregir guarda de identidad de los verificadores scratch del Grupo D | P0 | COMPLETADO | `verify-after-groupD-scratch-test.sql`, `verify-final-reconciliation-scratch-test.sql`, `test/groupD-scratch-verifiers.test.js` |
 | 15 | Comprobaciones de SOLO LECTURA contra SQL Server (`SIFHA_GroupD_ScratchTest`) | P0 | COMPLETADO | Conexión OK; inventario + verificador; ver §5 |
@@ -178,6 +178,14 @@ de M5 **ya está cumplido** en esa base y el P0 «M5 pendiente» queda obsoleto.
 > tablas y **0 filas**; como M5_Validation ya tiene datos, esos scripts fallarían
 > hoy. Son aplicables solo a un destino de migración vacío.
 
+**Respaldo autorizado (SQL-M5, 2026-10-12 22:11):** se creó
+`SIFHA_Tickets_M5_Validation_FULL_20261012_221132.bak` en el directorio por
+defecto de la instancia (`C:\Program Files\Microsoft SQL Server\MSSQL16.SIFHADEV\MSSQL\Backup\`),
+782 KB en disco, 1178 páginas, `COPY_ONLY + CHECKSUM + COMPRESSION`, registrado en
+`msdb` (`is_copy_only=1`). La verificación `RESTORE VERIFYONLY/HEADERONLY/FILELISTONLY`
+**no** es posible con `sifha_ticket_dev` (exigen permiso `CREATE DATABASE`), así
+que la comprobación del archivo queda pendiente de una cuenta privilegiada.
+
 ## 6. Seguridad
 
 - **0 hallazgos Altos.** Sin inyección SQL (parametrización uniforme y listas
@@ -226,9 +234,9 @@ versionan (gitignored).
 
 ## 8. Plan de commits
 
-Ejecutado. Los 13 commits locales (`7c748c2`…`cea3488`) están creados, sin push;
-`origin/integracion-casa-oficina-11oct` sigue en `9f64117`. La publicación
-(`git push`) queda pendiente de la autorización de push.
+Ejecutado. Los 14 commits (`7c748c2`…`5c5a9ea`) están publicados en
+`origin/integracion-casa-oficina-11oct` (push 2026-10-12: `9f64117..5c5a9ea`).
+Árbol limpio; 0 ahead / 0 behind.
 
 ## 9. Bloqueos que requieren intervención
 
@@ -243,9 +251,10 @@ Ejecutado. Los 13 commits locales (`7c748c2`…`cea3488`) están creados, sin pu
 - **P1** — Correr `npm run test:mssql`: falta `backend/.env.mssql-test`; la cuenta
   de migración **no** accede a `SIFHA_Tickets_M5_Integration_Test`; faltan las
   contraseñas de los usuarios de prueba sembrados. Las suites **escriben** datos.
-- **P1** — M5: el objetivo ya está cumplido en `SIFHA_Tickets_M5_Validation`
-  (§5.3); queda solo decidir si se respalda con `backup-m5.sql`.
+- **P1** — M5: objetivo cumplido (§5.3) y respaldo
+  `SIFHA_Tickets_M5_Validation_FULL_20261012_221132.bak` creado (2026-10-12);
+  su verificación queda pendiente de una cuenta con `CREATE DATABASE`.
 - **P1** — Decidir los arreglos *breaking* de `npm audit` (exceljs, react-router,
   vitest). No se aplican sin autorización.
-- **P2** — Publicar los 13 commits locales (`git push`), pendiente de autorización.
+- **P2** — ~~Publicar los commits locales~~ **completado** (`9f64117..5c5a9ea`).
 - **P2** — Añadir ESLint/`lint` (recomendación no bloqueante).
