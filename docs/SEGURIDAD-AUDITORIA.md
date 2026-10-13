@@ -8,11 +8,13 @@
 
 ---
 
-## 1. [Media] Credenciales de prueba versionadas en git
+## 1. [Media] Credenciales de prueba versionadas en git — REMEDIADO (2026-10-12)
 
-- **Ubicación:** `backend/.env.mssql-test.example:16,28,32,36,43,45,46`
-- **Descripción:** el archivo de ejemplo de pruebas de integración MSSQL está **rastreado en git** y contiene contraseñas con aspecto real de las cuentas que crea el seed: `MSSQL_TEST_ADMIN_PASS=TestAdmin123!`, `MSSQL_TEST_EMPLEADO_PASS=Empleado1234!`, `MSSQL_TEST_TECNICO_PASS=Tecnico1234!`, además de `SEED_ADMIN_PASSWORD=TestAdmin123!`, `SEED_DEMO_PASSWORD=Empleado1234!` y `SEED_TECH_PASSWORD=Tecnico1234!`. Solo `MSSQL_TEST_PASSWORD` es un marcador (`su_password_seguro_aqui`). Cualquier persona con acceso al repositorio conoce estas credenciales; si el servidor de pruebas declarado (`MSSQL_TEST_SERVER=100.100.4.60`) es alcanzable y está sembrado, permiten iniciar sesión directamente.
-- **Recomendación:** sustituir por marcadores genéricos (`cambie-esta-clave`), eliminar las contraseñas reales del repositorio y rotar esas credenciales en la base de datos de pruebas si el host es accesible desde la red de trabajo.
+- **Ubicación (histórica):** `backend/.env.mssql-test.example` (revisión previa al saneo).
+- **Hallazgo:** el `.example` llegó a contener contraseñas con aspecto real de las cuentas que crea el seed: `MSSQL_TEST_ADMIN_PASS=TestAdmin123!`, `MSSQL_TEST_EMPLEADO_PASS=Empleado1234!`, `MSSQL_TEST_TECNICO_PASS=Tecnico1234!`, además de `SEED_ADMIN_PASSWORD=TestAdmin123!`, `SEED_DEMO_PASSWORD=Empleado1234!` y `SEED_TECH_PASSWORD=Tecnico1234!`, con `MSSQL_TEST_SERVER=100.100.4.60`. Quien tuviera acceso al repositorio conocía esas credenciales.
+- **Remediación aplicada (commit `dd3001e`):** el archivo actual solo usa marcadores (`MSSQL_TEST_USER=usuario_migracion`, `MSSQL_TEST_PASSWORD=su_password_seguro_aqui`, `su_password_admin/empleado/tecnico_aqui`). No hay contraseñas reales en el archivo `.example` al día de hoy.
+- **Riesgo residual (documentado):** las cadenas históricas permanecen en el historial publicado (`2be6b53`, `033021a`, `e7c7d1e`). Corresponden a las cuentas demo del runtime SQLite de desarrollo/pruebas (también documentadas en `presentacion_proyecto_tickets.txt`) y **no** coinciden con las contraseñas vigentes de `SIFHA_Tickets_M5_Integration_Test` (regeneradas al preparar la ejecución). Se recomienda rotarlas y, antes de una publicación pública amplia, decidir si sanear el historial.
+- **Recomendación original:** sustituir por marcadores genéricos (aplicado) y rotar esas credenciales en la base de datos de pruebas si el host es accesible desde la red de trabajo.
 
 ## 2. [Media] `SESSION_SECRET` por defecto público fuera de `production`
 
@@ -107,7 +109,7 @@
 
 Los tres hallazgos **Media** son riesgos de **endurecimiento de configuración/despliegue**, no fallos de la lógica de la aplicación, y se resuelven con cambios acotados antes de exponer la instancia públicamente:
 
-1. Retirar y rotar las credenciales de prueba del archivo `.env.mssql-test.example` (hallazgo 1).
+1. Rotar las credenciales demo y decidir si sanear el historial que ya las publica (hallazgo 1 **remediado**: el `.example` actual está saneado; queda la rotación).
 2. Extender la validación de arranque para exigir un `SESSION_SECRET` real en entornos distintos de `development` (hallazgo 2).
 3. Limitar la devolución del token de reseteo a un flag explícito de desarrollo (hallazgo 3).
 
