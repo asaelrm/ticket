@@ -90,11 +90,10 @@ describe('MSSQL Integration: Configuración (settings)', () => {
     assert.ok(typeof res.body === 'object');
   });
   
-  it('PATCH /api/settings actualiza configuración global', async () => {
+  it('PATCH /api/settings: cambio de clave global (app_name) es 403 para ADMIN', async () => {
     const newName = `SIFHA MSSQL Test ${testSuffix}`;
     const res = await adminClient.patch('/api/settings', { app_name: newName });
-    assert.equal(res.status, 200);
-    assert.equal(res.body.app_name, newName);
+    assert.equal(res.status, 403);
   });
 });
 
@@ -120,10 +119,16 @@ describe('MSSQL Integration: Usuarios y roles', () => {
     assert.ok(Array.isArray(res.body.data));
   });
   
-  it('GET /api/roles lista roles y permisos', async () => {
+  it('GET /api/roles lista roles con permisos anidados', async () => {
     const res = await adminClient.get('/api/roles');
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body.roles));
+    assert.ok(res.body.roles.every((r) => Array.isArray(r.permissions)));
+  });
+
+  it('GET /api/roles/permissions lista permisos', async () => {
+    const res = await adminClient.get('/api/roles/permissions');
+    assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body.permissions));
   });
   
