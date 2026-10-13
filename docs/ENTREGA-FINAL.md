@@ -17,11 +17,12 @@ Documento de cierre para la entrega institucional. Complementa a
 | Área | Estado |
 |------|--------|
 | Código de funcionalidades críticas | **LISTO** |
-| Errores bloqueantes conocidos | **0** en el runtime SQLite; las suites MSSQL requieren entorno |
+| Errores bloqueantes conocidos | **0**; integración MSSQL certificada 37/37 (2026-10-12) |
 | `npm test` (backend SQLite) | 865 pruebas, 863 pass, 0 fallos, 2 omitidas |
+| `npm run test:mssql` (integración MSSQL) | **37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` |
 | Frontend (vitest + build) | 1080/1080; build OK |
 | Migraciones Grupo D | Script corregido; **ejecución PENDIENTE de autorización** |
-| Migraciones M5 | **CUMPLIDO** en `SIFHA_Tickets_M5_Validation` (columna `NULL` + `CK_notifications_ticket_requires_org` presentes) |
+| Migraciones M5 | Objetivo **CUMPLIDO** en `SIFHA_Tickets_M5_Validation`; **certificación en `SIFHA_Tickets_DEV` pendiente** (secuencia B→C→D→E, cuenta privilegiada + respaldo) |
 | Documentación | Completa (README + `docs/`) |
 | Seguridad crítica | Sin hallazgos Altos |
 
@@ -41,8 +42,12 @@ Server y ejecución de migraciones **pendientes** de autorización/infraestructu
 4. **Documentación**: `docs/ESTADO-ENTREGA.md`, `INSTALACION.md`,
    `CONFIGURACION.md`, `BASE-DE-DATOS.md`, `PRUEBAS.md`, `SEGURIDAD.md`,
    `ENTREGA-FINAL.md`; README/checklists/cifras actualizados.
-5. **Commits locales preparados** (no ejecutados, a la espera de autorización;
-   ver `docs/ESTADO-ENTREGA.md` §8).
+5. **Commits publicados** hasta `03cc40a` el 2026-10-12; quedan **2 commits
+   locales pendientes de push** (`bf6b317` + documentación; ver
+   `docs/ESTADO-ENTREGA.md` §8).
+6. **Certificación MSSQL**: `npm run test:mssql` **37/37** contra
+   `SIFHA_Tickets_M5_Integration_Test`; aserciones alineadas al modelo
+   multiempresa (claves globales solo SUPERADMIN; permisos anidados por rol).
 
 ## 4. Pendientes que requieren intervención del responsable
 
@@ -50,8 +55,8 @@ Server y ejecución de migraciones **pendientes** de autorización/infraestructu
 |---|-----------|-----------|
 | 1 | Ejecutar Grupo D sobre `SIFHA_GroupD_ScratchTest` (comandos en `docs/ESTADO-ENTREGA.md` §5) | P0 |
 | 2 | Secuencia B→C→D→E en `SIFHA_Tickets_DEV` con respaldo verificado | P0 |
-| 3 | M5 ya cumplido en `SIFHA_Tickets_M5_Validation`; respaldo opcional con `backup-m5.sql` | P1 |
-| 4 | Certificar `npm run test:mssql` frente a `SIFHA_Tickets_M5_Integration_Test` | P1 |
+| 3 | Certificar **M5 en `SIFHA_Tickets_DEV`** (secuencia B→C→D→E) con respaldo verificado y cuenta privilegiada; en `M5_Validation` el objetivo está cumplido | P1 |
+| 4 | Re-ejecutar `npm run test:mssql` solo bajo nueva autorización (la suite escribe datos) | P1 |
 | 5 | Prueba de instalación desde cero (`ENTREGA-CHECKLIST.md` §7) | P1 |
 | 6 | Push a GitHub (autorización) | — |
 

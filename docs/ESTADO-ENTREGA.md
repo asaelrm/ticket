@@ -2,7 +2,8 @@
 
 **Fecha:** 2026-10-12
 **Rama:** `integracion-casa-oficina-11oct`
-**Último commit rastreado:** `5c5a9ea` (publicado en `origin/integracion-casa-oficina-11oct` el 2026-10-12; 0 commits por delante/por detrás). El árbol de trabajo está limpio: las correcciones de runtime/login (`directorySync.js`), la validación 400 de `auth.js`, las guardas de los verificadores scratch y los `package-lock` de `npm audit fix` ya están commiteadas.
+**Último commit publicado:** `03cc40a` (en `origin/integracion-casa-oficina-11oct`, 2026-10-12).
+**Commits locales pendientes de push:** `bf6b317` (aserciones MSSQL al contrato multiempresa) y el de esta actualización de documentación.
 **Alcance:** auditoría de entrega, corrección del bloqueo SQL del Grupo D,
 limpieza de la suite de pruebas, verificación de secretos y preparación de commits.
 
@@ -27,6 +28,8 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 | 13 | Corregir arranque y login en Docker (conflicto de capitalización de username) | P0 | COMPLETADO | `directorySync.js` (COLLATE NOCASE), `docker-compose.dev.yml` (healthcheck IPv4); login real verificado |
 | 14 | Corregir guarda de identidad de los verificadores scratch del Grupo D | P0 | COMPLETADO | `verify-after-groupD-scratch-test.sql`, `verify-final-reconciliation-scratch-test.sql`, `test/groupD-scratch-verifiers.test.js` |
 | 15 | Comprobaciones de SOLO LECTURA contra SQL Server (`SIFHA_GroupD_ScratchTest`) | P0 | COMPLETADO | Conexión OK; inventario + verificador; ver §5 |
+| 16 | Ejecutar `npm run test:mssql` (integración MSSQL) | P1 | COMPLETADO | **37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test`; ver §3.2 |
+| 17 | Alinear aserciones MSSQL al contrato multiempresa M5 | P1 | COMPLETADO | Commit `bf6b317` |
 
 ## 2. Estado de módulos funcionales
 
@@ -48,7 +51,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 | Suite | Comando | Resultado |
 |-------|---------|-----------|
 | Backend (SQLite temporal) | `npm test` | **865 pruebas, 863 pass, 0 fail, 2 skip** (~110 s) |
-| Integración MSSQL (requiere entorno) | `npm run test:mssql` | **NO EJECUTADA** (requiere `.env.mssql-test` + SQL Server autorizado) |
+| Integración MSSQL (requiere entorno) | `npm run test:mssql` | **EJECUTADA: 37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` (ver §3.2) |
 | Frontend | `npx vitest run` | **44 archivos, 1080/1080 pass** (0 fail, ~93 s) |
 | Build producción frontend | `npm run build` | **OK** (`dist/` generado) |
 
@@ -73,6 +76,36 @@ cuerpo incompleto 400, CORS `http://localhost:5173` honrado. El healthcheck del
 frontend se corrigió a `127.0.0.1` (Vite escucha solo IPv4; `localhost`→`::1`
 en Alpine fallaba): ambos contenedores quedan `healthy`.
 
+### 3.2 Integración MSSQL certificada (2026-10-12)
+
+`npm run test:mssql` quedó **37/37 aprobadas** contra
+`SIFHA_Tickets_M5_Integration_Test` (`TI-DESK-01\SIFHADEV`). Preparación:
+
+- El administrador concedió al login `sifha_ticket_dev` `db_datareader` +
+  `db_datawriter` + `VIEW DEFINITION` **solo en la base de pruebas** (no se tocó
+  `SIFHA_Tickets_DEV`). Verificado: login habilitado, base ONLINE, esquema de 24
+  tablas, 0 vistas/procs.
+- Seed idempotente (`scripts/mssql-seed-test-users.js`): organización UCE y
+  departamentos existentes; 25 permisos, 4 roles y sus vínculos sin cambios. Los
+  hashes de los 3 usuarios de prueba (admin/empleado/tecnico, ids 1/2/3) se
+  sincronizaron con `backend/.env.mssql-test` (gitignored); el seed **no**
+  actualiza contraseñas por diseño.
+- Las 2 aserciones que no cuadraban con el modelo multiempresa M5 se alinearon en
+  el commit `bf6b317`: `PATCH /api/settings` con `app_name` (clave GLOBAL) →
+  **403** para ADMIN (solo SUPERADMIN; `settings.js:195`) y `GET /api/roles` con
+  permisos **anidados por rol** (`roles.js:36`), más cobertura de
+  `GET /api/roles/permissions`.
+
+Cobertura verde: autenticación/sesiones, tickets CRUD con adjuntos y filtros,
+historial, resolución/cierre/reapertura, autorizaciones por rol, comentarios y
+notas internas, exportación, jobs de mantenimiento (SLA/escalación/poda),
+dashboard, reportes, settings (contrato 403), notificaciones y usuarios.
+
+> Re-ejecutar la suite **escribe** filas nuevas (sufijo `mssql_*`) y muta
+> `org_settings`/notificaciones leídas del org 1; requiere autorización expresa.
+> `backend/.env.mssql-test` se conserva local (gitignored; sin secretos en el
+> repositorio).
+
 ## 4. Migraciones SQL
 
 | Grupo | Estado | Detalle |
@@ -80,7 +113,7 @@ en Alpine fallaba): ambos contenedores quedan `healthy`.
 | B (reconciliación base) | VALIDADO (no ejecutado en DEV) | Verificadores solo lectura |
 | C (backfill CMUCE + FK compuestas) | VALIDADO (no ejecutado en DEV) | `backfill-organization-CMUCE.sql`, `fix-users-department-same-org.sql` |
 | D (departments.organization_id NOT NULL) | SCRIPT CORREGIDO, ejecución PENDIENTE | Scratch ya en estado post-C; ver §5 |
-| M5 (notifications nullable) | CUMPLIDO en `SIFHA_Tickets_M5_Validation` | Columna `organization_id` INT NULL + `CK_notifications_ticket_requires_org` presentes y confiables; ver §5.3 |
+| M5 (notifications nullable) | CUMPLIDO en `SIFHA_Tickets_M5_Validation`; **certificación en `SIFHA_Tickets_DEV` pendiente** | Columna `organization_id` INT NULL + `CK_notifications_ticket_requires_org` presentes y confiables; ver §5.3 |
 | Secuencia B→C→D→E en `SIFHA_Tickets_DEV` | NO EJECUTADA | Requiere ventana de mantenimiento + respaldo |
 
 ### 5. Grupo D — diagnóstico y corrección del bloqueo SQL
@@ -223,20 +256,19 @@ que la comprobación del archivo queda pendiente de una cuenta privilegiada.
 
 ## 7. Cambios pendientes de revisar (origen)
 
-No se descartó nada y **no queda trabajo sin commitear**: los 13 commits locales
-(`7c748c2`…`cea3488`) ya incluyen las correcciones SQL/entrega, el arranque/login
-(`directorySync.js`), la validación 400 de `auth.js` y sus pruebas, el healthcheck
-IPv4 de `docker-compose.dev.yml`, la guarda de los verificadores scratch del Grupo
-D con su prueba, los `package-lock.json` de `npm audit fix` y las actualizaciones
-de documentación. Los artefactos `inventario-grupoD.txt` y
-`resultado-verificacion-D.txt` de la raíz son salidas de diagnóstico y **no** se
-versionan (gitignored).
+No se descartó nada. La serie `7c748c2`…`03cc40a` (14 commits) está publicada.
+En este ciclo se añadieron 2 commits locales pendientes de push: `bf6b317`
+(aserciones MSSQL al contrato multiempresa) y la actualización de esta
+documentación. Los artefactos de diagnóstico de la raíz (`inventario-grupoD.txt`,
+`resultado-verificacion-D.txt`, respaldos `*.bak`) **no** se versionan
+(gitignored).
 
 ## 8. Plan de commits
 
-Ejecutado. Los 14 commits (`7c748c2`…`5c5a9ea`) están publicados en
-`origin/integracion-casa-oficina-11oct` (push 2026-10-12: `9f64117..5c5a9ea`).
-Árbol limpio; 0 ahead / 0 behind.
+Ejecutado hasta `03cc40a` (push 2026-10-12: `9f64117..5c5a9ea..03cc40a`). Quedan
+2 commits locales pendientes de publicación: `bf6b317` (pruebas MSSQL) y el de
+esta documentación. Comando de publicación (cuando el dueño autorice):
+`git push origin integracion-casa-oficina-11oct`.
 
 ## 9. Bloqueos que requieren intervención
 
@@ -248,9 +280,9 @@ Ejecutado. Los 14 commits (`7c748c2`…`5c5a9ea`) están publicados en
   `db_owner=0` en DEV, por lo que **no puede** ejecutar el DDL; requiere cuenta
   privilegiada, respaldo verificado y ventana de mantenimiento. El estado real de
   DEV no es verificable con la cuenta actual (artefacto de visibilidad).
-- **P1** — Correr `npm run test:mssql`: falta `backend/.env.mssql-test`; la cuenta
-  de migración **no** accede a `SIFHA_Tickets_M5_Integration_Test`; faltan las
-  contraseñas de los usuarios de prueba sembrados. Las suites **escriben** datos.
+- **P1** — ~~Correr `npm run test:mssql`~~ **completado (37/37**, §3.2) contra
+  `SIFHA_Tickets_M5_Integration_Test`. Re-ejecutar **escribe** datos y exige nueva
+  autorización del responsable.
 - **P1** — M5: objetivo cumplido (§5.3) y respaldo
   `SIFHA_Tickets_M5_Validation_FULL_20261012_221132.bak` creado (2026-10-12);
   su verificación queda pendiente de una cuenta con `CREATE DATABASE`.
