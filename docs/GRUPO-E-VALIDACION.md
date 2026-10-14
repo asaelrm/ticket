@@ -49,11 +49,17 @@ de inmediato (UPDATE/INSERT/DELETE).
 
 ### 5.1 Base aislada `SIFHA_Tickets_M5_Validation` — PASS
 
+Evidencia reforzada (2026-10-14): antes/después del arranque en seco se
+**contaron las filas de las 24 tablas** y no cambió ninguna.
+
 | Comprobación | Resultado |
 |---|---|
 | `schemaValidator` (solo `SELECT` a catálogo) | **ok:true** — 24 tablas, 204 columnas |
 | `GET /api/health` | **200** |
 | `GET /api/auth/me` (anónimo) | **401** (sin escritura de sesión) |
+| `GET /api/tickets`, `/api/users`, `/api/notifications` (anónimos) | **401** |
+| **Tablas cuyo conteo cambió** | **0 / 24** (antes == después) |
+| `sessions` antes / después | **0 / 0** |
 
 ### 5.2 `SIFHA_Tickets_DEV` — BLOQUEADO (externo)
 

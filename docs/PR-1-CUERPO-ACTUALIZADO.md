@@ -35,15 +35,19 @@ Integración del trabajo de oficina y casa sobre la rama
   - Nuevo `create-groupE-readonly-account.sql` (cuenta de solo lectura para
     Grupo E); permisos por tabla/operación de mínimo privilegio y revocación
     opt-in (`@revoke_extra`).
+  - **Cuarta tanda (2026-10-14):** evidencia reforzada de Grupo E (conteo de las
+    24 tablas antes/después = **0 cambios**), M5 verificado de nuevo (CHECK
+    confiable, 0 nulos, respaldo visible en `msdb`) y nueva guía
+    `docs/APLICAR-PERMISOS-SSMS.md` con el comando exacto de `RESTORE VERIFYONLY`.
 - Documentación de entrega e infraestructura actualizada
-  (`docs/GRUPO-E-VALIDACION.md` nueva).
+  (`docs/GRUPO-E-VALIDACION.md` y `docs/APLICAR-PERMISOS-SSMS.md` nuevas).
 
 ### Alcance
 
-- **Publicado en `origin`:** **71 commits**, **208 archivos** (`+34142 / −3100`).
-- Base: `main` (`f7cebed`). Head publicado: `integracion-casa-oficina-11oct`
-  (`a990bb0`, sincronizado con `origin`; sin commits locales pendientes).
-- CI GitHub Actions sobre `a990bb0`: **4/4 success**; `mergeable_state: clean`.
+- **Publicado en `origin`:** **72 commits**, **208 archivos** (`+34146 / −3100`).
+- Base: `main`. Head publicado: `integracion-casa-oficina-11oct`
+  (`2c69427`, sincronizado con `origin`; sin commits locales pendientes).
+- CI GitHub Actions sobre `2c69427`: **4/4 success**; `mergeable_state: clean`.
 
 ### Verificación
 
@@ -63,12 +67,13 @@ Integración del trabajo de oficina y casa sobre la rama
   en `SIFHA_Tickets_DEV`** (POST-D y FINAL `GO`).
 - **Grupo E (arranque en seco):** objetivo **demostrado en base aislada**
   (`SIFHA_Tickets_M5_Validation`: `schemaValidator` ok, `/api/health` 200,
-  `/api/auth/me` 401 con `MSSQL_RUNTIME=true` + `JOBS_ENABLED=false`); en
-  `SIFHA_Tickets_DEV` queda **pendiente de permisos** (ver
-  `docs/GRUPO-E-VALIDACION.md`).
+  `/api/auth/me` 401 y **0/24 tablas con cambio de conteo** con
+  `MSSQL_RUNTIME=true` + `JOBS_ENABLED=false`); en `SIFHA_Tickets_DEV` queda
+  **pendiente de permisos** (ver `docs/GRUPO-E-VALIDACION.md`).
 - **M5:** objetivo cumplido (diagnóstico solo lectura `pass`: 24 tablas, 0
-  diferencias bloqueantes, 0 notificaciones con organización NULL); `VERIFYONLY`
-  del respaldo pendiente de una cuenta con `CREATE DATABASE`.
+  diferencias bloqueantes, 0 notificaciones con organización NULL, CHECK
+  habilitada y confiable); `VERIFYONLY` del respaldo pendiente de una cuenta con
+  `CREATE DATABASE` (comando en `docs/APLICAR-PERMISOS-SSMS.md` Parte C).
 
 ### Seguridad
 

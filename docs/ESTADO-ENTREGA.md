@@ -2,8 +2,8 @@
 
 **Fecha:** 2026-10-13 (última actualización de secciones 1–16); sesión de cierre 2026-10-14 en §17.
 **Rama:** `integracion-casa-oficina-11oct`
-**Último commit publicado:** `21cf9cc` (en `origin/integracion-casa-oficina-11oct`; rama sincronizada, árbol limpio).
-**Commits locales pendientes de push:** ninguno (HEAD = `origin` = `21cf9cc`).
+**Último commit publicado:** `2c69427` (en `origin/integracion-casa-oficina-11oct`; rama sincronizada antes de estos cambios locales).
+**Commits locales pendientes de push:** cambios documentales y de scripts sin commit; no se ha hecho push.
 **Alcance:** auditoría de entrega, corrección del bloqueo SQL del Grupo D, fix
 `FILLFACTOR=0`, **certificación de Grupo D en el scratch (POST-D GO / FINAL GO)**,
 limpieza de la suite de pruebas, verificación de secretos y preparación de commits.
@@ -735,12 +735,12 @@ no deben apuntarse a DEV (§13.3).
 
 ### 17.5 GitHub y PR #1 (estado real vía API, 2026-10-14)
 
-- PR #1: **abierto**, `mergeable: true`, `mergeable_state: clean`, head `21cf9cc`
-  → base `f7cebed`; **64 commits**, **204 archivos**, `+33002 / −3100`.
-- CI GitHub Actions: última ejecución sobre `21cf9cc` (`push` y `pull_request`) →
-  **`conclusion: success`**.
+- PR #1: **abierto**, `mergeable: true`, `mergeable_state: clean`, head `2c69427`
+  → base `main`; **72 commits**, **208 archivos**, `+34146 / −3100`.
+- CI GitHub Actions: última ejecución sobre `2c69427` (`push` y `pull_request`) →
+  **4/4 success** (`Backend (SQLite temporal)` y `Frontend (vitest + build)`).
 - `git`: rama `integracion-casa-oficina-11oct` **sincronizada** con `origin`
-  (HEAD = `origin` = `21cf9cc`); `main` en `f7cebed`; árbol limpio.
+  (HEAD = `origin` = `2c69427`); árbol limpio.
 - `docs/PR-1-CUERPO-ACTUALIZADO.md` actualizado con las cifras reales (antes
   indicaba `7723d87`, 56 commits y 200 archivos).
 
@@ -922,3 +922,90 @@ de aplicación o habilitar la cuenta de solo lectura del Grupo E; (b) cuenta con
 - **Validación ejecutada:** `dev-permissions-scripts.test.js` → **15/15 pass**;
   comprobación de compilación contra el servidor (DRY-RUN, sin cambios) sin
   errores de sintaxis ni de collation.
+
+## 19. Cierre autónomo de entrega (2026-10-14, cuarta tanda)
+
+Tanda de cierre: evidencia reforzada de Grupo E y M5 (solo lectura), requisitos
+del `RESTORE VERIFYONLY`, guía SSMS de aplicación de permisos y re-ejecución de
+suites. Sin cambios de código de aplicación y sin operaciones administrativas.
+
+### 19.1 Grupo E — arranque en seco con conteo de filas antes/después
+
+Se ejecutó el arranque MSSQL **aislado** (`MSSQL_RUNTIME=true`,
+`JOBS_ENABLED=false`) contra `SIFHA_Tickets_M5_Validation` y se midió el
+**número de filas de las 24 tablas antes y después**:
+
+| Comprobación | Resultado |
+|---|---|
+| `schemaValidator` | **ok** — 24 tablas, 204 columnas |
+| `GET /api/health` | **200** |
+| `GET /api/auth/me`, `/api/tickets`, `/api/users`, `/api/notifications` (anónimos) | **401** |
+| Tablas cuyo conteo cambió | **0 / 24** |
+| `sessions` antes / después | **0 / 0** |
+| `[jobs]` en el log | «Mantenimiento programado desactivado (JOBS_ENABLED=false)» |
+
+**Conclusión:** el arranque en seco **no escribe una sola fila** en la base
+aislada; GET anónimos no disparan la sesión rodante. Refuerza §18.3 y
+`docs/GRUPO-E-VALIDACION.md` §5.1.
+
+### 19.2 M5 — verificación fresca de solo lectura
+
+- `diagnose-m5-validation.js` contra `SIFHA_Tickets_M5_Validation`: **status
+  `pass`, exit_code 0**, `blocking_total = 0`, `can_start_mssql = true`.
+  Las **2 no-bloqueantes** son columnas más anchas en el destino
+  (`notifications.body` MAX vs 500; `notifications.link` 2000 vs 500).
+- Comprobación directa de catálogo/datos:
+  - `notifications.organization_id` **nullable = true**.
+  - `departments.organization_id` **nullable = false** (NOT NULL).
+  - `CK_notifications_ticket_requires_org`: **habilitada** (`is_disabled = 0`) y
+    **confiable** (`is_not_trusted = 0`).
+  - Notificaciones con `organization_id IS NULL`: **0**; total **26**.
+  - Tablas `dbo`: **24**.
+- **Catálogo de respaldos (`msdb`), solo lectura:** la copia
+  `SIFHA_Tickets_M5_Validation_FULL_20261012_221132.bak` está registrada en
+  `msdb.dbo.backupset` con `is_copy_only = 1`, `backup_size = 11 624 448` bytes,
+  `compressed_backup_size = 782 771` bytes, ruta
+  `C:\Program Files\Microsoft SQL Server\MSSQL16.SIFHADEV\MSSQL\Backup\`.
+
+### 19.3 `RESTORE VERIFYONLY` del respaldo M5 — requisitos y comando
+
+- **Requisito de permiso:** `RESTORE VERIFYONLY` exige `CREATE DATABASE` (rol
+  `dbcreator`/`sysadmin`). La cuenta de la app **no** lo tiene
+  (`HAS_PERMS_BY_NAME(NULL, NULL, 'CREATE ANY DATABASE') = 0`), por eso hoy
+  falla con **Msg 3013 → 262**. También requiere **lectura** de la ruta del
+  `.bak` (ruta local del servidor).
+- **Comando (SSMS, sesión admin):**
+  ```sql
+  RESTORE VERIFYONLY
+      FROM DISK = N'C:\Program Files\Microsoft SQL Server\MSSQL16.SIFHADEV\MSSQL\Backup\SIFHA_Tickets_M5_Validation_FULL_20261012_221132.bak'
+      WITH CHECKSUM;
+  ```
+- `VERIFYONLY` **no** restaura ni escribe datos. Opcionalmente `RESTORE
+  HEADERONLY` / `RESTORE FILELISTONLY` para inspección.
+
+### 19.4 Guía de aplicación de permisos en SSMS
+
+Nuevo documento `docs/APLICAR-PERMISOS-SSMS.md`: guía copiable para una sesión
+de administrador, que **distingue** la cuenta de la app
+(`grant-app-account-minimal.sql`, `@apply = 1`) de la cuenta de solo lectura del
+Grupo E (`create-groupE-readonly-account.sql`, `@apply = 1`), con la creación de
+`LOGIN`/`USER` previa, el `RESTORE VERIFYONLY`, verificación posterior y
+reversión. Las 5 operaciones administrativas quedan **preparadas** (DRY-RUN por
+defecto) y **no ejecutadas**.
+
+### 19.5 Pruebas (esta tanda)
+
+| Prueba | Resultado |
+|---|---|
+| Backend `npm test` | **906 pruebas: 904 pass, 0 fallos, 2 omitidas, 150 suites** |
+
+Sin errores locales nuevos en el repositorio. (Una invocación manual
+`node --test` sin `--import ./test/setup.js` ni el glob `test/*.test.js` produce
+falsos fallos al compartir estado; el comando correcto es `npm test`.)
+
+### 19.6 GitHub / PR / CI
+
+- PR #1: **abierto**, `mergeable_state = clean`, head `2c69427` → `main`;
+  **72 commits**, **208 archivos**, `+34146 / −3100`.
+- CI sobre `2c69427`: **4/4 success**. Rama sincronizada con `origin`; árbol
+  limpio. **No** se ejecuta merge (requiere autorización y cerrar bloqueos).

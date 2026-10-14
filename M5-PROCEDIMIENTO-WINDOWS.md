@@ -50,6 +50,20 @@ WHERE bs.database_name = N'SIFHA_Tickets_M5_Validation'
 ORDER BY bs.backup_finish_date DESC;
 ```
 
+### Verificar el `.bak` ya existente con una cuenta administrativa
+
+`RESTORE VERIFYONLY` exige el permiso **`CREATE DATABASE`** (rol
+`dbcreator`/`sysadmin`); la cuenta de la app no lo tiene, por eso falla con
+**Msg 3013 → 262**. Con una sesión de administrador autorizada:
+
+```sql
+RESTORE VERIFYONLY
+    FROM DISK = N'C:\Program Files\Microsoft SQL Server\MSSQL16.SIFHADEV\MSSQL\Backup\SIFHA_Tickets_M5_Validation_FULL_20261012_221132.bak'
+    WITH CHECKSUM;
+```
+
+No restaura ni escribe datos. Ver `docs/APLICAR-PERMISOS-SSMS.md` Parte C.
+
 Si SSMS corre en el propio `TI-DESK-01`, también puede comprobarse el archivo:
 
 ```powershell

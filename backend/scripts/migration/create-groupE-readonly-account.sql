@@ -67,7 +67,7 @@ END;
  *    @apply                 : 0 = DRY-RUN, 1 = aplica.
  * ------------------------------------------------------------------------- */
 DECLARE @group_e_login SYSNAME = N'sifha_group_e';
-DECLARE @create_user_if_missing BIT = 0;
+DECLARE @create_user_if_missing BIT = 1;
 DECLARE @grant_view_definition BIT = 0;
 DECLARE @apply BIT = 0;
 

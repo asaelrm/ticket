@@ -32,7 +32,8 @@ Documento de cierre para la entrega institucional. Complementa a
 de código): (a) aplicar permisos de la cuenta de aplicación o habilitar la cuenta
 de solo lectura para cerrar Grupo E en `SIFHA_Tickets_DEV`; (b) cuenta con
 `CREATE DATABASE` para el `VERIFYONLY` del respaldo M5. Ver
-`docs/ESTADO-ENTREGA.md` §18 y `docs/GRUPO-E-VALIDACION.md`.
+`docs/ESTADO-ENTREGA.md` §18–§19, `docs/GRUPO-E-VALIDACION.md` y la guía
+`docs/APLICAR-PERMISOS-SSMS.md`.
 
 ## 3. Qué se entregó en esta fase
 
@@ -46,10 +47,10 @@ de solo lectura para cerrar Grupo E en `SIFHA_Tickets_DEV`; (b) cuenta con
 4. **Documentación**: `docs/ESTADO-ENTREGA.md`, `INSTALACION.md`,
    `CONFIGURACION.md`, `BASE-DE-DATOS.md`, `PRUEBAS.md`, `SEGURIDAD.md`,
    `ENTREGA-FINAL.md`; README/checklists/cifras actualizados.
-5. **Commits publicados** hasta `21cf9cc` (rama `integracion-casa-oficina-11oct`
-   sincronizada con `origin`, árbol limpio). CI de GitHub Actions en verde y
-   PR #1 limpio (`mergeable: clean`; 64 commits, 204 archivos, `+33002/−3100`).
-   Ver `docs/ESTADO-ENTREGA.md` §17.
+5. **Commits publicados** hasta `2c69427` (rama `integracion-casa-oficina-11oct`
+   sincronizada con `origin`, árbol limpio). CI de GitHub Actions 4/4 en verde y
+   PR #1 limpio (`mergeable: clean`; 72 commits, 208 archivos, `+34146/−3100`).
+   Ver `docs/ESTADO-ENTREGA.md` §17 y §19.
 6. **Certificación MSSQL**: `npm run test:mssql` **37/37** contra
    `SIFHA_Tickets_M5_Integration_Test`; aserciones alineadas al modelo
    multiempresa (claves globales solo SUPERADMIN; permisos anidados por rol).
@@ -78,6 +79,13 @@ de solo lectura para cerrar Grupo E en `SIFHA_Tickets_DEV`; (b) cuenta con
     (`docs/GRUPO-E-VALIDACION.md`), diagnóstico M5 `pass` (24 tablas, 0
     diferencias), pruebas backend 906/904/0/2 y frontend 1080/1080, `npm audit`
     0/0. Publicado en `origin` (`a990bb0`), CI 4/4 success; sin merge.
+11. **Cierre autónomo (2026-10-14, cuarta tanda)**: evidencia **reforzada** de
+    Grupo E (arranque en seco en base aislada con conteo de las 24 tablas
+    **antes/después = 0 cambios**; `docs/GRUPO-E-VALIDACION.md` §5.1), M5
+    verificado de nuevo (`pass`, CHECK confiable, 0 nulos, respaldo visible en
+    `msdb`), requisitos y **comando exacto de `RESTORE VERIFYONLY`**, y nueva
+    **guía SSMS `docs/APLICAR-PERMISOS-SSMS.md`** (app vs. solo lectura). Sin
+    cambios de código de aplicación; sin operaciones administrativas.
 
 ## 4. Pendientes que requieren intervención del responsable
 
@@ -86,10 +94,10 @@ de solo lectura para cerrar Grupo E en `SIFHA_Tickets_DEV`; (b) cuenta con
 | 1 | ~~Ejecutar Grupo D sobre `SIFHA_GroupD_ScratchTest`~~ **COMPLETADO** (2026-10-13: POST-D GO / FINAL GO; `docs/ESTADO-ENTREGA.md` §5.4) | P0 |
 | 2 | ~~Secuencia B→C→D→E en `SIFHA_Tickets_DEV`~~ **Grupo D ya ejecutado/verificado en DEV** (2026-10-13, §14); **Grupo E**: objetivo demostrado en base aislada, cierre en DEV pendiente de permisos (ver `docs/GRUPO-E-VALIDACION.md`) | P0 |
 | 3 | **Permisos de la cuenta `sifha_ticket_dev`**: preparar/ejecutar el script idempotente por tabla `grant-app-account-minimal.sql` (no ejecutado; requiere autorización) | P0 |
-| 4 | Certificar **M5 en `SIFHA_Tickets_DEV`** (solo lectura) y `VERIFYONLY` del respaldo M5 (cuenta con `CREATE DATABASE`); en `M5_Validation` el objetivo está cumplido (diagnóstico `pass`) y en DEV el objetivo M5 ya se leyó | P1 |
+| 4 | Certificar **M5 en `SIFHA_Tickets_DEV`** (solo lectura) y `VERIFYONLY` del respaldo M5 (cuenta con `CREATE DATABASE`; comando exacto en `docs/APLICAR-PERMISOS-SSMS.md` Parte C); en `M5_Validation` el objetivo está cumplido (diagnóstico `pass`) y en DEV el objetivo M5 ya se leyó | P1 |
 | 5 | Re-ejecutar `npm run test:mssql` solo bajo nueva autorización (la suite escribe datos) | P1 |
 | 6 | Prueba de instalación desde cero (`ENTREGA-CHECKLIST.md` §7) | P1 |
-| 7 | ~~Push a GitHub~~ **COMPLETADO** (`origin` en `21cf9cc`; CI en verde) | — |
+| 7 | ~~Push a GitHub~~ **COMPLETADO** (`origin` en `2c69427`; CI en verde) | — |
 
 ## 5. Referencias
 
@@ -97,5 +105,6 @@ de solo lectura para cerrar Grupo E en `SIFHA_Tickets_DEV`; (b) cuenta con
 - Migraciones: `backend/scripts/migration/`.
 - Pruebas: `docs/PRUEBAS.md`, `ENTREGA-CHECKLIST.md`.
 - Grupo E: `docs/GRUPO-E-VALIDACION.md`.
+- Permisos/SSMS: `docs/APLICAR-PERMISOS-SSMS.md`.
 - Seguridad: `docs/SEGURIDAD.md`, `docs/SEGURIDAD-AUDITORIA.md`.
 - Infraestructura: `ENTREGA-INFRAESTRUCTURA.md`.
