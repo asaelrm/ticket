@@ -1368,6 +1368,16 @@ router.post('/:id/assign', async (req, res) => {
   if (!ticket || !canViewTicket(req.user, ticket)) return res.status(404).json({ error: 'Ticket no encontrado' });
   if (!hasPerm(req.user, 'ticket.assign')) return res.status(403).json({ error: 'No tiene permiso para asignar' });
 
+  // Los datos de negocio de un ticket terminal son inmutables: la asignación
+  // también. Sin esta guarda, POST /:id/assign esquivaba la regla del PATCH
+  // genérico (ver más arriba) y reasignaba un ticket RESOLVED/CLOSED/CANCELLED,
+  // escribiendo historial y disparando avisos prohibidos en estados terminales.
+  const touchesAssignment = Object.prototype.hasOwnProperty.call(req.body, 'assigned_to_id')
+    || Object.prototype.hasOwnProperty.call(req.body, 'assigned_team_id');
+  if (['RESOLVED', 'CLOSED', 'CANCELLED'].includes(ticket.status) && touchesAssignment) {
+    return res.status(400).json({ error: 'No puede modificar la asignación de un ticket terminal' });
+  }
+
   const updates = [];
   const entries = [];
   const now = nowIso();

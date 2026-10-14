@@ -270,6 +270,25 @@ describe('Regresiones I1-I3: exportación, avisos y tickets terminales', () => {
     assert.equal(detail.body.ticket.status, 'RESOLVED');
     assert.equal(detail.body.ticket.description, 'Descripción de flujo');
   });
+
+  it('I4: /:id/assign no reasigna un ticket terminal (misma inmutabilidad que el PATCH)', async () => {
+    const users = (await adminC.get('/api/users')).body.data;
+    const tecnico = users.find((u) => u.username === 'tecnico');
+    assert.ok(tecnico, 'el usuario técnico existe en el seed');
+
+    const ticket = await newTicket(empleadoC, { title: 'Terminal sin reasignar I4' });
+    assert.equal((await adminC.post(`/api/tickets/${ticket.id}/cancel`, { reason: 'Duplicado' })).status, 200);
+
+    const notificationsBefore = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?').get(ticket.id).n;
+    const assign = await adminC.post(`/api/tickets/${ticket.id}/assign`, { assigned_to_id: tecnico.id });
+    assert.equal(assign.status, 400, 'la asignación de un ticket terminal se rechaza');
+    assert.match(assign.body.error, /terminal/i);
+
+    const detail = await adminC.get(`/api/tickets/${ticket.id}`);
+    assert.equal(detail.body.ticket.assigned_to_id, null, 'no se reasigna el ticket terminal');
+    const notificationsAfter = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?').get(ticket.id).n;
+    assert.equal(notificationsAfter, notificationsBefore, 'no dispara avisos de asignación');
+  });
 });
 
 describe('Las transiciones legítimas del PATCH siguen funcionando', () => {
