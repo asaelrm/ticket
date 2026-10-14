@@ -86,9 +86,26 @@ describe('grant-app-account-minimal.sql (permisos operativos DEV)', () => {
       assert.match(code, new RegExp(`N'${tbl}'`, 'i'), `falta la tabla ${tbl}`);
     }
   });
-});
 
-// Cuenta de SOLO LECTURA para las verificaciones del Grupo E: exclusivamente
+  it('revoca permisos DML sobrantes solo si @revoke_extra = 1 y acotado al mapa', () => {
+    const code = readCode(name);
+    assert.match(code, /@revoke_extra\s+BIT\s*=\s*0\b/, 'no debe revocar por defecto');
+    assert.match(code, /REVOKE\s*'\s*\+\s*@rperm/i, 'debe componer REVOKE <perm> ON dbo.<tabla>');
+    assert.match(code, /p\.permission_name\s+IN\s*\(N'SELECT',\s*N'INSERT',\s*N'UPDATE',\s*N'DELETE'\)/i);
+    assert.match(code, /JOIN\s+@grants\s+g\s+ON\s+g\.tbl\b/i, 'debe acotar a las 24 tablas del mapa');
+    assert.match(code, /CHARINDEX\([\s\S]*?p\.permission_name[\s\S]*?g\.perms[\s\S]*?\)\s*=\s*0/i);
+    assert.match(code, /COLLATE\s+DATABASE_DEFAULT/i, 'debe resolver el conflicto de collation del catalogo');
+  });
+
+  it('no ejecuta DML sobre tablas persistentes (solo GRANT/REVOKE/SELECT)', () => {
+    const code = readCode(name);
+    assert.doesNotMatch(code, /\bINSERT\s+(OR\s+\w+\s+)?INTO\s+dbo\./i);
+    assert.doesNotMatch(code, /\bDELETE\s+FROM\s+dbo\./i);
+    assert.doesNotMatch(code, /\bUPDATE\s+dbo\./i);
+    assert.doesNotMatch(code, /\bALTER\s+TABLE\b/i);
+    assert.doesNotMatch(code, /\bTRUNCATE\b/i);
+  });
+});
 // GRANT SELECT por tabla (mas VIEW DEFINITION opt-in). Nunca INSERT/UPDATE/
 // DELETE ni roles globales.
 describe('create-groupE-readonly-account.sql (cuenta solo lectura Grupo E)', () => {

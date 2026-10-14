@@ -40,8 +40,16 @@
  *   kb_article_history : SELECT, INSERT
  *
  * Seguridad de ejecucion
- *   @apply = 0 (por defecto): DRY-RUN. Solo imprime las sentencias GRANT.
+ *   @apply = 0 (por defecto): DRY-RUN. Solo imprime las sentencias.
  *   @apply = 1             : ejecuta los GRANT (idempotentes: re-ejecutables).
+ *   @revoke_extra = 0 (defecto): no retira permisos sobrantes existentes.
+ *   @revoke_extra = 1        : ademas REVOKE los permisos DML sobre las 24 tablas
+ *                              que NO estan en el mapa (minimo privilegio real).
+ *
+ * Nota (seed): en modo MSSQL el arranque NO ejecuta seed (startup.js), por lo que
+ *   el runtime no necesita INSERT en permissions/roles. Si un operador desea
+ *   ejecutar `npm run db:seed` contra DEV con esta misma cuenta, ese paso requiere
+ *   INSERT en varias tablas y debe hacerse con una cuenta privilegiada, aparte.
  *
  * Uso (SSMS o sqlcmd, con una cuenta privilegiada: db_owner o miembro de
  *      db_securityadmin con CONTROL en la base). NO usar sa.
@@ -89,6 +97,7 @@ END;
  * ------------------------------------------------------------------------- */
 DECLARE @app_login SYSNAME = N'sifha_ticket_dev';   -- usuario de base de la app
 DECLARE @apply BIT = 0;                              -- 0 = DRY-RUN, 1 = aplica
+DECLARE @revoke_extra BIT = 0;                       -- 1 = revoca DML sobrante (minimo privilegio)
 
 PRINT N'============================================================';
 PRINT N' PERMISOS OPERATIVOS DE MINIMO PRIVILEGIO - SIFHA_Tickets_DEV';
@@ -197,6 +206,51 @@ BEGIN
 END;
 CLOSE grant_cur;
 DEALLOCATE grant_cur;
+
+/* ---------------------------------------------------------------------------
+ * 6.bis. (Opcional) Revocar permisos DML sobrantes (minimo privilegio real).
+ *   @revoke_extra = 1: REVOKE SELECT/INSERT/UPDATE/DELETE de @app_login sobre
+ *   las 24 tablas del esquema cuando la operacion NO figura en @grants.
+ *   Alcance acotado: solo las 24 tablas y los 4 permisos DML (no toca
+ *   referencias, EXECUTE, permisos de esquema ni objetos fuera del mapa).
+ * ------------------------------------------------------------------------- */
+IF @revoke_extra = 1
+BEGIN
+    DECLARE @rtbl SYSNAME, @rperm NVARCHAR(20), @rsql NVARCHAR(MAX);
+    DECLARE revoke_cur CURSOR LOCAL FAST_FORWARD FOR
+        SELECT o.name, p.permission_name
+        FROM sys.database_permissions p
+        JOIN sys.objects o ON o.object_id = p.major_id
+        JOIN @grants g ON g.tbl COLLATE DATABASE_DEFAULT = o.name COLLATE DATABASE_DEFAULT
+        WHERE p.grantee_principal_id = USER_ID(@app_login)
+          AND p.class = 1
+          AND p.state_desc = N'GRANT'
+          AND p.permission_name IN (N'SELECT', N'INSERT', N'UPDATE', N'DELETE')
+          AND CHARINDEX(
+                  p.permission_name COLLATE DATABASE_DEFAULT,
+                  g.perms           COLLATE DATABASE_DEFAULT
+              ) = 0;
+
+    OPEN revoke_cur;
+    FETCH NEXT FROM revoke_cur INTO @rtbl, @rperm;
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        SET @rsql = N'REVOKE ' + @rperm + N' ON dbo.' + QUOTENAME(@rtbl) + N' FROM ' + QUOTENAME(@app_login) + N';';
+        IF @apply = 1
+        BEGIN
+            EXEC sys.sp_executesql @rsql;
+            PRINT N'REVOCADO: ' + @rsql;
+        END
+        ELSE
+            PRINT N'[DRY-RUN] ' + @rsql;
+
+        FETCH NEXT FROM revoke_cur INTO @rtbl, @rperm;
+    END
+    CLOSE revoke_cur;
+    DEALLOCATE revoke_cur;
+END
+ELSE
+    PRINT N'INFO: @revoke_extra = 0; no se revocan permisos sobrantes.';
 
 /* ---------------------------------------------------------------------------
  * 7. Comprobacion posterior: permisos explicitos resultantes y veredicto.
