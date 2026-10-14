@@ -9,7 +9,7 @@ hallazgos de la revisión de oficina).
 
 | Suite | Comando | Resultado |
 | --- | --- | --- |
-| Backend | `cd backend; npm test` | 904 pruebas, 902 pass, 0 fallos, 2 omitidas (SQLite temporal; las suites MSSQL viven en `test/mssql/` y salen con `npm run test:mssql`) |
+| Backend | `cd backend; npm test` | 906 pruebas, 904 pass, 0 fallos, 2 omitidas (SQLite temporal; las suites MSSQL viven en `test/mssql/` y salen con `npm run test:mssql`) |
 | Frontend | `docker exec -w /app/frontend ticket-dev-frontend npx vitest run` | 44 archivos, 1080 pass |
 | Build producción frontend | `npx vite build` (contenedor frontend) | OK |
 | Traducción SQLite→T-SQL | `node --test test/mssql-sql-translation.test.js` | 249 sentencias, 0 incompatibles |

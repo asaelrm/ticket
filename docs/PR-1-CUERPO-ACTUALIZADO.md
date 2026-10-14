@@ -47,7 +47,7 @@ Integración del trabajo de oficina y casa sobre la rama
 
 | Prueba | Resultado |
 |---|---|
-| Backend `npm test` (SQLite) | 904 pruebas: **902 pass, 0 fallos, 2 omitidas**, 150 suites |
+| Backend `npm test` (SQLite) | 906 pruebas: **904 pass, 0 fallos, 2 omitidas**, 150 suites |
 | Frontend `vitest run` | **1080/1080** |
 | Frontend `vite build` | **OK** |
 | `npm audit` backend / frontend | **0 / 0** |

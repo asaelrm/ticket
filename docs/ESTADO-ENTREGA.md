@@ -861,11 +861,11 @@ de permisos (ambos requieren autorización del responsable).
 
 | Prueba | Resultado |
 |---|---|
-| Backend `npm test` | **904 pruebas: 902 pass, 0 fallos, 2 omitidas, 150 suites** (~110 s) |
+| Backend `npm test` | **906 pruebas: 904 pass, 0 fallos, 2 omitidas, 150 suites** (~95 s) |
 | Frontend `vitest run` | **1080/1080** |
 | Frontend `vite build` | **OK** |
 | `npm audit` backend / frontend | **0 / 0** |
-| Regresión scripts (incl. comentario anidado) | 13/13 pass |
+| Regresión scripts (incl. comentario anidado) | 15/15 pass |
 | Regresión tickets (`I4 /assign` terminal) | 30/30 pass |
 
 Auditoría de seguridad: sin hallazgos Altos/Medios nuevos; **1 defecto Bajo**
@@ -891,3 +891,32 @@ regresiones; suites en verde; sin vulnerabilidades nuevas. **Bloqueos externos**
 para el cierre operativo en `SIFHA_Tickets_DEV`: (a) aplicar permisos de la cuenta
 de aplicación o habilitar la cuenta de solo lectura del Grupo E; (b) cuenta con
 `CREATE DATABASE` para el `VERIFYONLY` del respaldo M5.
+
+### 18.9 Endurecimiento del script de permisos y verificación de conexión admin
+
+- **Conexión administrativa autorizada: NO existe.** Se comprobó (a) que no hay
+  credenciales admin en la configuración (solo la cuenta de aplicación
+  `sifha_ticket_dev` en `.env`/`.env.mssql-test`/`.env.backup-local`) y (b) que la
+  autenticación integrada de Windows falla (`Cannot generate SSPI context`; el
+  equipo no pertenece al dominio del servidor). Por tanto **no se aplicaron
+  permisos** (requiere autorización del responsable). No se exponen credenciales.
+- **Tercer defecto real corregido (collation, `Msg 468`):** la nueva sección de
+  revocación comparaba `sys.database_permissions.permission_name`
+  (collation `Latin1_General_CI_AS_KS_WS`) con la variable de tabla `@grants.perms`
+  (collation de la base) y producía `Cannot resolve the collation conflict`.
+  Corregido con `COLLATE DATABASE_DEFAULT` en el JOIN y en el `CHARINDEX`, con
+  aserción de regresión. Detectado al ejecutar el script en modo DRY-RUN contra el
+  servidor (no por análisis estático).
+- **Mínimo privilegio reforzado:** el mapa GRANT se verificó de nuevo contra las
+  operaciones reales del backend (análisis estático de `backend/src`). Coincide,
+  salvo que `permissions`/`roles` solo se escriben en el seed (no en runtime MSSQL:
+  `startup.js` devuelve `seeded: false`), de ahí `SELECT` únicamente. Se añadió la
+  sección **opt-in** `@revoke_extra` (por defecto **0**) para revocar DML sobrante
+  acotado a las 24 tablas (p. ej. el `departments.DELETE` heredado). El script
+  **no ejecuta DML sobre tablas persistentes**, solo `GRANT`/`REVOKE`/`SELECT`.
+- **Verificación antes/después:** el script imprime el estado de permisos previo y
+  posterior, más los indicadores de rol (`db_owner`/`db_ddladmin`/`db_datawriter`/
+  `db_datareader`, todos deben ser 0).
+- **Validación ejecutada:** `dev-permissions-scripts.test.js` → **15/15 pass**;
+  comprobación de compilación contra el servidor (DRY-RUN, sin cambios) sin
+  errores de sintaxis ni de collation.

@@ -18,7 +18,7 @@ Documento de cierre para la entrega institucional. Complementa a
 |------|--------|
 | Código de funcionalidades críticas | **LISTO** |
 | Errores bloqueantes conocidos | **0**; 2 defectos reales corregidos con regresión (`/assign` terminal; comentario SQL anidado) |
-| `npm test` (backend SQLite) | 904 pruebas, 902 pass, 0 fallos, 2 omitidas, 150 suites |
+| `npm test` (backend SQLite) | 906 pruebas, 904 pass, 0 fallos, 2 omitidas, 150 suites |
 | `npm run test:mssql` (integración MSSQL) | **37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` (no re-ejecutada: escribe; requiere autorización) |
 | Frontend (vitest + build) | 1080/1080; build OK |
 | Migraciones Grupo D | **CERTIFICADO** en `SIFHA_GroupD_ScratchTest` (2026-10-13: POST-D GO / FINAL GO) y **ejecutado/verificado en `SIFHA_Tickets_DEV`** |
@@ -76,7 +76,7 @@ de solo lectura para cerrar Grupo E en `SIFHA_Tickets_DEV`; (b) cuenta con
     esquivaba la inmutabilidad de tickets terminales, ahora rechaza con 400
     (regresión «I4»). Además: Grupo E demostrado en base aislada
     (`docs/GRUPO-E-VALIDACION.md`), diagnóstico M5 `pass` (24 tablas, 0
-    diferencias), pruebas backend 904/902/0/2 y frontend 1080/1080, `npm audit`
+    diferencias), pruebas backend 906/904/0/2 y frontend 1080/1080, `npm audit`
     0/0. Sin push ni merge.
 
 ## 4. Pendientes que requieren intervención del responsable
