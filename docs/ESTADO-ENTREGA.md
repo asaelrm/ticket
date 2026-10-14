@@ -1,9 +1,9 @@
 # Estado de entrega — SIFHA Ticket
 
-**Fecha:** 2026-10-13
+**Fecha:** 2026-10-13 (última actualización de secciones 1–16); sesión de cierre 2026-10-14 en §17.
 **Rama:** `integracion-casa-oficina-11oct`
-**Último commit publicado:** `7723d87` (en `origin/integracion-casa-oficina-11oct`; rama sincronizada, árbol limpio).
-**Commits locales pendientes de push:** ninguno hasta `7723d87` (todo publicado). La sesión de finalización del 2026-10-13 añade commits locales nuevos (ver §12).
+**Último commit publicado:** `21cf9cc` (en `origin/integracion-casa-oficina-11oct`; rama sincronizada, árbol limpio).
+**Commits locales pendientes de push:** ninguno (HEAD = `origin` = `21cf9cc`).
 **Alcance:** auditoría de entrega, corrección del bloqueo SQL del Grupo D, fix
 `FILLFACTOR=0`, **certificación de Grupo D en el scratch (POST-D GO / FINAL GO)**,
 limpieza de la suite de pruebas, verificación de secretos y preparación de commits.
@@ -17,7 +17,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 | 1 | Auditoría del repositorio (rama, módulos, pruebas, migraciones, docs) | P0 | COMPLETADO | Este documento |
 | 2 | Corregir falso positivo del guard UNIQUE del Grupo D (`ROWS_FILEGROUP`) | P0 | COMPLETADO | `backend/scripts/migration/apply-groupD-not-null*.sql`, `diagnose-groupD-unique-blocker.sql` |
 | 3 | Preparar comandos SQL del Grupo D para ejecución autorizada | P0 | COMPLETADO | Ejecutado sobre `SIFHA_GroupD_ScratchTest`; ver §5 |
-| 4 | Ejecutar `npm test` (backend SQLite) sin fallos | P1 | COMPLETADO | 890 pruebas, 888 pass, 0 fallos, 2 omitidas |
+| 4 | Ejecutar `npm test` (backend SQLite) sin fallos | P1 | COMPLETADO | 895 pruebas, 893 pass, 0 fallos, 2 omitidas (ver §17.8) |
 | 5 | Ejecutar pruebas frontend + build de producción | P1 | COMPLETADO | 1080/1080; `vite build` OK |
 | 6 | Reorganizar suites MSSQL de integración (`test/mssql/`) | P1 | COMPLETADO | `backend/package.json`, `backend/test/mssql/` |
 | 7 | Auditar secretos y `.env` versionados | P0 | COMPLETADO | `git ls-files`; `.gitignore` cubre `.env*`; `.env.mssql-test.example` saneado |
@@ -53,7 +53,7 @@ limpieza de la suite de pruebas, verificación de secretos y preparación de com
 
 | Suite | Comando | Resultado |
 |-------|---------|-----------|
-| Backend (SQLite temporal) | `npm test` | **890 pruebas, 888 pass, 0 fail, 2 skip** (~130 s) |
+| Backend (SQLite temporal) | `npm test` | **895 pruebas, 893 pass, 0 fail, 2 skip** (~100 s) |
 | Integración MSSQL (requiere entorno) | `npm run test:mssql` | **EJECUTADA: 37/37 pass** contra `SIFHA_Tickets_M5_Integration_Test` (ver §3.2) |
 | Frontend | `npx vitest run` | **44 archivos, 1080/1080 pass** (0 fail, ~93 s) |
 | Build producción frontend | `npm run build` | **OK** (`dist/` generado) |
@@ -373,7 +373,7 @@ migraciones DEV en modo solo lectura y revisión del PR #1.
 
 ### 10.3 Documentación
 
-- Cifras de pruebas alineadas a la ejecución vigente (**890/888/0/2** backend;
+- Cifras de pruebas alineadas a la ejecución vigente (**895/893/0/2** backend;
   1080/1080 frontend) en README, `ENTREGA-CHECKLIST`, `ENTREGA-INFRAESTRUCTURA`,
   `docs/DEPLOY-MSSQL`, `docs/ENTREGA-FINAL` y `docs/PRUEBAS`.
 - `docs/PRUEBAS.md` deja de marcar la integración MSSQL como pendiente (está
@@ -429,7 +429,7 @@ repitió ninguna certificación ya cerrada (Grupo D en scratch, integración MSS
   **`conclusion: success`** (jobs *Backend (SQLite temporal)* y
   *Frontend (vitest + build)* en verde).
 - **PR #1:** abierto, `mergeable: true`, `mergeable_state: clean`.
-- **Pruebas locales reconfirmadas:** backend **890/888 pass, 0 fallos,
+- **Pruebas locales reconfirmadas:** backend **895/893 pass, 0 fallos,
   2 omitidas**; frontend **44 archivos, 1080/1080**; `vite build` **OK**.
 - **Dependencias:** `npm audit` **0 hallazgos** en backend y frontend.
 - **Secretos:** solo `.env.example`/`.env.mssql-test.example` versionados;
@@ -649,3 +649,138 @@ responde, pero SQL Server rechazó el login configurado localmente.
    E con `MSSQL_RUNTIME=true` y `JOBS_ENABLED=false`. M5 usa exclusivamente
    `SIFHA_Tickets_M5_Validation` y sus verificadores de solo lectura; no debe
    apuntarse a DEV.
+
+## 17. Cierre de comprobaciones seguras (2026-10-14)
+
+Sesión autónoma sobre el árbol limpio de §16 (HEAD `21cf9cc`). Sin push, sin merge,
+sin DDL/DML sobre ninguna base. No se repitió ninguna certificación cerrada. El
+bloqueo de autenticación (§16) queda **resuelto**.
+
+### 17.1 ELOGIN resuelto (SSMS y Node.js)
+
+- Causa: contraseña del login SQL `sifha_ticket_dev` desincronizada. Resuelta por
+  **rotación autorizada** por el administrador (no ejecutada por el agente).
+- Verificación SSMS: login correcto, acceso a `SIFHA_Tickets_DEV`, login habilitado
+  y mapeado, instancia en **modo mixto**.
+- Verificación Node.js (`mssql@12.2.0`): probe `SELECT` de identidad → **PASS**:
+  base `SIFHA_Tickets_DEV`, instancia `TI-DESK-01\SIFHADEV`, usuario
+  `sifha_ticket_dev`. Sin escrituras; conexión cerrada.
+- Config efectiva del probe: `DB_CLIENT=mssql`, `DB_SERVER=100.100.4.60`,
+  `DB_PORT=1433`, `DB_ENCRYPT=true`, `DB_TRUST_SERVER_CERTIFICATE=true`,
+  `MSSQL_RUNTIME=true`. `MSSQL_RUNTIME=true` es obligatorio: sin él, `config.js`
+  sirve `dbClient='sqlite'` aunque `DB_CLIENT=mssql`.
+
+### 17.2 Permisos reales de `sifha_ticket_dev` (hallazgo, solo lectura)
+
+Consulta `IS_MEMBER(...)`: `db_datareader=0`, `db_datawriter=0`, `db_owner=0`,
+`db_ddladmin=0`. Permisos **directos** (a nivel de objeto):
+
+| Objeto | Permisos directos |
+|---|---|
+| `departments` | SELECT, INSERT, UPDATE, DELETE |
+| `role_permissions` | SELECT, INSERT, DELETE |
+| `sessions` | SELECT, INSERT, UPDATE, DELETE |
+| `users` | SELECT, UPDATE |
+| `roles` | SELECT |
+| `permissions` | SELECT |
+
+- **`dbo.tickets` existe pero la cuenta NO tiene `SELECT`** (error `EREQUEST`:
+  «SELECT permission denied on object 'tickets'»). Idem para el resto del esquema.
+- `sys.tables` devuelve **6 tablas** por **visibilidad de metadatos**, no porque el
+  esquema tenga 6: la estructura canónica (`backend/src/db/mssql/schema.sql`) define
+  23 tablas. Coincide con el artefacto descrito en §5.2.
+- **Consecuencia:** con esta cuenta el backend no puede operar (no lee `tickets`,
+  `notifications`, `settings`, etc.). **No es una cuenta de solo lectura
+  utilizable para Grupo E** (tiene INSERT/UPDATE/DELETE en 4 tablas y no tiene
+  SELECT en casi ninguna).
+
+### 17.3 Auditoría de arranque y GETs (garantía de no-escritura)
+
+Auditoría de código (solo lectura) de todo el backend:
+
+- **Arranque MSSQL (`MSSQL_RUNTIME=true`):** `prepareDatabase()` ejecuta
+  únicamente `validateMssqlSchema()` (3 `SELECT` a catálogo; `startup.js` y
+  `schemaValidator.js`). **No** hay migración, seed ni snapshot en la rama MSSQL.
+- **Jobs:** `startJobs()` no hace nada con `JOBS_ENABLED=false`; con el valor por
+  defecto (`true`) ejecuta `runMaintenance()` de inmediato (UPDATE/INSERT/DELETE).
+  Por tanto **`JOBS_ENABLED=false` es obligatorio** para el arranque en seco.
+- **Escrituras en peticiones GET (hallazgo real):** «solo GET» **no** garantiza
+  cero escrituras:
+  1. Cada GET autenticado con cookie válida ejecuta
+     `UPDATE sessions SET expire...` (rolling session: `app.js` y
+     `db/sessionStore.js`).
+  2. `GET /api/kb-articles/:id` sobre artículo PUBLISHED de otro autor ejecuta
+     `UPDATE kb_articles SET view_count = view_count + 1`.
+  3. Caso borde: `requireAuth` con cuenta/organización inactiva ejecuta
+     `DELETE FROM sessions`.
+  El resto de GET (`/api/health`, `/api/auth/me`, `/api/tickets*`, `/api/users`,
+  `/api/roles*`, `/api/departments`, `/api/settings`, `/api/dashboard/*`,
+  `/api/reports/*`, `/api/notifications*`, descargas, exportaciones) son `SELECT`.
+- **Veredicto:** para un arranque 100 % sin escrituras usar `MSSQL_RUNTIME=true` +
+  `JOBS_ENABLED=false` y limitar las peticiones a GET **anónimos** (sin cookie de
+  sesión inicializada), evitando `GET /api/kb-articles/:id`. Con sesión autenticada
+  hay escritura inevitable de sesión.
+
+### 17.4 M5: DEV vs `SIFHA_Tickets_M5_Validation` (solo lectura)
+
+| Base | Estado | Evidencia |
+|---|---|---|
+| `SIFHA_Tickets_DEV` | Objetivo M5 cumplido (leído): `notifications.organization_id` NULL-able; `CK_notifications_ticket_requires_org` presente, habilitada y confiable; `departments.organization_id` NOT NULL (post-D) | Preflight §12.3, §14 |
+| `SIFHA_Tickets_M5_Validation` | Objetivo cumplido con datos (24 tablas; 1 org CMUCE; 25 deptos; 9 tickets; 5 usuarios; 26 notificaciones) | §5.3 |
+| Respaldo `SIFHA_Tickets_M5_Validation_FULL_20261012_221132.bak` | Creado (`COPY_ONLY + CHECKSUM + COMPRESSION`); `VERIFYONLY` pendiente de cuenta con `CREATE DATABASE` | §5.3 |
+
+Los scripts M5 del repositorio están **sellados** a `SIFHA_Tickets_M5_Validation` y
+no deben apuntarse a DEV (§13.3).
+
+### 17.5 GitHub y PR #1 (estado real vía API, 2026-10-14)
+
+- PR #1: **abierto**, `mergeable: true`, `mergeable_state: clean`, head `21cf9cc`
+  → base `f7cebed`; **64 commits**, **204 archivos**, `+33002 / −3100`.
+- CI GitHub Actions: última ejecución sobre `21cf9cc` (`push` y `pull_request`) →
+  **`conclusion: success`**.
+- `git`: rama `integracion-casa-oficina-11oct` **sincronizada** con `origin`
+  (HEAD = `origin` = `21cf9cc`); `main` en `f7cebed`; árbol limpio.
+- `docs/PR-1-CUERPO-ACTUALIZADO.md` actualizado con las cifras reales (antes
+  indicaba `7723d87`, 56 commits y 200 archivos).
+
+### 17.6 Limpieza y seguridad
+
+- Corrección accidental revertida en
+  `backend/scripts/migration/verify-after-groupD-scratch-test.sql` (typo
+  `comprobacionO` → `comprobacion`); árbol limpio.
+- El probe temporal `D:\ticket\test_ok.mjs` **ya no existe** (eliminado tras la
+  prueba de conexión); no era un artefacto versionado.
+- Archivos locales de credenciales `.env`, `.env.backup-local`, `.env.mssql-test`
+  y los logs/automatizaciones de raíz (`auto-push.ps1`, `git-watch.ps1`,
+  `vitest*.log`, respaldos, `*.exe`, `*.7z`) están **gitignored** (verificado con
+  `git check-ignore`); no se versiona ningún secreto.
+- **Riesgo residual:** `backend/.env.backup-local` conserva una variante de la
+  credencial en texto plano (local, no versionada). Recomendado eliminarla tras
+  confirmar que la rotación quedó aplicada en `backend/.env`.
+
+### 17.7 Estado de Grupo E
+
+**BLOQUEADO.** No existe todavía una cuenta de **solo lectura verificable** para
+`SIFHA_Tickets_DEV`: `sifha_ticket_dev` carece de `SELECT` sobre `tickets` y el
+resto del esquema (§17.2). Requiere (a) cuenta de solo lectura autorizada o (b)
+corrección de permisos de `sifha_ticket_dev` (script idempotente de mínimo
+privilegio; **no ejecutado**). No se declara GO sin evidencias reales.
+
+### 17.8 Artefactos nuevos y verificación
+
+- **Nuevo script (no ejecutado):** `backend/scripts/migration/grant-app-account-minimal.sql`
+  — idempotente, con guarda de identidad DEV y SQL dinámico con `QUOTENAME`;
+  concede **solo** `db_datareader` + `db_datawriter` a la cuenta de aplicación y,
+  opcionalmente, `db_datareader` a una cuenta de solo lectura para Grupo E.
+  **No** concede `db_owner`/`db_ddladmin`/`sysadmin`, no crea logins ni usuarios.
+  Requiere autorización explícita para ejecutarse.
+- **Nueva regresión estática:** `backend/test/dev-permissions-scripts.test.js`
+  (5 pruebas): exige guarda de identidad, mínimo privilegio, ausencia de
+  `db_owner`/`db_ddladmin`/`sysadmin`, ausencia de `CREATE/ALTER LOGIN|USER`,
+  `DROP` y uso de `QUOTENAME`.
+- **Backend `npm test` (re-ejecutado):** **895 pruebas, 893 pass, 0 fallos,
+  2 omitidas, 148 suites** (~100 s). Las 5 pruebas nuevas son las que elevan el
+  total (antes 890/888/2/147). No se modificó código de aplicación.
+- **Prueba dirigida de scripts:** las 3 suites estáticas de scripts
+  (`dev-permissions-scripts`, `dev-readonly-scripts`, `groupD-scratch-verifiers`)
+  → **22/22 pass**.
