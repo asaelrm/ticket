@@ -878,11 +878,13 @@ El esquema canónico tiene **24 tablas** en todos los artefactos (`schema.sql` y
 commits `3f35476`/`cbabe8e`). El «23 tablas» de §17.2 era un error tipográfico ya
 corregido. Los **23 índices** del autodiagnóstico son un conteo distinto y correcto.
 
-### 18.7 Artefactos y commits locales (sin push/merge)
+### 18.7 Artefactos y commits (publicados, sin merge)
 
-Preparados para commit local: los dos scripts SQL de permisos y solo lectura, las
-dos regresiones estáticas, el fix de `/assign` con su regresión, y estas notas de
-entrega. **No se ejecutó push ni merge**; PR #1 permanece abierto y limpio.
+Publicados en `origin` (`integracion-casa-oficina-11oct` → `a990bb0`): los dos
+scripts SQL de permisos y solo lectura, las regresiones estáticas, el fix de
+`/assign` con su regresión y estas notas de entrega. CI sobre `a990bb0`:
+**4/4 success**; PR #1 **`clean`** (71 commits, 208 archivos). **No se ejecutó
+merge** (el merge requiere autorización y cerrar los bloqueos externos).
 
 ### 18.8 Veredicto
 

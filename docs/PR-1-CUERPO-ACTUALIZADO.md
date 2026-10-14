@@ -30,18 +30,20 @@ Integración del trabajo de oficina y casa sobre la rama
   - `grant-app-account-minimal.sql` **no compilaba** por un comentario T-SQL
     anidado (`Msg 113`) → corregido, con regresión que escanea
     `scripts/migration/`.
+  - `grant-app-account-minimal.sql` producía un **conflicto de collation**
+    (`Msg 468`) en la revocación → corregido con `COLLATE DATABASE_DEFAULT`.
   - Nuevo `create-groupE-readonly-account.sql` (cuenta de solo lectura para
-    Grupo E) y permisos por tabla/operación de mínimo privilegio.
+    Grupo E); permisos por tabla/operación de mínimo privilegio y revocación
+    opt-in (`@revoke_extra`).
 - Documentación de entrega e infraestructura actualizada
   (`docs/GRUPO-E-VALIDACION.md` nueva).
 
 ### Alcance
 
-- **Publicado en `origin`:** **66 commits**, **206 archivos** (`+33367 / −3100`).
+- **Publicado en `origin`:** **71 commits**, **208 archivos** (`+34142 / −3100`).
 - Base: `main` (`f7cebed`). Head publicado: `integracion-casa-oficina-11oct`
-  (`847c86e`, sincronizado con `origin`).
-- **Local:** 3 commits más preparados (`f1c0fb1`, `be017fb` + documentación),
-  **no publicados** (sin autorización de push).
+  (`a990bb0`, sincronizado con `origin`; sin commits locales pendientes).
+- CI GitHub Actions sobre `a990bb0`: **4/4 success**; `mergeable_state: clean`.
 
 ### Verificación
 

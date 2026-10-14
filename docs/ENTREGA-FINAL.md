@@ -77,7 +77,7 @@ de solo lectura para cerrar Grupo E en `SIFHA_Tickets_DEV`; (b) cuenta con
     (regresión «I4»). Además: Grupo E demostrado en base aislada
     (`docs/GRUPO-E-VALIDACION.md`), diagnóstico M5 `pass` (24 tablas, 0
     diferencias), pruebas backend 906/904/0/2 y frontend 1080/1080, `npm audit`
-    0/0. Sin push ni merge.
+    0/0. Publicado en `origin` (`a990bb0`), CI 4/4 success; sin merge.
 
 ## 4. Pendientes que requieren intervención del responsable
 
