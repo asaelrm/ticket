@@ -9,7 +9,7 @@ hallazgos de la revisión de oficina).
 
 | Suite | Comando | Resultado |
 | --- | --- | --- |
-| Backend | `cd backend; npm test` | 890 pruebas, 888 pass, 0 fallos, 2 omitidas (SQLite temporal; las suites MSSQL viven en `test/mssql/` y salen con `npm run test:mssql`) |
+| Backend | `cd backend; npm test` | 904 pruebas, 902 pass, 0 fallos, 2 omitidas (SQLite temporal; las suites MSSQL viven en `test/mssql/` y salen con `npm run test:mssql`) |
 | Frontend | `docker exec -w /app/frontend ticket-dev-frontend npx vitest run` | 44 archivos, 1080 pass |
 | Build producción frontend | `npx vite build` (contenedor frontend) | OK |
 | Traducción SQLite→T-SQL | `node --test test/mssql-sql-translation.test.js` | 249 sentencias, 0 incompatibles |
@@ -48,9 +48,20 @@ hallazgos de la revisión de oficina).
 - [x] **M5**: verificado en `SIFHA_Tickets_M5_Validation` (solo lectura):
       `dbo.notifications.organization_id` es `INT NULL` y
       `CK_notifications_ticket_requires_org` existe, habilitada y confiable;
-      0 notificaciones con organización NULL.
+      0 notificaciones con organización NULL. Diagnóstico `diagnose-m5-validation.js`
+      → `status: pass` (24 tablas, 0 diferencias bloqueantes).
 - [ ] `MSSQL_RUNTIME=true` **no** debe activarse hasta que el diagnóstico M5
       termine con código 0 y exista autorización explícita.
+
+## 4.bis Correcciones y regresiones (2026-10-14, tercera tanda)
+
+- [x] `POST /api/tickets/:id/assign` rechaza reasignar tickets terminales
+      (regresión «I4» en `backend/test/tickets-workflow.test.js`).
+- [x] `grant-app-account-minimal.sql` compila (corregido comentario T-SQL
+      anidado, `Msg 113`); regresión que escanea `scripts/migration/`.
+- [x] Cuenta de solo lectura del Grupo E (`create-groupE-readonly-account.sql`)
+      preparada y cubierta por pruebas estáticas.
+- [x] Grupo E demostrado en base aislada (`docs/GRUPO-E-VALIDACION.md`).
 
 ## 5. Clasificación de pendientes
 

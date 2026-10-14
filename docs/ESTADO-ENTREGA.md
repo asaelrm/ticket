@@ -688,7 +688,8 @@ Consulta `IS_MEMBER(...)`: `db_datareader=0`, `db_datawriter=0`, `db_owner=0`,
   «SELECT permission denied on object 'tickets'»). Idem para el resto del esquema.
 - `sys.tables` devuelve **6 tablas** por **visibilidad de metadatos**, no porque el
   esquema tenga 6: la estructura canónica (`backend/src/db/mssql/schema.sql`) define
-  23 tablas. Coincide con el artefacto descrito en §5.2.
+  **24 tablas** (corrige el conteo previo «23 tablas», que era un error tipográfico).
+  Coincide con el artefacto descrito en §5.2; ver §18.6.
 - **Consecuencia:** con esta cuenta el backend no puede operar (no lee `tickets`,
   `notifications`, `settings`, etc.). **No es una cuenta de solo lectura
   utilizable para Grupo E** (tiene INSERT/UPDATE/DELETE en 4 tablas y no tiene
@@ -770,10 +771,10 @@ privilegio; **no ejecutado**). No se declara GO sin evidencias reales.
 
 - **Nuevo script (no ejecutado):** `backend/scripts/migration/grant-app-account-minimal.sql`
   — idempotente, con guarda de identidad DEV y SQL dinámico con `QUOTENAME`;
-  concede **solo** `db_datareader` + `db_datawriter` a la cuenta de aplicación y,
-  opcionalmente, `db_datareader` a una cuenta de solo lectura para Grupo E.
-  **No** concede `db_owner`/`db_ddladmin`/`sysadmin`, no crea logins ni usuarios.
-  Requiere autorización explícita para ejecutarse.
+  concede permisos **por tabla y operación** (mapa de mínimo privilegio ajustado al
+  uso real del backend). **No** usa `db_datareader`/`db_datawriter` (alcance global),
+  **no** concede `db_owner`/`db_ddladmin`/`sysadmin` y **no** crea logins ni usuarios.
+  Requiere autorización explícita para ejecutarse. Ver §18.
 - **Nueva regresión estática:** `backend/test/dev-permissions-scripts.test.js`
   (5 pruebas): exige guarda de identidad, mínimo privilegio, ausencia de
   `db_owner`/`db_ddladmin`/`sysadmin`, ausencia de `CREATE/ALTER LOGIN|USER`,
@@ -784,3 +785,109 @@ privilegio; **no ejecutado**). No se declara GO sin evidencias reales.
 - **Prueba dirigida de scripts:** las 3 suites estáticas de scripts
   (`dev-permissions-scripts`, `dev-readonly-scripts`, `groupD-scratch-verifiers`)
   → **22/22 pass**.
+
+## 18. Cierre autónomo de entrega (2026-10-14, tercera tanda)
+
+Sesión de revisión integral: corrección de errores reales, validación segura de
+Grupo E/M5, actualización documental y preparación de commits (sin push/merge).
+
+### 18.1 Defecto real corregido: el script de permisos NO compilaba
+
+Al validar la sintaxis T-SQL con `SET PARSEONLY ON`, se detectó que
+`grant-app-account-minimal.sql` devolvía **Msg 113 «Missing end comment mark '*/'»**.
+Causa: el encabezado citaba `(routes/*, middleware/*, db/mssql/*, utils/*)`; en
+T-SQL los comentarios de bloque **anidan**, así que cada `/*` abría un comentario
+interno que dejaba el encabezado sin cerrar y **anulaba todo el script**. Un script
+que se entrega para ejecutarse en SSMS era, por tanto, **inutilizable**.
+
+- Corregido a `(carpetas routes, middleware, db/mssql y utils)`.
+- Validado de nuevo con `SET PARSEONLY ON`: ahora **compila** y alcanza su guarda
+  de identidad/verificación (aborta por precondición, no por sintaxis).
+- **Nueva regresión** en `backend/test/dev-permissions-scripts.test.js`: escanea
+  **todos** los `.sql` de `scripts/migration/` y falla si una línea de continuación
+  de comentario (que empieza por `*`) contiene `/*`. Es la misma clase de defecto
+  que el `sys.*/` ya corregido en `diagnose-dev-account-readonly.sql` (§10.2).
+
+### 18.2 Defecto real corregido: `POST /api/tickets/:id/assign` esquivaba la inmutabilidad
+
+`backend/src/routes/tickets.js`: la asignación (`/assign`) no comprobaba el estado
+terminal del ticket, de modo que un ticket `RESOLVED/CLOSED/CANCELLED` podía
+reasignarse aunque `PATCH/PUT` sí lo impedían. Se añadió la guarda de estado
+terminal (HTTP 400 «No puede modificar la asignación de un ticket terminal»).
+Regresión: `backend/test/tickets-workflow.test.js` → caso
+**«I4: /:id/assign no reasigna un ticket terminal»** (30/30 pass en la suite).
+
+### 18.3 Grupo E (arranque en seco de solo lectura)
+
+**Diseño.** Endpoints de **lectura pura** confirmados por auditoría estática
+(solo `SELECT`): `/api/health`, `/api/auth/me` (anónimo), `/api/tickets*` (GET),
+`/api/users`, `/api/roles*`, `/api/departments`, `/api/settings`,
+`/api/dashboard/*`, `/api/reports/*`, `/api/notifications*`, descargas y
+exportaciones. Efectos indirectos conocidos (ver §17.3): escritura de sesión en
+todo GET autenticado, `UPDATE kb_articles.view_count` en
+`GET /api/kb-articles/:id`, y `DELETE FROM sessions` en el caso borde
+cuenta/organización inactiva. Para un arranque **100 % sin escrituras**:
+`MSSQL_RUNTIME=true` + `JOBS_ENABLED=false` + GET **anónimos** (sin cookie).
+
+**Cuenta de solo lectura preparada (no ejecutada):**
+`backend/scripts/migration/create-groupE-readonly-account.sql` — DRY-RUN por
+defecto, guarda de identidad DEV, `SELECT` por tabla vía `QUOTENAME`, sin
+INSERT/UPDATE/DELETE ni roles globales; deja la creación del LOGIN al
+administrador. Cubierto por `dev-permissions-scripts.test.js`.
+
+**Evidencia ejecutada (base aislada `SIFHA_Tickets_M5_Validation`):**
+arranque con `MSSQL_RUNTIME=true`/`JOBS_ENABLED=false` → `schemaValidator`
+**ok:true** (24 tablas, 204 columnas), `GET /api/health` **200**,
+`GET /api/auth/me` **401** (anónimo, sin escritura de sesión).
+
+**`SIFHA_Tickets_DEV`: BLOQUEADO (externo).** Con la cuenta actual el arranque
+falla en `PREPARE_FAIL` («falta la tabla dbo.organizations/…») porque el login no
+ve las 24 tablas. Requiere cuenta de solo lectura autorizada o aplicar el script
+de permisos (ambos requieren autorización del responsable).
+
+### 18.4 M5 y respaldo (solo lectura)
+
+- `node scripts/migration/diagnose-m5-validation.js` contra
+  `SIFHA_Tickets_M5_Validation`: **status `pass`, exit_code 0**, 0 diferencias de
+  esquema bloqueantes, `can_start_mssql=true`, **24 tablas**, `notifications`
+  total 26 y `null_organization_id = 0`.
+- Autodiagnóstico sin red (`DIAGNOSE_SELFCHECK=1`): **24 tablas, 23 índices**,
+  `mismatches: []`.
+- **Respaldo M5 `VERIFYONLY`: BLOQUEADO (externo).** Error 3013 con predecesor 262
+  «CREATE DATABASE permission denied in database 'master'»: la cuenta no es
+  `sysadmin`/`dbcreator` (`HAS_PERMS_BY_NAME(...,'CREATE ANY DATABASE') = 0`).
+
+### 18.5 Pruebas y seguridad (esta sesión)
+
+| Prueba | Resultado |
+|---|---|
+| Backend `npm test` | **904 pruebas: 902 pass, 0 fallos, 2 omitidas, 150 suites** (~110 s) |
+| Frontend `vitest run` | **1080/1080** |
+| Frontend `vite build` | **OK** |
+| `npm audit` backend / frontend | **0 / 0** |
+| Regresión scripts (incl. comentario anidado) | 13/13 pass |
+| Regresión tickets (`I4 /assign` terminal) | 30/30 pass |
+
+Auditoría de seguridad: sin hallazgos Altos/Medios nuevos; **1 defecto Bajo**
+corregido (§18.2). Secretos: solo `.env.example` y `.env.mssql-test.example`
+están versionados (saneados).
+
+### 18.6 Conteo de tablas: 24 (corrige «23 tablas»)
+
+El esquema canónico tiene **24 tablas** en todos los artefactos (`schema.sql` y
+commits `3f35476`/`cbabe8e`). El «23 tablas» de §17.2 era un error tipográfico ya
+corregido. Los **23 índices** del autodiagnóstico son un conteo distinto y correcto.
+
+### 18.7 Artefactos y commits locales (sin push/merge)
+
+Preparados para commit local: los dos scripts SQL de permisos y solo lectura, las
+dos regresiones estáticas, el fix de `/assign` con su regresión, y estas notas de
+entrega. **No se ejecutó push ni merge**; PR #1 permanece abierto y limpio.
+
+### 18.8 Veredicto
+
+**Código: LISTO PARA ENTREGA.** Dos defectos reales corregidos y cubiertos por
+regresiones; suites en verde; sin vulnerabilidades nuevas. **Bloqueos externos**
+para el cierre operativo en `SIFHA_Tickets_DEV`: (a) aplicar permisos de la cuenta
+de aplicación o habilitar la cuenta de solo lectura del Grupo E; (b) cuenta con
+`CREATE DATABASE` para el `VERIFYONLY` del respaldo M5.

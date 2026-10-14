@@ -7,14 +7,14 @@
 
 ## Título sugerido
 
-`Integración casa-oficina: certificación MSSQL 37/37 y preparación final de entrega`
+`Integración casa-oficina: certificación MSSQL, corrección de inmutabilidad y preparación final de entrega`
 
 ## Cuerpo
 
 ### Qué incluye
 
 Integración del trabajo de oficina y casa sobre la rama
-`integracion-casa-oficina-11oct` (`21cf9cc` → `main` `f7cebed`).
+`integracion-casa-oficina-11oct` (`847c86e` → `main` `f7cebed`).
 
 - Migración SQLite → SQL Server por fases (grupos B/C/D/E) con scripts
   idempotentes, verificadores de solo lectura y preflight de permisos.
@@ -22,63 +22,80 @@ Integración del trabajo de oficina y casa sobre la rama
   `SIFHA_GroupD_ScratchTest` (**POST-D GO / FINAL GO**).
 - Endurecimiento de seguridad (tercera ronda): `npm audit` **0 hallazgos** en
   backend y frontend; `Vary: Origin` en CORS; `/api/health` sin `NODE_ENV`.
-- CI GitHub Actions nuevo (`.github/workflows/ci.yml`): jobs *Backend (SQLite
-  temporal)* y *Frontend (vitest + build)*, Node 24, en verde.
-- Documentación de entrega e infraestructura actualizada.
+- CI GitHub Actions (`.github/workflows/ci.yml`): *Backend (SQLite temporal)* y
+  *Frontend (vitest + build)*, Node 24, en verde.
+- **Correcciones de esta sesión (2026-10-14, tercera tanda):**
+  - `POST /api/tickets/:id/assign` esquivaba la inmutabilidad de tickets
+    terminales → ahora rechaza con 400 (regresión «I4»).
+  - `grant-app-account-minimal.sql` **no compilaba** por un comentario T-SQL
+    anidado (`Msg 113`) → corregido, con regresión que escanea
+    `scripts/migration/`.
+  - Nuevo `create-groupE-readonly-account.sql` (cuenta de solo lectura para
+    Grupo E) y permisos por tabla/operación de mínimo privilegio.
+- Documentación de entrega e infraestructura actualizada
+  (`docs/GRUPO-E-VALIDACION.md` nueva).
 
 ### Alcance
 
-- **64 commits**, **204 archivos** (`+33002 / −3100`).
-- Base: `main` (`f7cebed`). Head: `integracion-casa-oficina-11oct` (`21cf9cc`,
-  sincronizado con `origin`).
+- **Publicado en `origin`:** **66 commits**, **206 archivos** (`+33367 / −3100`).
+- Base: `main` (`f7cebed`). Head publicado: `integracion-casa-oficina-11oct`
+  (`847c86e`, sincronizado con `origin`).
+- **Local:** 3 commits más preparados (`f1c0fb1`, `be017fb` + documentación),
+  **no publicados** (sin autorización de push).
 
 ### Verificación
 
 | Prueba | Resultado |
 |---|---|
-| Backend `npm test` (SQLite) | 895 pruebas: **893 pass, 0 fallos, 2 omitidas** |
+| Backend `npm test` (SQLite) | 904 pruebas: **902 pass, 0 fallos, 2 omitidas**, 150 suites |
 | Frontend `vitest run` | **1080/1080** |
 | Frontend `vite build` | **OK** |
 | `npm audit` backend / frontend | **0 / 0** |
-| CI GitHub Actions (`21cf9cc`) | **success** |
+| CI GitHub Actions (`847c86e`) | **success** (`push` y `pull_request`) |
 
 ### Estado de la conexión MSSQL y grupos de migración
 
-- **ELOGIN resuelto:** autenticación SQL corregida por rotación autorizada de
-  contraseña; login `sifha_ticket_dev` habilitado y mapeado a `SIFHA_Tickets_DEV`.
-  Verificado en SSMS y desde Node.js con `mssql@12.2.0` (probe `SELECT` de
-  identidad: **PASS** — `TI-DESK-01\SIFHADEV` / `SIFHA_Tickets_DEV` /
-  `sifha_ticket_dev`).
+- **ELOGIN resuelto:** login `sifha_ticket_dev` habilitado y mapeado a
+  `SIFHA_Tickets_DEV`; verificado en SSMS y desde Node.js (`mssql@12.2.0`).
 - **Grupo D:** certificado en `SIFHA_GroupD_ScratchTest` y **ejecutado/verificado
   en `SIFHA_Tickets_DEV`** (POST-D y FINAL `GO`).
-- **Grupo E (arranque en seco):** pendiente de cuenta de solo lectura verificable;
-  ver `docs/ESTADO-ENTREGA.md` §17 (hallazgos de no-escritura).
-- **M5:** objetivo cumplido en `SIFHA_Tickets_M5_Validation` (solo lectura);
-  verificación del respaldo pendiente de cuenta con `CREATE DATABASE`.
+- **Grupo E (arranque en seco):** objetivo **demostrado en base aislada**
+  (`SIFHA_Tickets_M5_Validation`: `schemaValidator` ok, `/api/health` 200,
+  `/api/auth/me` 401 con `MSSQL_RUNTIME=true` + `JOBS_ENABLED=false`); en
+  `SIFHA_Tickets_DEV` queda **pendiente de permisos** (ver
+  `docs/GRUPO-E-VALIDACION.md`).
+- **M5:** objetivo cumplido (diagnóstico solo lectura `pass`: 24 tablas, 0
+  diferencias bloqueantes, 0 notificaciones con organización NULL); `VERIFYONLY`
+  del respaldo pendiente de una cuenta con `CREATE DATABASE`.
 
 ### Seguridad
 
-- Sin secretos reales versionados (solo `.env.example`).
+- Sin secretos reales versionados (solo `.env.example` y
+  `.env.mssql-test.example`, saneados).
 - `.gitignore` cubre `.env*`, certificados/claves, respaldos, `dist` y logs.
+- Auditoría: sin hallazgos Altos/Medios; 1 defecto Bajo corregido (inmutabilidad
+  de `/assign`).
 - Recomendado: repositorio **privado** (identificadores internos de infraestructura).
 
 ### Pendientes antes de mergear
 
 - **Permisos de la cuenta de aplicación:** `sifha_ticket_dev` solo tiene permisos
-  directos sobre 6 tablas y **carece de SELECT en `dbo.tickets`** y en el resto del
-  esquema. Corregir con un script idempotente de mínimo privilegio (preparado, no
-  ejecutado sin autorización).
-- **Grupo E (arranque en seco de solo lectura):** ejecutar con `MSSQL_RUNTIME=true`
-  y `JOBS_ENABLED=false` una vez exista cuenta de solo lectura; ver los hallazgos de
-  no-escritura en `docs/ESTADO-ENTREGA.md` §17.
+  directos sobre 6 tablas y **carece de SELECT en `dbo.tickets`** y el resto del
+  esquema. Aplicar el script idempotente por tabla
+  `grant-app-account-minimal.sql` (preparado, **no ejecutado** sin autorización).
+- **Grupo E:** habilitar la cuenta de solo lectura
+  (`create-groupE-readonly-account.sql`) o aplicar los permisos de la app y
+  ejecutar el arranque en seco contra `SIFHA_Tickets_DEV`.
 - **Verificación M5 en `SIFHA_Tickets_DEV`** (solo lectura) y `VERIFYONLY` del
   respaldo M5 (requiere cuenta con `CREATE DATABASE`).
 - **No mergear** hasta cerrar los pendientes de permisos/DEV/M5.
 
 ### Documentación de referencia
 
+- `docs/GRUPO-E-VALIDACION.md` — validación de Grupo E.
+- `docs/ESTADO-ENTREGA.md` §17–§18 — estado vigente.
 - `docs/GUIA-MIGRACION-DEV.md` — guía operativa de migración.
 - `docs/PLAN-RECONCILIACION-DEV.md` — plan técnico B→C→D→E.
-- `docs/ESTADO-ENTREGA.md` §12–§13 — estado vigente.
-- `docs/INFORME-CIERRE-DESARROLLO-2026-10-13.md` — informe de cierre.
-- `ENTREGA-INFRAESTRUCTURA.md`, `ENTREGA-CHECKLIST.md`, `M5-PROCEDIMIENTO-WINDOWS.md`.
+- `docs/M5-REVISION-FINAL.md`, `docs/INFORME-CIERRE-DESARROLLO-2026-10-13.md`.
+- `ENTREGA-FINAL.md`, `ENTREGA-INFRAESTRUCTURA.md`, `ENTREGA-CHECKLIST.md`,
+  `M5-PROCEDIMIENTO-WINDOWS.md`.
