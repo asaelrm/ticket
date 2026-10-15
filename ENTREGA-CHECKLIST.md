@@ -10,6 +10,7 @@ hallazgos de la revisión de oficina).
 | Suite | Comando | Resultado |
 | --- | --- | --- |
 | Backend | `cd backend; npm test` | 906 pruebas, 904 pass, 0 fallos, 2 omitidas (SQLite temporal; las suites MSSQL viven en `test/mssql/` y salen con `npm run test:mssql`) |
+| Grupo E (aislado) | arranque MSSQL seco + conteo 24 tablas | 0/24 tablas con cambio (antes == después) |
 | Frontend | `docker exec -w /app/frontend ticket-dev-frontend npx vitest run` | 44 archivos, 1080 pass |
 | Build producción frontend | `npx vite build` (contenedor frontend) | OK |
 | Traducción SQLite→T-SQL | `node --test test/mssql-sql-translation.test.js` | 249 sentencias, 0 incompatibles |
@@ -53,15 +54,23 @@ hallazgos de la revisión de oficina).
 - [ ] `MSSQL_RUNTIME=true` **no** debe activarse hasta que el diagnóstico M5
       termine con código 0 y exista autorización explícita.
 
-## 4.bis Correcciones y regresiones (2026-10-14, tercera tanda)
+## 4.bis Correcciones y regresiones (2026-10-14, tercera y cuarta tanda)
 
 - [x] `POST /api/tickets/:id/assign` rechaza reasignar tickets terminales
       (regresión «I4» en `backend/test/tickets-workflow.test.js`).
 - [x] `grant-app-account-minimal.sql` compila (corregido comentario T-SQL
       anidado, `Msg 113`); regresión que escanea `scripts/migration/`.
+- [x] `grant-app-account-minimal.sql` conflicto de collation (`Msg 468`) en
+      revocación → corregido con `COLLATE DATABASE_DEFAULT`; opt-in `@revoke_extra`.
 - [x] Cuenta de solo lectura del Grupo E (`create-groupE-readonly-account.sql`)
       preparada y cubierta por pruebas estáticas.
 - [x] Grupo E demostrado en base aislada (`docs/GRUPO-E-VALIDACION.md`).
+- [x] **Evidencia reforzada Grupo E:** conteo de las 24 tablas antes/después =
+      **0 cambios** (sin escrituras en arranque seco).
+- [x] **M5 re-verificado:** `diagnose-m5-validation.js` `pass`; CHECK
+      habilitada/confiable; 0 nulos; respaldo visible en `msdb`.
+- [x] **Guía SSMS** `docs/APLICAR-PERMISOS-SSMS.md`: pasos exactos para
+      permisos app vs readonly, `RESTORE VERIFYONLY`, verificación y reversión.
 
 ## 5. Clasificación de pendientes
 
@@ -69,9 +78,14 @@ hallazgos de la revisión de oficina).
   en `SIFHA_Tickets_M5_Validation`; queda solo el respaldo opcional (`backup-m5.sql`).
 - **P0** — Ejecutar el Grupo D y la secuencia B→C→D→E en el entorno autorizado
   (ver `docs/ESTADO-ENTREGA.md` §5).
+- **P0** — **Permisos de la app / Grupo E en DEV**: aplicar
+  `grant-app-account-minimal.sql` o habilitar `sifha_group_e` (pasos en
+  `docs/APLICAR-PERMISOS-SSMS.md` Partes A/B).
 - **P1** — Prueba de instalación desde cero (ver §7) antes de la entrega.
 - **P1** — Ejecutar `npm run test:mssql` contra `SIFHA_Tickets_M5_Integration_Test`
   para certificar las suites de `backend/test/mssql/`.
+- **P1** — `RESTORE VERIFYONLY` del respaldo M5 (cuenta con `CREATE DATABASE`;
+  comando en `docs/APLICAR-PERMISOS-SSMS.md` Parte C).
 - **P2** — Proxy de Vite parametrizable por entorno (hoy fijo a `http://backend:4000`).
 - **P2** — ~~Desconexión automática del frontend ante sesión caducada en una petición ya abierta~~ **corregido** (commit `c33367b`: bus `onUnauthorized` en `lib/api.js` + `AuthContext`).
 

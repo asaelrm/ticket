@@ -92,15 +92,17 @@ Integración del trabajo de oficina y casa sobre la rama
   `grant-app-account-minimal.sql` (preparado, **no ejecutado** sin autorización).
 - **Grupo E:** habilitar la cuenta de solo lectura
   (`create-groupE-readonly-account.sql`) o aplicar los permisos de la app y
-  ejecutar el arranque en seco contra `SIFHA_Tickets_DEV`.
+  ejecutar el arranque en seco contra `SIFHA_Tickets_DEV` (pasos exactos en
+  `docs/APLICAR-PERMISOS-SSMS.md` Partes A/B).
 - **Verificación M5 en `SIFHA_Tickets_DEV`** (solo lectura) y `VERIFYONLY` del
   respaldo M5 (requiere cuenta con `CREATE DATABASE`).
 - **No mergear** hasta cerrar los pendientes de permisos/DEV/M5.
 
 ### Documentación de referencia
 
-- `docs/GRUPO-E-VALIDACION.md` — validación de Grupo E.
-- `docs/ESTADO-ENTREGA.md` §17–§18 — estado vigente.
+- `docs/GRUPO-E-VALIDACION.md` — validación de Grupo E (con conteo antes/después §5.1).
+- `docs/APLICAR-PERMISOS-SSMS.md` — guía SSMS (app vs readonly, VERIFYONLY, reversión).
+- `docs/ESTADO-ENTREGA.md` §17–§19 — estado vigente.
 - `docs/GUIA-MIGRACION-DEV.md` — guía operativa de migración.
 - `docs/PLAN-RECONCILIACION-DEV.md` — plan técnico B→C→D→E.
 - `docs/M5-REVISION-FINAL.md`, `docs/INFORME-CIERRE-DESARROLLO-2026-10-13.md`.
