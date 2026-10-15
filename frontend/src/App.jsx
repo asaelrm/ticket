@@ -14,6 +14,7 @@ const NewTicket = lazy(() => import('./pages/NewTicket'));
 const MyTickets = lazy(() => import('./pages/MyTickets'));
 const Inbox = lazy(() => import('./pages/Inbox'));
 const Audit = lazy(() => import('./pages/Audit'));
+const Organizations = lazy(() => import('./pages/Organizations'));
 const TicketDetail = lazy(() => import('./pages/TicketDetail'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Tickets = lazy(() => import('./pages/Tickets'));
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="my-tickets" element={<MyTickets />} />
         <Route path="inbox" element={<Protected permission="ticket.view.all"><Inbox /></Protected>} />
         <Route path="audit" element={<Protected permission="settings.manage"><Audit /></Protected>} />
+        <Route path="organizations" element={<Protected permission="organization.manage"><Organizations /></Protected>} />
         <Route path="tickets/:id" element={<TicketDetail />} />
         <Route path="my-tickets/:id" element={<TicketDetail />} />
         <Route path="tickets" element={<Protected permission="ticket.view.all"><Tickets /></Protected>} />

@@ -84,7 +84,13 @@ export async function startServer({
   const listen = listenFn || ((application, port, callback) => application.listen(port, callback));
   const server = await listen(app, config.port, () => {
     logger.log(`[ticket] API escuchando en http://localhost:${config.port} (${config.env})`);
-    logger.log(`[ticket] Base de datos: ${config.dbFile}`);
+    if (database.engine === 'mssql') {
+  logger.log(`[ticket] Motor: SQL Server`);
+  logger.log(`[ticket] Base de datos: ${process.env.DB_DATABASE}`);
+} else {
+  logger.log(`[ticket] Motor: SQLite`);
+  logger.log(`[ticket] Base de datos: ${config.dbFile}`);
+}
     logger.log(`[ticket] Uploads: ${config.uploadDir}`);
   });
 
