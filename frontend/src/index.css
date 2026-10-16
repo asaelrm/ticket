@@ -235,6 +235,34 @@ tbody tr:hover { background: var(--surface-secondary); }
    paleta que quedan por debajo de AA sobre las superficies claras. Se aplica
    solo al tema claro; el oscuro ya tiene sus propias reglas arriba. */
 :root:not([data-theme='dark']) .text-slate-400 { color: var(--text-muted) !important; }
+:root:not([data-theme='dark']) .text-slate-500 { color: var(--text-muted) !important; }
+:root:not([data-theme='dark']) .text-slate-600 { color: #475569 !important; }
+:root:not([data-theme='dark']) .text-slate-700,
+:root:not([data-theme='dark']) .text-slate-800,
+:root:not([data-theme='dark']) .text-slate-900 { color: var(--text) !important; }
+:root:not([data-theme='dark']) .btn-secondary,
+:root:not([data-theme='dark']) .btn-white,
+:root:not([data-theme='dark']) .btn-ghost { color: var(--text) !important; }
+:root:not([data-theme='dark']) .btn-secondary,
+:root:not([data-theme='dark']) .btn-white {
+  background-color: var(--surface) !important;
+  border-color: var(--border-strong) !important;
+}
+:root:not([data-theme='dark']) .btn-secondary:hover:not(:disabled),
+:root:not([data-theme='dark']) .btn-white:hover:not(:disabled) {
+  background-color: var(--surface-secondary) !important;
+  border-color: var(--brand-action) !important;
+}
+:root:not([data-theme='dark']) .btn-ghost:hover:not(:disabled) {
+  background-color: var(--surface-secondary) !important;
+}
+:root:not([data-theme='dark']) .select-trigger,
+:root:not([data-theme='dark']) .input {
+  color: var(--text) !important;
+  background-color: var(--surface) !important;
+}
+:root:not([data-theme='dark']) .select-trigger[data-placeholder='true'],
+:root:not([data-theme='dark']) .select-arrow { color: var(--text-muted) !important; }
 :root:not([data-theme='dark']) .text-red-300,
 :root:not([data-theme='dark']) .text-red-400,
 :root:not([data-theme='dark']) .text-red-500 { color: var(--danger) !important; }
