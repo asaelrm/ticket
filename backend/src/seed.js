@@ -29,6 +29,7 @@ export const PERMISSIONS = [
   ['ticket.note', 'Agregar notas internas y verlas'],
   ['ticket.reopen', 'Reabrir tickets'],
   ['ticket.export', 'Exportar tickets'],
+  ['ticket.sifha.view', 'Atender tickets de soporte central SIFHA'],
   ['user.view', 'Ver usuarios'],
   ['user.manage', 'Crear/editar/desactivar usuarios y restablecer contraseñas'],
   ['role.manage', 'Administrar roles'],

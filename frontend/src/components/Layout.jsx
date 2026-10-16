@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, can } from '../context/AuthContext';
 import Notifications from './Notifications';
 import Tooltip from './Tooltip';
+import { api } from '../lib/api';
 
 const ICONS = {
   home: (
@@ -143,11 +144,28 @@ export default function Layout() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [theme, setTheme] = useState(() => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'));
   const [q, setQ] = useState('');
+  const [contexts, setContexts] = useState([]);
   const searchPanelRef = useRef(null);
   const searchToggleRef = useRef(null);
   const searchInputRef = useRef(null);
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if ((user?.organization_ids || []).length < 2) return undefined;
+    let alive = true;
+    api.get('/api/auth/contexts').then((data) => {
+      if (alive) setContexts(data.contexts || []);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [user?.id, user?.organization_ids?.length]);
+
+  async function changeOrganization(e) {
+    const organizationId = Number(e.target.value);
+    if (!organizationId || organizationId === Number(user?.organization_id)) return;
+    await api.post('/api/auth/context', { organization_id: organizationId });
+    window.location.reload();
+  }
 
   useEffect(() => {
     setOpen(false);
@@ -223,7 +241,10 @@ export default function Layout() {
   if (can(user, 'dashboard.view')) primary.push({ to: '/app/dashboard', label: 'Dashboard', icon: ICONS.home });
   primary.push({ to: '/app/my-tickets', label: 'Mis tickets', icon: ICONS.tickets });
   if (can(user, 'ticket.view.all')) {
-    primary.push({ to: '/app/inbox', label: 'Bandeja de soporte', icon: ICONS.inbox });
+    primary.push({ to: '/app/inbox?scope=internal', label: 'Soporte de mi empresa', icon: ICONS.inbox });
+  }
+  if (user?.permissions?.includes('ticket.sifha.view')) {
+    primary.push({ to: '/app/inbox?scope=sifha', label: 'Soporte SIFHA', icon: ICONS.inbox });
   }
   // La base de conocimiento va en «Principal» porque es consulta, no gestión:
   // cualquiera con kb.view la consulta a diario. Se marca activa en el listado,
@@ -394,6 +415,14 @@ export default function Layout() {
               tema y sin tocar el fondo de la barra. `min-w-0 truncate` se conserva
               para que el título ceda espacio en pantallas estrechas. */}
           <h1 className="min-w-0 truncate text-lg font-semibold text-white">{currentTitle}</h1>
+          {contexts.length > 1 && (
+            <label className="hidden items-center gap-2 text-xs text-slate-300 lg:flex">
+              <span className="sr-only">Empresa activa</span>
+              <select value={user?.organization_id || ''} onChange={changeOrganization} className="rounded-md border border-white/20 bg-white/10 px-2 py-1 text-white">
+                {contexts.map((context) => <option key={context.organization_id} value={context.organization_id} className="text-slate-900">{context.organization_name}</option>)}
+              </select>
+            </label>
+          )}
 
           {/* Búsqueda del móvil. El formulario de escritorio se oculta por debajo de
               `md` (más abajo), así que sin este botón quien navega con el dedo se

@@ -12,9 +12,121 @@ import { saveDirectorySnapshot } from '../directorySync.js';
 import { destroyUserSessions } from '../utils/sessionStore.js';
 import { currentOrgId, rejectClientOrg } from '../middleware/org.js';
 import { SUPERADMIN_ROLE_CODE, isSuperadminRoleCode, orgStateError } from '../orgPolicy.js';
+import { requireSuperadmin } from '../middleware/org.js';
 
 const router = express.Router();
 router.use(requireAuth);
+
+router.get('/:id/organizations', requireSuperadmin, async (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const rows = await runtime.queryMany(
+    `SELECT uo.organization_id, o.name AS organization_name, uo.role_id, r.code AS role_code,
+            r.name AS role_name, uo.active
+       FROM user_organizations uo JOIN organizations o ON o.id = uo.organization_id
+       JOIN roles r ON r.id = uo.role_id WHERE uo.user_id = ? ORDER BY o.name`, id,
+  );
+  res.json({ organizations: rows });
+});
+
+router.get('/:id/organization-history', requireSuperadmin, async (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const rows = await runtime.queryMany(
+    `SELECT h.id, h.organization_id, o.name AS organization_name,
+            h.role_id, r.name AS role_name, h.action, h.changed_at,
+            a.name AS admin_name, a.last_name AS admin_last_name
+       FROM user_organization_history h
+       JOIN organizations o ON o.id = h.organization_id
+       LEFT JOIN roles r ON r.id = h.role_id
+       JOIN users a ON a.id = h.changed_by
+      WHERE h.user_id = ? ORDER BY h.changed_at DESC, h.id DESC`, id,
+  );
+  res.json({ history: rows });
+});
+
+router.put('/:id/organizations', requireSuperadmin, async (req, res) => {
+  const userId = parseIntSafe(req.params.id);
+  const assignments = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+  const revokedOrganizations = Array.isArray(req.body?.revoked_organization_ids)
+    ? [...new Set(req.body.revoked_organization_ids.map(parseIntSafe).filter(Boolean))] : [];
+  const valid = [];
+  for (const item of assignments) {
+    const organizationId = parseIntSafe(item?.organization_id);
+    const roleId = parseIntSafe(item?.role_id);
+    const org = await runtime.queryOne('SELECT id, active FROM organizations WHERE id = ?', organizationId);
+    const role = await runtime.queryOne('SELECT id, code, active FROM roles WHERE id = ?', roleId);
+    if (!org?.active || !role?.active || !organizationId || !roleId) {
+      return res.status(400).json({ error: 'Asignación de empresa o rol inválida' });
+    }
+    if (role.code === 'SUPERADMIN') return res.status(400).json({ error: 'SUPERADMIN no se asigna por empresa' });
+    valid.push({ organizationId, roleId });
+  }
+  const current = await runtime.queryMany('SELECT organization_id, role_id FROM user_organizations WHERE user_id = ? AND active = 1', userId);
+  if (revokedOrganizations.length) {
+    await runtime.execute(`UPDATE user_organizations SET active = 0, revoked_at = SYSUTCDATETIME() WHERE user_id = ? AND organization_id IN (${revokedOrganizations.map(() => '?').join(',')})`, userId, ...revokedOrganizations);
+  }
+  for (const item of valid) {
+    await runtime.execute(
+      `MERGE user_organizations AS target USING (SELECT ? AS user_id, ? AS organization_id) AS source
+       ON target.user_id = source.user_id AND target.organization_id = source.organization_id
+       WHEN MATCHED THEN UPDATE SET role_id = ?, active = 1, revoked_at = NULL, assigned_by = ?, assigned_at = SYSUTCDATETIME()
+       WHEN NOT MATCHED THEN INSERT (user_id, organization_id, role_id, assigned_by) VALUES (source.user_id, source.organization_id, ?, ?);`,
+      userId, item.organizationId, item.roleId, req.user.id, item.roleId, req.user.id,
+    );
+    await runtime.execute(
+      'INSERT INTO user_organization_history (user_id, organization_id, role_id, action, changed_by) VALUES (?, ?, ?, ?, ?)',
+      userId, item.organizationId, item.roleId, 'ASSIGNED', req.user.id,
+    );
+  }
+  for (const old of current.filter((x) => revokedOrganizations.includes(Number(x.organization_id)))) {
+    await runtime.execute(
+      'INSERT INTO user_organization_history (user_id, organization_id, role_id, action, changed_by) VALUES (?, ?, ?, ?, ?)',
+      userId, old.organization_id, old.role_id, 'REVOKED', req.user.id,
+    );
+  }
+  res.json({ assignments: valid });
+});
+
+// Permisos acumulativos de soporte central: no cambia el rol local del
+// técnico y solo un SUPERADMIN puede otorgarlos o revocarlos.
+router.get('/:id/sifha-support', requireSuperadmin, async (req, res) => {
+  const id = parseIntSafe(req.params.id);
+  const data = await runtime.queryMany(
+    `SELECT uso.organization_id, o.name, uso.active
+       FROM user_sifha_organizations uso JOIN organizations o ON o.id = uso.organization_id
+      WHERE uso.user_id = ? ORDER BY o.name`, id,
+  );
+  res.json({ permission: 'ticket.sifha.view', organizations: data });
+});
+
+router.put('/:id/sifha-support', requireSuperadmin, async (req, res) => {
+  const userId = parseIntSafe(req.params.id);
+  const organizations = Array.isArray(req.body?.organization_ids)
+    ? [...new Set(req.body.organization_ids.map(parseIntSafe).filter(Boolean))] : [];
+  const revokedOrganizations = Array.isArray(req.body?.revoked_organization_ids)
+    ? [...new Set(req.body.revoked_organization_ids.map(parseIntSafe).filter(Boolean))] : [];
+  const user = await runtime.queryOne('SELECT id FROM users WHERE id = ?', userId);
+  if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+  await runtime.execute(
+    `MERGE user_support_permissions AS target USING (SELECT ? AS user_id, ? AS permission_code) AS source
+     ON target.user_id = source.user_id AND target.permission_code = source.permission_code
+     WHEN MATCHED THEN UPDATE SET active = 1, revoked_at = NULL, granted_by = ?, granted_at = SYSUTCDATETIME()
+     WHEN NOT MATCHED THEN INSERT (user_id, permission_code, granted_by) VALUES (source.user_id, source.permission_code, ?);`,
+    userId, 'ticket.sifha.view', req.user.id, req.user.id,
+  );
+  if (revokedOrganizations.length) {
+    await runtime.execute(`UPDATE user_sifha_organizations SET active = 0, revoked_at = SYSUTCDATETIME() WHERE user_id = ? AND organization_id IN (${revokedOrganizations.map(() => '?').join(',')})`, userId, ...revokedOrganizations);
+  }
+  for (const organizationId of organizations) {
+    await runtime.execute(
+      `MERGE user_sifha_organizations AS target USING (SELECT ? AS user_id, ? AS organization_id) AS source
+       ON target.user_id = source.user_id AND target.organization_id = source.organization_id
+       WHEN MATCHED THEN UPDATE SET active = 1, revoked_at = NULL, granted_by = ?, granted_at = SYSUTCDATETIME()
+       WHEN NOT MATCHED THEN INSERT (user_id, organization_id, granted_by) VALUES (source.user_id, source.organization_id, ?);`,
+      userId, organizationId, req.user.id, req.user.id,
+    );
+  }
+  res.json({ permission: 'ticket.sifha.view', organization_ids: organizations });
+});
 
 const LIST_SQL = `
   SELECT u.id, u.name, u.last_name, u.username, u.email, u.department_id, u.position,

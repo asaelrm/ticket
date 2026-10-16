@@ -107,6 +107,12 @@ export function canViewTicket(user, ticket) {
   // la del ticket no coincide, el ticket NO existe para él (404). Un SUPERADMIN
   // sin contexto nunca enumera ni lee recursos ajenos; la administración
   // global explícita se diseña en etapas posteriores.
+  if (ticket.support_scope === 'SIFHA') {
+    return !!user.is_superadmin || (
+      user.permissions.includes('ticket.sifha.view') &&
+      (user.sifha_organization_ids || []).includes(Number(ticket.organization_id))
+    );
+  }
   const org = currentOrgId(user);
   if (!org || !ticket.organization_id) return false;
   if (Number(ticket.organization_id) !== Number(org)) return false;
@@ -318,11 +324,29 @@ async function buildConditions(req, viewOnlyOwn) {
   // tickets de la organización del actor. Un SUPERADMIN global (org null) no
   // tiene contexto: su listado queda vacío y su exportación con `1 = 0`.
   const org = currentOrgId(user);
-  if (org) {
-    conds.push('t.organization_id = ?');
-    params.push(org);
+  const sifhaOrgs = user.permissions.includes('ticket.sifha.view')
+    ? (user.sifha_organization_ids || []).filter(Number.isInteger)
+    : [];
+  if (sifhaOrgs.length && !viewOnlyOwn) {
+    const scopes = [];
+    if (org) { scopes.push('(t.support_scope = ? AND t.organization_id = ?)'); params.push('INTERNAL', org); }
+    scopes.push(`(t.support_scope = ? AND t.organization_id IN (${sifhaOrgs.map(() => '?').join(',')}))`);
+    params.push('SIFHA', ...sifhaOrgs);
+    conds.push(`(${scopes.join(' OR ')})`);
+  } else if (org) {
+    conds.push('t.support_scope = ? AND t.organization_id = ?');
+    params.push('INTERNAL', org);
   } else {
     conds.push('1 = 0');
+  }
+
+  if (q.scope === 'internal') conds.push("t.support_scope = 'INTERNAL'");
+  if (q.scope === 'sifha') {
+    if (sifhaOrgs.length && !viewOnlyOwn) {
+      conds.push("t.support_scope = 'SIFHA'");
+    } else {
+      conds.push('1 = 0');
+    }
   }
 
   // Vistas rápidas (declarativas, combinan con el resto de filtros).

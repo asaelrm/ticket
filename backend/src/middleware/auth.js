@@ -23,6 +23,15 @@ const PERMS_SQL = `
   WHERE rp.role_id = ?
 `;
 
+const SUPPORT_PERMS_SQL = `
+  SELECT permission_code FROM user_support_permissions
+  WHERE user_id = ? AND active = 1
+`;
+const SUPPORT_ORGS_SQL = `
+  SELECT organization_id FROM user_sifha_organizations
+  WHERE user_id = ? AND active = 1
+`;
+
 export function publicUser(row) {
   return {
     id: row.id,
@@ -57,10 +66,45 @@ export async function loadUser(request) {
   // esta comprobación, `active` sería un campo decorativo (se podría apagar la
   // empresa y sus usuarios seguirían entrando con su sesión). Un SUPERADMIN
   // global no tiene organización, así que nunca queda atrapado aquí.
-  const orgDisabled = row.organization_id != null && row.organization_active != null && !Number(row.organization_active);
+  let assignments = [];
+  try {
+    assignments = await runtime.queryMany(
+      `SELECT uo.organization_id, uo.role_id, r.code AS role_code, r.name AS role_name,
+              o.name AS organization_name, o.active AS organization_active
+       FROM user_organizations uo JOIN roles r ON r.id = uo.role_id
+       JOIN organizations o ON o.id = uo.organization_id
+       WHERE uo.user_id = ? AND uo.active = 1`, row.id,
+    );
+  } catch (err) {
+    if (!/user_organizations|invalid object|no such table/i.test(String(err?.message || err))) throw err;
+  }
+  const requestedContext = request.session.organizationId == null ? null : Number(request.session.organizationId);
+  const selected = requestedContext == null
+    ? assignments.find((a) => Number(a.organization_id) === Number(row.organization_id)) || assignments[0]
+    : assignments.find((a) => Number(a.organization_id) === requestedContext);
+  if (requestedContext != null && !selected) return null;
+  const effective = selected ? { ...row, ...selected, organization_id: selected.organization_id } : row;
+  const orgDisabled = effective.organization_id != null && effective.organization_active != null && !Number(effective.organization_active);
   if (!row.active || orgDisabled) return { ...publicUser(row), inactive: true, permissions: [] };
-  const perms = await runtime.queryMany(PERMS_SQL, row.role_id);
-  return { ...publicUser(row), inactive: false, permissions: perms.map((p) => p.code) };
+  const perms = await runtime.queryMany(PERMS_SQL, effective.role_id);
+  // La tabla incremental puede no existir todavía durante un arranque de
+  // actualización; en ese caso se conserva el acceso RBAC existente y se
+  // requiere aplicar la migración antes de activar soporte SIFHA.
+  let supportPerms = [];
+  let supportOrganizations = [];
+  try {
+    supportPerms = await runtime.queryMany(SUPPORT_PERMS_SQL, effective.id);
+    supportOrganizations = await runtime.queryMany(SUPPORT_ORGS_SQL, effective.id);
+  } catch (err) {
+    if (!/user_support_permissions|user_sifha_organizations|invalid object|no such table/i.test(String(err?.message || err))) throw err;
+  }
+  return {
+    ...publicUser(effective), inactive: false,
+    home_organization_id: row.organization_id,
+    organization_ids: assignments.map((a) => Number(a.organization_id)),
+    permissions: [...perms.map((p) => p.code), ...supportPerms.map((p) => p.permission_code)],
+    sifha_organization_ids: supportOrganizations.map((p) => Number(p.organization_id)),
+  };
 }
 
 export async function requireAuth(req, res, next) {

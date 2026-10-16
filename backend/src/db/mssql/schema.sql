@@ -159,6 +159,7 @@ CREATE TABLE dbo.tickets (
   reopen_reason NVARCHAR(MAX) NULL,
   pending_reason NVARCHAR(500) NULL,
   resolution_notified BIT NOT NULL CONSTRAINT DF_tickets_resolution_notified DEFAULT (0),
+  support_scope NVARCHAR(16) NOT NULL CONSTRAINT DF_tickets_support_scope DEFAULT (N'INTERNAL'),
   cancel_reason NVARCHAR(MAX) NULL,
   cancelled_by INT NULL,
   cancelled_at DATETIME2(3) NULL,
@@ -172,6 +173,7 @@ CREATE TABLE dbo.tickets (
   CONSTRAINT UQ_tickets_organization_id UNIQUE (organization_id, id),
   CONSTRAINT CK_tickets_priority CHECK (priority IN (N'LOW', N'MEDIUM', N'HIGH', N'CRITICAL')),
   CONSTRAINT CK_tickets_status CHECK (status IN (N'OPEN', N'ASSIGNED', N'IN_PROGRESS', N'PENDING', N'RESOLVED', N'CLOSED', N'CANCELLED')),
+  CONSTRAINT CK_tickets_support_scope CHECK (support_scope IN (N'INTERNAL', N'SIFHA')),
   CONSTRAINT CK_tickets_time_spent CHECK (time_spent_minutes IS NULL OR time_spent_minutes >= 0),
   CONSTRAINT CK_tickets_csat_rating CHECK (csat_rating IS NULL OR csat_rating BETWEEN 1 AND 5),
   CONSTRAINT FK_tickets_organization FOREIGN KEY (organization_id) REFERENCES dbo.organizations(id) ON DELETE NO ACTION,
@@ -420,6 +422,7 @@ CREATE INDEX IX_tickets_org_created ON dbo.tickets(organization_id, created_at D
 CREATE INDEX IX_tickets_org_sla_due ON dbo.tickets(organization_id, sla_due_at);
 CREATE INDEX IX_tickets_org_category ON dbo.tickets(organization_id, category_id);
 CREATE INDEX IX_tickets_org_department ON dbo.tickets(organization_id, department_id);
+CREATE INDEX IX_tickets_support_scope_org ON dbo.tickets(support_scope, organization_id, status);
 CREATE INDEX IX_team_members_user ON dbo.team_members(organization_id, user_id);
 CREATE INDEX IX_canned_responses_org_scope_active ON dbo.canned_responses(organization_id, scope, is_active);
 CREATE INDEX IX_ticket_comments_org_ticket_internal ON dbo.ticket_comments(organization_id, ticket_id, is_internal);

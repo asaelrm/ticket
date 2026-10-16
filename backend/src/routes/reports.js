@@ -14,6 +14,20 @@ router.use(requireAuth, requirePermission('report.view'));
 function reportOrgScope(req, alias = 't') {
   const org = currentOrgId(req.user);
   const col = alias ? `${alias}.organization_id` : 'organization_id';
+  const sifha = req.user.permissions.includes('ticket.sifha.view')
+    ? (req.user.sifha_organization_ids || []).filter(Number.isInteger) : [];
+  if (sifha.length && alias !== 't') {
+    const organizations = org ? [org, ...sifha.filter((id) => id !== Number(org))] : sifha;
+    return { org, sql: `${col} IN (${organizations.map(() => '?').join(',')})`, params: organizations };
+  }
+  if (sifha.length && alias === 't') {
+    const scopes = [];
+    const params = [];
+    if (org) { scopes.push(`(${col} = ? AND ${alias}.support_scope = ?)`); params.push(org, 'INTERNAL'); }
+    scopes.push(`(${col} IN (${sifha.map(() => '?').join(',')}) AND ${alias}.support_scope = ?)`);
+    params.push(...sifha, 'SIFHA');
+    return { org, sql: `(${scopes.join(' OR ')})`, params };
+  }
   return {
     org,
     sql: org ? `${col} = ?` : '1 = 0',

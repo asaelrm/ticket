@@ -63,6 +63,8 @@ export default function Users() {
   const [modal, setModal] = useState(null); // null | { mode: 'create'|'edit', form }
   const [tokenModal, setTokenModal] = useState(null);
   const [historyUser, setHistoryUser] = useState(null);
+  const [assignmentModal, setAssignmentModal] = useState(null);
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
 
   const { data: list, error: queryError } = useQuery({
     queryKey: ['users', filters],
@@ -98,6 +100,40 @@ export default function Users() {
   });
 
   const invalidateUsers = () => queryClient.invalidateQueries({ queryKey: ['users'] });
+
+  async function openAssignments(target) {
+    const [orgs, sifha, history] = await Promise.all([
+      api.get(`/api/users/${target.id}/organizations`),
+      api.get(`/api/users/${target.id}/sifha-support`),
+      api.get(`/api/users/${target.id}/organization-history`),
+    ]);
+    setAssignmentModal({ user: target, assignments: orgs.organizations || [], initialAssignmentIds: (orgs.organizations || []).map((a) => Number(a.organization_id)), sifha: sifha.organizations || [], initialSifhaIds: (sifha.organizations || []).filter((a) => a.active).map((a) => Number(a.organization_id)), history: history.history || [], error: '' });
+  }
+
+  async function saveAssignments() {
+    const m = assignmentModal;
+    setAssignmentSaving(true);
+    try {
+      await api.put(`/api/users/${m.user.id}/organizations`, {
+        assignments: m.assignments.map((a) => ({ organization_id: a.organization_id, role_id: a.role_id })),
+        revoked_organization_ids: m.initialAssignmentIds.filter((id) => !m.assignments.some((a) => Number(a.organization_id) === id)),
+      });
+      await api.put(`/api/users/${m.user.id}/sifha-support`, {
+        organization_ids: m.sifha.filter((a) => a.active).map((a) => a.organization_id),
+        revoked_organization_ids: m.initialSifhaIds.filter((id) => !m.sifha.some((a) => a.active && Number(a.organization_id) === id)),
+      });
+      const updated = await api.get(`/api/users/${m.user.id}/organization-history`);
+      setAssignmentModal(null);
+      toast.success('Asignaciones y permisos actualizados');
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      return updated;
+    } catch (err) {
+      setAssignmentModal((current) => current ? { ...current, error: err.message || 'No se pudieron guardar las asignaciones' } : current);
+      return null;
+    } finally {
+      setAssignmentSaving(false);
+    }
+  }
 
   // Los tres filtros tenían opción vacía seleccionable, así que se conservan
   // como primeras opciones reales. Los ids siguen llegando como cadena.
@@ -353,6 +389,7 @@ export default function Users() {
                           </button>
                           {user?.permissions?.includes('user.manage') && (
                             <>
+                              {user?.is_superadmin && <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => openAssignments(u)}>Empresas</button>}
                               <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => openEdit(u)}>
                                 Editar
                               </button>
@@ -444,6 +481,32 @@ export default function Users() {
               </button>
             </div>
           </form>
+        )}
+      </Modal>
+
+      <Modal open={!!assignmentModal} onClose={() => setAssignmentModal(null)} title="Empresas y soporte SIFHA" wide>
+        {assignmentModal && (
+          <div className="space-y-5">
+            <p className="text-sm text-slate-600">Configura las empresas y el rol independiente del usuario.</p>
+            {assignmentModal.error && <ErrorBox message={assignmentModal.error} />}
+            {organizationsForUser.map((organization) => {
+              const current = assignmentModal.assignments.find((a) => Number(a.organization_id) === Number(organization.id));
+              return <div key={organization.id} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3">
+                <input type="checkbox" checked={!!current} onChange={(e) => setAssignmentModal((m) => ({ ...m, assignments: e.target.checked ? [...m.assignments, { organization_id: organization.id, organization_name: organization.name, role_id: roles[0]?.id }] : m.assignments.filter((a) => Number(a.organization_id) !== Number(organization.id)) }))} />
+                <span className="min-w-0 flex-1 text-sm font-medium">{organization.name}</span>
+                <select className="input max-w-52" disabled={!current} value={current?.role_id || ''} onChange={(e) => setAssignmentModal((m) => ({ ...m, assignments: m.assignments.map((a) => Number(a.organization_id) === Number(organization.id) ? { ...a, role_id: Number(e.target.value) } : a) }))}>
+                  {roles.filter((r) => r.code !== 'SUPERADMIN').map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}
+                </select>
+              </div>;
+            })}
+            <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={assignmentModal.sifha.some((a) => a.active)} onChange={(e) => setAssignmentModal((m) => ({ ...m, sifha: organizationsForUser.map((o) => ({ organization_id: o.id, name: o.name, active: e.target.checked })) }))} /> Pertenece al soporte central SIFHA</label>
+            <p className="text-xs text-slate-500">Las empresas marcadas habilitan los tickets SIFHA de esas empresas; no conceden acceso a sus tickets internos.</p>
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-4"><button className="btn-secondary" onClick={() => setAssignmentModal(null)} disabled={assignmentSaving}>Cancelar</button><button className="btn-primary" onClick={saveAssignments} disabled={assignmentSaving}>{assignmentSaving ? 'Guardando…' : 'Guardar asignaciones'}</button></div>
+            <section className="border-t border-slate-200 pt-4">
+              <h3 className="text-sm font-semibold text-slate-800">Historial de asignaciones</h3>
+              {assignmentModal.history.length === 0 ? <p className="mt-2 text-xs text-slate-500">Sin cambios registrados.</p> : <div className="mt-2 max-h-48 overflow-auto"><table className="w-full text-xs"><thead><tr className="border-b border-slate-200 text-left"><th className="p-2">Empresa</th><th className="p-2">Rol</th><th className="p-2">Acción</th><th className="p-2">Administrador / fecha</th></tr></thead><tbody>{assignmentModal.history.map((item) => <tr key={item.id} className="border-b border-slate-100"><td className="p-2">{item.organization_name}</td><td className="p-2">{item.role_name || '—'}</td><td className="p-2">{item.action}</td><td className="p-2">{item.admin_name} {item.admin_last_name}<br />{formatDateTime(item.changed_at)}</td></tr>)}</tbody></table></div>}
+            </section>
+          </div>
         )}
       </Modal>
 

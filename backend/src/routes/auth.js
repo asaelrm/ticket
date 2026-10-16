@@ -91,6 +91,32 @@ router.post('/logout', (req, res) => {
   });
 });
 
+router.get('/contexts', requireAuth, async (req, res) => {
+  const rows = await runtime.queryMany(
+    `SELECT uo.organization_id, o.name AS organization_name, uo.role_id, r.code AS role_code, r.name AS role_name
+       FROM user_organizations uo JOIN organizations o ON o.id = uo.organization_id
+       JOIN roles r ON r.id = uo.role_id
+      WHERE uo.user_id = ? AND uo.active = 1 AND o.active = 1 ORDER BY o.name`, req.user.id,
+  );
+  res.json({ contexts: rows, active_organization_id: req.user.organization_id });
+});
+
+router.post('/context', requireAuth, async (req, res) => {
+  const organizationId = Number(req.body?.organization_id);
+  if (!Number.isSafeInteger(organizationId) || organizationId <= 0) {
+    return res.status(400).json({ error: 'Empresa inválida' });
+  }
+  const allowed = await runtime.queryOne(
+    `SELECT 1 AS allowed FROM user_organizations uo JOIN organizations o ON o.id = uo.organization_id
+      WHERE uo.user_id = ? AND uo.organization_id = ? AND uo.active = 1 AND o.active = 1`,
+    req.user.id, organizationId,
+  );
+  if (!allowed) return res.status(403).json({ error: 'No tiene una asignación activa en esa empresa' });
+  req.session.organizationId = organizationId;
+  await new Promise((resolve, reject) => req.session.save((err) => (err ? reject(err) : resolve())));
+  res.json({ user: await loadUser(req) });
+});
+
 router.post('/forgot-password', authRateLimit(), async (req, res) => {
   try {
     const account = safeStr(req.body.account);

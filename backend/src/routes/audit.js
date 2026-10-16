@@ -19,8 +19,18 @@ router.get('/', async (req, res) => {
     // organización del actor. Un SUPERADMIN global (org null) obtiene un listado
     // vacío, coherente con su listado de tickets vacío.
     const org = currentOrgId(req.user);
-    conds.push(org ? 't.organization_id = ?' : '1 = 0');
-    if (org) params.push(org);
+    const sifha = req.user.permissions.includes('ticket.sifha.view')
+      ? (req.user.sifha_organization_ids || []).filter(Number.isInteger) : [];
+    if (sifha.length) {
+      const scopes = [];
+      if (org) { scopes.push('(t.organization_id = ? AND t.support_scope = ?)'); params.push(org, 'INTERNAL'); }
+      scopes.push(`(t.organization_id IN (${sifha.map(() => '?').join(',')}) AND t.support_scope = ?)`);
+      params.push(...sifha, 'SIFHA');
+      conds.push(`(${scopes.join(' OR ')})`);
+    } else {
+      conds.push(org ? 't.organization_id = ? AND t.support_scope = ?' : '1 = 0');
+      if (org) params.push(org, 'INTERNAL');
+    }
 
     if (req.query.search) {
       const term = String(req.query.search).toLowerCase().replace(/[\\%_]/g, (m) => `\\${m}`);
@@ -71,12 +81,16 @@ router.get('/', async (req, res) => {
     // El catálogo es metadato de la misma auditoría: debe recorrer los tickets
     // visibles para la organización actual y nunca revelar acciones exclusivas
     // de otra empresa.
+    const actionScope = conds.find((condition) => condition.includes('t.support_scope')) || (org ? 't.organization_id = ? AND t.support_scope = ?' : '1 = 0');
+    const actionParams = sifha.length
+      ? (org ? [org, 'INTERNAL', ...sifha, 'SIFHA'] : [...sifha, 'SIFHA'])
+      : (org ? [org, 'INTERNAL'] : []);
     const actions = await runtime.queryMany(
       `SELECT DISTINCT th.action FROM ticket_history th
        JOIN tickets t ON t.id = th.ticket_id
-       WHERE ${org ? 't.organization_id = ?' : '1 = 0'}
+       WHERE ${actionScope}
        ORDER BY th.action`,
-      ...(org ? [org] : [])
+      ...actionParams
     );
     const actionList = actions.map((r) => r.action);
 
