@@ -500,3 +500,113 @@ describe('Users · avisos de éxito', () => {
     expect(screen.queryByTestId('toast')).not.toBeInTheDocument();
   });
 });
+
+// Mock de organizaciones activas para SUPERADMIN
+const mockOrganizationsForUser = {
+  data: [
+    { id: 1, code: 'UCE', name: 'Centro Médico UCE', active: 1 },
+    { id: 2, code: 'EMPRESA2', name: 'Empresa Demo', active: 1 },
+  ],
+};
+
+describe('Users · Selector de empresa para SUPERADMIN', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.user = { ...ADMIN, is_superadmin: true };
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/users?page=')) return Promise.resolve(listResp());
+      if (url === '/api/users/roles') return Promise.resolve({ roles: ROLES });
+      if (url === '/api/departments?active=1') return Promise.resolve(DEPARTMENTS);
+      if (url.startsWith('/api/organizations?perPage=100')) return Promise.resolve(mockOrganizationsForUser);
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+  });
+
+  it('muestra selector de empresa al crear usuario siendo SUPERADMIN', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo usuario' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+
+    // Verificar que existe el selector de empresa
+    expect(screen.getByLabelText(/Empresa/i)).toBeInTheDocument();
+
+    // Verificar las opciones del selector
+    const empresaSelect = selectFor('Empresa', within(dialog));
+    const labels = await optionLabels(user, empresaSelect);
+    expect(labels).toContain('Sin empresa (usuario global)');
+    expect(labels).toContain('Centro Médico UCE');
+    expect(labels).toContain('Empresa Demo');
+  });
+
+  it('NO muestra selector de empresa para usuario no SUPERADMIN', async () => {
+    authState.user = { ...ADMIN, is_superadmin: false };
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo usuario' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+
+    // No debe haber selector de empresa
+    expect(screen.queryByLabelText(/Empresa/i)).not.toBeInTheDocument();
+  });
+
+  it('crea usuario con empresa seleccionada siendo SUPERADMIN', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo usuario' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+
+    await user.type(inputFor('Nombre *', within(dialog)), 'Admin');
+    await user.type(inputFor('Apellidos *', within(dialog)), 'Empresa');
+    await user.type(inputFor('Usuario *', within(dialog)), 'admin_empresa');
+    await user.type(inputFor('Correo *', within(dialog)), 'admin@empresa.test');
+    await user.type(inputFor('Contraseña inicial *', within(dialog)), 'Password1234!');
+    await pickOption(user, selectFor('Rol *', within(dialog)), 'Administrador');
+    await pickOption(user, selectFor('Empresa', within(dialog)), 'Empresa Demo');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/users', expect.objectContaining({
+        username: 'admin_empresa',
+        password: 'Password1234!',
+        name: 'Admin',
+        role_id: '1', // ADMIN role id
+        organization_id: '2', // Empresa Demo id
+      }))
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Nuevo usuario' })).not.toBeInTheDocument());
+  });
+
+  it('crea usuario sin empresa (global) siendo SUPERADMIN', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+
+    await user.click(screen.getByRole('button', { name: '+ Nuevo usuario' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nuevo usuario' });
+
+    await user.type(inputFor('Nombre *', within(dialog)), 'Super');
+    await user.type(inputFor('Apellidos *', within(dialog)), 'Admin');
+    await user.type(inputFor('Usuario *', within(dialog)), 'super_admin');
+    await user.type(inputFor('Correo *', within(dialog)), 'super@global.test');
+    await user.type(inputFor('Contraseña inicial *', within(dialog)), 'Password1234!');
+    await pickOption(user, selectFor('Rol *', within(dialog)), 'Administrador');
+    // Dejar empresa como "Sin empresa (usuario global)"
+
+    await user.click(within(dialog).getByRole('button', { name: 'Crear usuario' }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/users', expect.objectContaining({
+        username: 'super_admin',
+        // organization_id no se envía cuando es vacío (se elimina en la mutación)
+      }))
+    );
+  });
+});

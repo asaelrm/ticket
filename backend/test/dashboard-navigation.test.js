@@ -1,7 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 
 // Pruebas del contrato que el Dashboard necesita para poder navegar al listado
 // de tickets: los paneles por categoría y por departamento tienen que entregar
@@ -67,7 +67,7 @@ describe('Dashboard · navegación por categoría', () => {
 
   it('incluye también las categorías sin tickets, para que "Ver todas" las alcance', async () => {
     const res = await adminC.get('/api/dashboard/by-category');
-    const total = db.prepare('SELECT COUNT(*) AS n FROM categories WHERE active = 1').get().n;
+    const total = (await db.queryOne('SELECT COUNT(*) AS n FROM categories WHERE active = 1')).n;
 
     // El panel oculta por defecto las que no tienen tickets abiertos y las
     // enseña con un interruptor. Si el endpoint las recortara, ese interruptor
@@ -117,7 +117,7 @@ describe('Dashboard · navegación por departamento', () => {
 
   it('no recorta el catálogo y separa abiertos de totales', async () => {
     const res = await adminC.get('/api/dashboard/by-department');
-    const total = db.prepare('SELECT COUNT(*) AS n FROM departments').get().n;
+    const total = (await db.queryOne('SELECT COUNT(*) AS n FROM departments')).n;
     assert.equal(res.body.data.length, total, 'no debe recortar el catálogo de departamentos');
   });
 

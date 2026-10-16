@@ -1,14 +1,13 @@
 // Aislamiento del motor: importar `src/db/runtime.js` no debe abrir (ni crear)
-// el archivo SQLite cuando el motor real es MSSQL.
+// el archivo SQLite. SQL Server es el único motor, así que la fachada nunca debe
+// tocar el sistema de archivos de una base local.
 //
 // Se comprueba con procesos hijos de verdad, no con simulaciones: cada uno fija
-// DB_CLIENT/MSSQL_RUNTIME y un DB_FILE propio en un directorio temporal, importa
-// la fachada y reporta el motor y la ruta del archivo. El caso SQLite sirve de
-// control: ahí el archivo SÍ tiene que existir, de modo que la prueba no pueda
-// pasar por el simple hecho de no crear nunca el archivo.
+// DB_CLIENT=mssql y un DB_FILE propio en un directorio temporal, importa la
+// fachada y reporta el motor y la ruta del archivo.
 //
-// No se ejecuta ninguna consulta en el hijo, así que el caso MSSQL jamás intenta
-// conectar con SQL Server.
+// No se ejecuta ninguna consulta en el hijo, así que jamás intenta conectar con
+// SQL Server.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -58,11 +57,10 @@ function reportado(r) {
   return JSON.parse(r.stdout.trim());
 }
 
-describe('aislamiento del motor: importar el runtime no abre SQLite en modo MSSQL', () => {
-  it('en modo MSSQL no crea el archivo SQLite y reporta el motor mssql', () => {
+describe('aislamiento del motor: importar el runtime no abre SQLite', () => {
+  it('reporta el motor mssql y no crea el archivo SQLite', () => {
     const r = ejecutar({
       DB_CLIENT: 'mssql',
-      MSSQL_RUNTIME: 'true',
       DB_SERVER: 'servidor-de-prueba',
       DB_DATABASE: 'base-de-prueba',
       DB_USER: 'usuario',
@@ -74,19 +72,7 @@ describe('aislamiento del motor: importar el runtime no abre SQLite en modo MSSQ
     assert.equal(
       fs.existsSync(r.dbFile),
       false,
-      'importar el runtime en modo MSSQL abrió o creó el archivo SQLite',
-    );
-  });
-
-  it('en modo SQLite sí abre el archivo y reporta el motor sqlite (control)', () => {
-    const r = ejecutar({ DB_CLIENT: 'sqlite', MSSQL_RUNTIME: '' });
-    const { engine, dbFile } = reportado(r);
-    assert.equal(engine, 'sqlite');
-    assert.equal(dbFile, r.dbFile);
-    assert.equal(
-      fs.existsSync(r.dbFile),
-      true,
-      'importar el runtime en modo SQLite debería abrir/crear el archivo',
+      'importar el runtime abrió o creó el archivo SQLite',
     );
   });
 });

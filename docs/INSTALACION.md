@@ -6,10 +6,10 @@ documento cubre lo necesario para levantar el sistema desde el código.
 
 ## Requisitos
 
-- Node.js **>= 22.5** (usa `node:sqlite`; se recomienda la versión 24+).
+- Node.js **>= 22.5** (se recomienda la versión 24+).
 - NPM incluido con Node.
-- SQL Server 2022 **solo** si se usa el motor MSSQL (opcional; el sistema funciona
-  por defecto sobre SQLite).
+- **SQL Server 2022** (único motor de base de datos): el sistema no arranca sin
+  un SQL Server accesible con el esquema aplicado.
 
 ## 1. Instalación para desarrollo
 
@@ -72,12 +72,12 @@ Variables obligatorias para el contenedor: `SESSION_SECRET` (32+ car.) y
 
 ## 4. Motor de base de datos
 
-- **Por defecto:** SQLite (`backend/data/tickets.db`); migraciones y seed
-  automáticos en el primer arranque.
-- **SQL Server 2022:** opcional y **no activo por defecto**. Se requiere
-  `DB_CLIENT=mssql` **y** `MSSQL_RUNTIME=true`, aplicar el esquema canónico
-  (`backend/src/db/mssql/schema.sql`) y respetar la secuencia de migración por
-  fases. Ver `docs/BASE-DE-DATOS.md` y `docs/DEPLOY-MSSQL.md`.
+- **SQL Server 2022** es el **único** motor. Defina las variables de conexión
+  (`DB_CLIENT=mssql`, `DB_SERVER`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`) y
+  aplique el esquema canónico (`backend/src/db/mssql/schema.sql`).
+- El arranque valida el esquema en **solo lectura**: no migra ni siembra. SQLite
+  se ha eliminado del runtime (solo se conservan los scripts históricos del
+  migrador). Ver `docs/BASE-DE-DATOS.md` y `docs/DEPLOY-MSSQL.md`.
 
 ## 5. Siguiente paso
 

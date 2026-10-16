@@ -1,14 +1,13 @@
 // Aislamiento del directorio: importar `src/directorySync.js` no debe abrir (ni
-// crear) el archivo SQLite cuando el motor real es MSSQL.
+// crear) ningún archivo SQLite. SQL Server es el único motor y la sincronización
+// del directorio no debe depender de una base local.
 //
-// Antes, directorySync importaba INITIAL_ORGANIZATION de src/seed.js, que abre
-// SQLite al evaluarse: importar el directorio en modo MSSQL creaba el archivo.
-// Ahora esa constante vive en src/orgConstants.js, sin motor.
+// Antes, directorySync importaba INITIAL_ORGANIZATION de src/seed.js, que abría
+// SQLite al evaluarse: importar el directorio creaba el archivo. Ahora esa
+// constante vive en src/orgConstants.js, sin motor.
 //
-// Se comprueba con procesos hijos reales. El caso SQLite sirve de control: ahí
-// el archivo SÍ tiene que existir, de modo que la prueba no pueda pasar por el
-// simple hecho de no crear nunca el archivo. El hijo no ejecuta consultas, así
-// que el caso MSSQL jamás intenta conectar con SQL Server.
+// Se comprueba con procesos hijos reales. El hijo no ejecuta consultas, así que
+// jamás intenta conectar con SQL Server.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -56,11 +55,10 @@ function reportado(r) {
   return JSON.parse(r.stdout.trim());
 }
 
-describe('aislamiento del directorio: importar directorySync no abre SQLite en modo MSSQL', () => {
-  it('en modo MSSQL no crea el archivo SQLite', () => {
+describe('aislamiento del directorio: importar directorySync no abre SQLite', () => {
+  it('no crea el archivo SQLite', () => {
     const r = ejecutar({
       DB_CLIENT: 'mssql',
-      MSSQL_RUNTIME: 'true',
       DB_SERVER: 'servidor-de-prueba',
       DB_DATABASE: 'base-de-prueba',
       DB_USER: 'usuario',
@@ -71,18 +69,7 @@ describe('aislamiento del directorio: importar directorySync no abre SQLite en m
     assert.equal(
       fs.existsSync(r.dbFile),
       false,
-      'importar directorySync en modo MSSQL abrió o creó el archivo SQLite',
-    );
-  });
-
-  it('en modo SQLite sí abre el archivo (control)', () => {
-    const r = ejecutar({ DB_CLIENT: 'sqlite', MSSQL_RUNTIME: '' });
-    const { dbFile } = reportado(r);
-    assert.equal(dbFile, r.dbFile);
-    assert.equal(
-      fs.existsSync(r.dbFile),
-      true,
-      'importar directorySync en modo SQLite debería abrir/crear el archivo',
+      'importar directorySync abrió o creó el archivo SQLite',
     );
   });
 });

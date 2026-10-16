@@ -77,8 +77,27 @@ async function orgOr404(req, res) {
 
 router.get('/', async (req, res) => {
   try {
-    const rows = await runtime.queryMany(`${DETAIL_SQL} ORDER BY o.name`);
-    res.json({ data: rows });
+    const page = Math.max(1, parseIntSafe(req.query.page) || 1);
+    const perPage = Math.min(100, Math.max(1, parseIntSafe(req.query.perPage) || 15));
+    const search = req.query.search ? `%${String(req.query.search).replace(/[%_]/g, '\\$&')}%` : null;
+    const status = req.query.status;
+
+    let where = '';
+    const params = [];
+    if (search) {
+      where = 'WHERE o.name LIKE ? ESCAPE \'\\\' OR o.code LIKE ? ESCAPE \'\\\'';
+      params.push(search, search);
+    }
+    if (status === 'active') {
+      where = where ? `${where} AND o.active = 1` : 'WHERE o.active = 1';
+    } else if (status === 'inactive') {
+      where = where ? `${where} AND o.active = 0` : 'WHERE o.active = 0';
+    }
+
+    const total = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM organizations o ${where}`, ...params)).n;
+    const data = await runtime.queryMany(`${DETAIL_SQL} ${where} ORDER BY o.name LIMIT ? OFFSET ?`, ...params, perPage, (page - 1) * perPage);
+
+    res.json({ data, total, page, perPage, pages: Math.ceil(total / perPage) });
   } catch (err) {
     res.status(500).json({ error: 'Error interno' });
   }

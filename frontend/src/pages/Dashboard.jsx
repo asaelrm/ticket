@@ -182,7 +182,7 @@ function EmptyToggle({ expanded, onToggle, title }) {
       type="button"
       onClick={onToggle}
       title={title}
-      className={`inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-brand-300 transition hover:border-brand-400/60 hover:text-brand-200 ${ROW_FOCUS}`}
+      className={`inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-xs font-semibold text-[var(--brand)] transition hover:border-brand-400/60 hover:text-[var(--brand-hover)] ${ROW_FOCUS}`}
     >
       {expanded ? 'Ocultar vacías' : 'Ver todas'}
     </button>
@@ -394,7 +394,7 @@ export default function Dashboard() {
           </div>
           <Link
             to="/app/tickets?view=overdue"
-            className={`${HEADER_LINK} text-sm font-semibold text-brand-300 hover:text-brand-200`}
+            className={`${HEADER_LINK} text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-hover)]`}
           >
             Ver retrasados <span aria-hidden>→</span>
           </Link>
@@ -436,7 +436,7 @@ export default function Dashboard() {
               <tbody className="divide-y divide-slate-100">
                 {sla.top.map((t) => (
                   <tr key={t.id} className="group">
-                    <td className="td whitespace-nowrap font-semibold text-brand-300">
+                    <td className="td whitespace-nowrap font-semibold text-[var(--brand)]">
                       <Link
                         to={`/app/tickets/${t.id}`}
                         className={`cursor-pointer group-hover:underline ${ROW_FOCUS}`}
@@ -447,7 +447,7 @@ export default function Dashboard() {
                     <td className="td max-w-xs">
                       <Link
                         to={`/app/tickets/${t.id}`}
-                        className={`block cursor-pointer truncate rounded font-medium text-slate-700 group-hover:text-brand-300 ${ROW_FOCUS}`}
+                        className={`block cursor-pointer truncate rounded font-medium text-slate-700 group-hover:text-[var(--brand-hover)] ${ROW_FOCUS}`}
                       >
                         {t.title}
                       </Link>
@@ -485,7 +485,7 @@ export default function Dashboard() {
           </div>
           <Link
             to="/app/tickets?view=open"
-            className={`${HEADER_LINK} text-sm font-semibold text-brand-300 hover:text-brand-200`}
+            className={`${HEADER_LINK} text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand-hover)]`}
           >
             Ver abiertos <span aria-hidden>→</span>
           </Link>
@@ -538,7 +538,7 @@ export default function Dashboard() {
                         to={`/app/tickets?assigned=${t.id}&active=1`}
                         className={`block cursor-pointer rounded ${ROW_HOVER} ${ROW_FOCUS}`}
                       >
-                        <span className="block truncate font-medium text-slate-700 group-hover:text-brand-300">
+                        <span className="block truncate font-medium text-slate-700 group-hover:text-[var(--brand-hover)]">
                           {t.technician}
                         </span>
                         {t.position && <span className="block truncate text-xs text-slate-400">{t.position}</span>}

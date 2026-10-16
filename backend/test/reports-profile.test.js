@@ -1,7 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 
 let adminC;
 let empleadoC;
@@ -37,7 +37,7 @@ describe('Reportes con filtro de fecha', () => {
 
     const t1 = await createTicket(adminC);
     const t2 = await createTicket(adminC);
-    db.prepare('UPDATE tickets SET created_at = ? WHERE id = ?').run(isoDaysAgo(10), t2.id);
+    await db.execute('UPDATE tickets SET created_at = ? WHERE id = ?', isoDaysAgo(10), t2.id);
 
     const all = await adminC.get('/api/reports/summary');
     assert.equal(all.body.total - before.body.total, 2);

@@ -92,8 +92,8 @@ export default function ResetPassword() {
       setError('Las contraseñas no coinciden');
       return;
     }
-    if (password.length < 12) {
-      setError('La contraseña debe tener al menos 12 caracteres');
+    if (password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres (12 para SUPERADMIN)');
       return;
     }
     // El token tecleado a mano también se guarda: si algo falla (red, contraseña
@@ -154,7 +154,7 @@ export default function ResetPassword() {
           ) : (
             <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
               <p className="text-sm text-slate-500">
-                Ingrese su nueva contraseña. Debe tener al menos 12 caracteres.
+                Ingrese su nueva contraseña. Debe tener al menos 6 caracteres (12 para SUPERADMIN).
               </p>
               <div>
                 <label className="label" htmlFor="token">
@@ -188,7 +188,7 @@ export default function ResetPassword() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"
-                  minLength={12}
+                  minLength={6}
                   required
                 />
               </div>

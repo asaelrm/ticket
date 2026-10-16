@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 import runtime from '../db/runtime.js';
 import config from '../config.js';
+import { MIN_PASSWORD_LENGTH, MIN_ADMIN_PASSWORD_LENGTH, MIN_SUPERADMIN_PASSWORD_LENGTH } from '../config.js';
 import { authRateLimit } from '../utils/rateLimit.js';
 import { verifyPassword, hashPassword } from '../utils/password.js';
 import { saveDirectorySnapshot } from '../directorySync.js';
@@ -10,6 +11,7 @@ import { requireAuth, touchLastLogin, loadUser } from '../middleware/auth.js';
 import { nowIso } from '../utils/time.js';
 import { notifyPasswordReset } from '../utils/mailer.js';
 import { destroyUserSessions } from '../utils/sessionStore.js';
+import { roleCodeForUser } from '../orgPolicy.js';
 
 const router = express.Router();
 
@@ -150,9 +152,18 @@ router.post('/change-password', requireAuth, async (req, res) => {
     const current = String(req.body.current_password || '');
     const next = String(req.body.new_password || '');
 
+    // Determinar la longitud mínima según el rol del usuario
+    const roleCode = await roleCodeForUser(req.user.id);
+    let minLength = MIN_PASSWORD_LENGTH;
+    if (roleCode === 'SUPERADMIN') {
+      minLength = MIN_SUPERADMIN_PASSWORD_LENGTH;
+    } else if (roleCode === 'ADMIN') {
+      minLength = MIN_ADMIN_PASSWORD_LENGTH;
+    }
+
     validate({
       current_password: rules.required(current, 'Contraseña actual'),
-      new_password: rules.password(next),
+      new_password: rules.password(next, minLength),
     });
 
     const row = await runtime.queryOne('SELECT password_hash FROM users WHERE id = ?', req.user.id);
@@ -183,19 +194,29 @@ router.post('/reset-password', authRateLimit(), async (req, res) => {
     const token = safeStr(req.body.token);
     const next = String(req.body.password || '');
 
-    validate({
-      token: rules.required(token, 'Token de recuperación'),
-      password: rules.password(next),
-    });
-
     const hash = crypto.createHash('sha256').update(token).digest('hex');
     const row = await runtime.queryOne(
-      'SELECT id FROM users WHERE password_reset_token = ? AND password_reset_expires > ?',
+      `SELECT u.id, u.role_id, r.code AS role_code FROM users u
+       JOIN roles r ON r.id = u.role_id
+       WHERE u.password_reset_token = ? AND u.password_reset_expires > ?`,
       hash,
       nowIso()
     );
 
     if (!row) return res.status(400).json({ error: 'Token inválido o expirado' });
+
+    // Determinar la longitud mínima según el rol del usuario
+    let minLength = MIN_PASSWORD_LENGTH;
+    if (row.role_code === 'SUPERADMIN') {
+      minLength = MIN_SUPERADMIN_PASSWORD_LENGTH;
+    } else if (row.role_code === 'ADMIN') {
+      minLength = MIN_ADMIN_PASSWORD_LENGTH;
+    }
+
+    validate({
+      token: rules.required(token, 'Token de recuperación'),
+      password: rules.password(next, minLength),
+    });
 
     await runtime.execute(
       `UPDATE users SET password_hash = ?, password_reset_token = NULL, password_reset_expires = NULL,

@@ -5,7 +5,6 @@ import db from '../db/runtime.js';
 import { hashPassword } from '../utils/password.js';
 import { validate, rules, safeStr } from '../utils/validation.js';
 import { SUPERADMIN_ROLE_CODE } from '../orgPolicy.js';
-import config, { dbClient } from '../config.js';
 
 function boolEnv(value) {
   if (value === undefined || value === null || value === '') return false;
@@ -30,24 +29,16 @@ export async function bootstrapSuperadmin({
     );
   }
 
-  // En MSSQL no se ejecutan migraciones ni seed: el esquema y los datos base
-  // (roles, permisos, organización inicial) ya existen creados vía schema.sql
-  // y el aprovisionamiento inicial de la base. En SQLite se aplican para
-  // preparar la base de pruebas.
-  const isMssql = dbClient() === 'mssql';
-  if (!isMssql) {
-    const { runMigrations } = await import('../db.js');
-    const { seed } = await import('../seed.js');
-    runMigrations();
-    seed();
-  }
+  // SQL Server es el único motor. El esquema y los datos base (roles, permisos,
+  // organización inicial) ya existen: se crearon con el DDL de cutover o con el
+  // aprovisionamiento inicial. Este comando no ejecuta migraciones ni seed.
 
   // Verificar que el rol SUPERADMIN existe (en MSSQL ya debería existir tras el schema.sql)
   const role = await db.queryOne('SELECT id FROM roles WHERE code = ?', SUPERADMIN_ROLE_CODE);
   if (!role) {
     throw new Error(
-      `el rol ${SUPERADMIN_ROLE_CODE} no existe. En MSSQL asegúrese de haber aplicado schema.sql; ` +
-        'en SQLite ejecute las migraciones y el seed antes.'
+      `el rol ${SUPERADMIN_ROLE_CODE} no existe. Asegúrese de haber aplicado schema.sql ` +
+        'y el aprovisionamiento de datos base en SQL Server.',
     );
   }
 
@@ -60,7 +51,7 @@ export async function bootstrapSuperadmin({
   if (!perm) {
     throw new Error(
       `el permiso "organization.manage" no está asignado al rol ${SUPERADMIN_ROLE_CODE}. ` +
-        'En MSSQL verifique el seed de permisos/roles; en SQLite ejecute el seed.'
+        'Verifique el seed de permisos/roles en SQL Server.',
     );
   }
 

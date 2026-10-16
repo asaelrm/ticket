@@ -1,11 +1,10 @@
-// Arranque seguro: en modo MSSQL el servidor valida el esquema (solo lectura) y
-// NUNCA migra, siembra, restaura la instantánea del directorio ni abre/crea el
+// Arranque seguro: el servidor valida el esquema MSSQL (solo lectura) y NUNCA
+// migra, siembra, restaura la instantánea del directorio ni abre/crea ningún
 // archivo SQLite. Si el esquema es incompatible, el servidor HTTP no se inicia.
 //
 // Todo se comprueba en procesos hijos reales con un contrato MSSQL FALSO en
 // memoria (test/fixtures/mssql-catalog.mjs): no se abre ninguna conexión con SQL
-// Server y no se toca ninguna base de datos. El caso SQLite sirve de control y
-// usa el arranque real.
+// Server y no se toca ninguna base de datos.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -147,18 +146,7 @@ describe('arranque MSSQL: valida el esquema y no toca la base', () => {
   });
 });
 
-describe('arranque SQLite: control, conserva el comportamiento de siempre', () => {
-  it('migra, siembra y abre el archivo SQLite', () => {
-    const r = ejecutar({ DB_CLIENT: 'sqlite', MSSQL_RUNTIME: '' });
-    const out = reportado(r);
-    assert.equal(out.engine, 'sqlite');
-    assert.equal(out.error, null);
-    assert.equal(out.listenCalls.length, 1);
-    assert.equal(out.dbFileExists, true, 'SQLite debería abrir/crear el archivo');
-  });
-});
-
-describe('server.js: el arranque SQLite no se evalúa al importar en modo MSSQL', () => {
+describe('server.js: el arranque no importa estáticamente dependencias de SQLite', () => {
   it('no importa estáticamente db.js, seed.js ni directorySync.js', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'server.js'), 'utf8');
     assert.doesNotMatch(source, /^\s*import[\s\S]*?from\s+['"]\.\/db\.js['"]/m);

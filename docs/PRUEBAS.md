@@ -1,20 +1,18 @@
 # Pruebas — SIFHA Ticket
 
 Cómo ejecutar y qué cubre la automatización. Nunca se usan bases con datos
-reales para pruebas destructivas: la suite por defecto usa una base SQLite
+reales para pruebas destructivas: la suite por defecto no requiere una base de datos
 temporal que se crea, se migra, se siembra y se borra al terminar.
 
-## Backend (motor SQLite)
+## Backend (pruebas unitarias, sin base de datos)
 
 ```bash
 cd backend
 npm test            # node --test --import ./test/setup.js "test/*.test.js"
 ```
 
-- Crea una base **temporal** (setup en `backend/test/setup.js`); no escribe en
-  `backend/data/tickets.db`.
-- Última ejecución registrada: **890 pruebas, 888 aprobadas, 0 fallos,
-  2 omitidas** (omitidas por depender de entorno real SMTP/adjuntos).
+- Ejecuta `npm run test:unit`; no abre ni crea SQL Server o SQLite.
+- Resultado local de esta fase: **263 aprobadas, 0 fallos y 2 omitidas**.
 
 ## Backend — integración contra SQL Server
 
@@ -50,7 +48,7 @@ npm run build        # compila el bundle de producción a dist/
 | Comando | Qué comprueba |
 |---------|---------------|
 | `node --test test/mssql-sql-translation.test.js` | Traducción SQLite→T-SQL (249 sentencias, 0 incompatibles) |
-| `cd backend && npm run db:migrate` | Migraciones SQLite idempotentes (no aplica a MSSQL) |
+| `cd backend && npm run test:mssql` | Integración contra una instancia MSSQL de pruebas autorizada (`.env.mssql-test`) |
 | `cd backend && npm start` (rama MSSQL) | Validación de esquema MSSQL en solo lectura al arrancar |
 | `DIAGNOSE_SELFCHECK=1 node scripts/migration/diagnose-m5-validation.js` | Autodiagnóstico M5 sin red (24 tablas, 23 índices) |
 
@@ -82,5 +80,5 @@ npm run build        # compila el bundle de producción a dist/
 
 - No se declara una prueba aprobada si no se ejecutó correctamente.
 - No se debilitan validaciones para conseguir verde.
-- Las suites MSSQL se reorganizaron a `test/mssql/` para que el `npm test`
-  por defecto (SQLite) no dependa de un SQL Server para terminar.
+- Las suites MSSQL se ejecutan solo con `npm run test:mssql` y una instancia de
+  pruebas autorizada; `npm test` no depende de una base para terminar.

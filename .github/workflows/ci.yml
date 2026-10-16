@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   backend:
-    name: Backend (SQLite temporal)
+    name: Backend (pruebas unitarias, sin base de datos)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -32,8 +32,11 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Instalar dependencias
         run: npm ci
-      - name: Pruebas backend
-        run: npm test
+      # SQL Server es el único motor: la suite completa (`npm test`) y la de
+      # integración (`npm run test:mssql`) requieren un SQL Server de pruebas y
+      # sus credenciales MSSQL_TEST_*; se ejecutan aparte, no en este job.
+      - name: Pruebas unitarias
+        run: npm run test:unit
 
   frontend:
     name: Frontend (vitest + build)

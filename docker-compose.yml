@@ -8,6 +8,23 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4000
+      # --- Base de datos: SQL Server es el ÚNICO motor ------------------------
+      # Antes el contenedor arrancaba con SQLite y una base local en el volumen
+      # `ticket_data`. SQLite se ha eliminado del runtime: ahora son
+      # IMPRESCINDIBLES las variables de conexión a SQL Server. Defínalas en el
+      # fichero .env junto a este compose (o en el entorno). Sin DB_SERVER,
+      # DB_DATABASE, DB_USER y DB_PASSWORD la aplicación no valida el esquema y
+      # no arranca.
+      DB_CLIENT: mssql
+      DB_SERVER: ${DB_SERVER:-}
+      DB_PORT: ${DB_PORT:-1433}
+      DB_DATABASE: ${DB_DATABASE:-}
+      DB_USER: ${DB_USER:-}
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_ENCRYPT: ${DB_ENCRYPT:-true}
+      DB_TRUST_SERVER_CERTIFICATE: ${DB_TRUST_SERVER_CERTIFICATE:-false}
+      # Instancia con nombre (SQL Server Express): opcional.
+      DB_INSTANCE: ${DB_INSTANCE:-}
       # SESSION_SECRET no tiene valor por defecto a proposito: si falta, el
       # compose NO arranca. Ponlo en un fichero .env junto a este compose o en el
       # entorno, con 32+ caracteres aleatorios:
@@ -47,6 +64,10 @@ services:
       SEED_DEMO_PASSWORD: ${SEED_DEMO_PASSWORD:-}
       SEED_TECH_PASSWORD: ${SEED_TECH_PASSWORD:-}
     volumes:
+      # Histórico: `ticket_data` guardaba la base SQLite del runtime anterior.
+      # SQL Server es ahora el único motor, así que la aplicación ya no escribe
+      # aquí. El volumen se conserva (no se borra ninguna base SQLite existente);
+      # puede retirarse cuando confirme que no necesita esos datos.
       - ticket_data:/app/backend/data
       - ticket_uploads:/app/backend/uploads
     healthcheck:

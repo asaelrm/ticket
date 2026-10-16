@@ -1,10 +1,12 @@
 import { Store } from 'express-session';
 import db from '../db/runtime.js';
 
-// Store de sesiones respaldado por la base de datos (tabla `sessions`).
-// La API de express-session es de callbacks, así que las firmas no cambian:
-// solo el cuerpo pasa a ser async y usar la fachada de runtime.
-export default class SqliteSessionStore extends Store {
+// Store de sesiones respaldado por la base de datos (tabla `sessions`), sobre
+// SQL Server. La API de express-session es de callbacks, así que las firmas no
+// cambian: solo el cuerpo pasa a ser async y usar la fachada de runtime. Las
+// sentencias se escriben en dialecto SQLite y src/db/dialect.js las traduce a
+// T-SQL (ON CONFLICT → MERGE, json_extract → JSON_VALUE).
+export default class SessionStore extends Store {
   async get(sid, callback) {
     try {
       const row = await db.queryOne('SELECT sess FROM sessions WHERE sid = ? AND expire > ?', sid, Date.now());

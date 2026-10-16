@@ -145,7 +145,7 @@ export default function Notifications() {
     <div className="relative" ref={panelRef}>
       <button
         onClick={openPanel}
-        className="relative rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+        className="relative rounded-lg p-2 text-slate-300 transition hover:bg-white/10 hover:text-white"
         title="Notificaciones"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -191,11 +191,11 @@ export default function Notifications() {
                 </button>
               </div>
             ) : !items ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-400">
+              <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
                 <Spinner className="h-4 w-4 text-brand-600" /> Cargando…
               </div>
             ) : items.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-slate-400">Sin notificaciones</p>
+              <p className="px-4 py-8 text-center text-sm text-slate-500">Sin notificaciones</p>
             ) : (
               items.map((n) => (
                 <button
@@ -209,7 +209,7 @@ export default function Notifications() {
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-medium text-slate-800">{n.title}</span>
                     {n.body && <span className="block truncate text-xs text-slate-500">{n.body}</span>}
-                    <span className="mt-0.5 block text-[11px] text-slate-400">{formatRelative(n.created_at)}</span>
+                    <span className="mt-0.5 block text-[11px] text-slate-500">{formatRelative(n.created_at)}</span>
                   </span>
                   {!n.read_at && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-600" />}
                 </button>

@@ -1,7 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 
 // Clientes compartidos: el login tiene rate limit (10/min por IP) y cada
 // archivo de test corre en su propio proceso, así que evitamos logins repetidos.
@@ -50,7 +50,7 @@ describe('Contadores de filtros rápidos', () => {
     const t = await createTicket(adminC, { priority: 'CRITICAL' });
     assert.ok(t.sla_due_at, 'El ticket debe tener SLA al crearse');
 
-    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(
+    await db.execute('UPDATE tickets SET sla_due_at = ? WHERE id = ?',
       new Date(Date.now() - 60 * 60 * 1000).toISOString(),
       t.id
     );
@@ -100,10 +100,10 @@ describe('Contadores de filtros rápidos', () => {
     // distancia, es decir, siempre dos días UTC consecutivos.
     const yesterday = await createTicket(adminC);
     await adminC.post(`/api/tickets/${yesterday.id}/resolve`, { resolution: 'Resolución de prueba' });
-    const resolvedToday = db.prepare('SELECT resolved_at FROM tickets WHERE id = ?').get(today.id).resolved_at;
+    const resolvedToday = (await db.queryOne('SELECT resolved_at FROM tickets WHERE id = ?', today.id)).resolved_at;
     assert.ok(resolvedToday, 'el ticket de hoy debe tener fecha real de resolución');
     const yesterISO = new Date(new Date(resolvedToday).getTime() - 24 * 60 * 60 * 1000).toISOString();
-    db.prepare('UPDATE tickets SET resolved_at = ?, closed_at = NULL WHERE id = ?').run(yesterISO, yesterday.id);
+    await db.execute('UPDATE tickets SET resolved_at = ?, closed_at = NULL WHERE id = ?', yesterISO, yesterday.id);
 
     // "Ayer" no siempre está en el mismo mes que "hoy": el día 1 del mes cae en
     // el mes anterior, y el 1 de enero además en el año anterior. Los contadores
@@ -247,7 +247,7 @@ describe('Filtro de tiempo de atención (?sla=)', () => {
   async function ticketWithDueAt(hoursFromNow, over = {}) {
     const t = await createTicket(adminC, over);
     const due = new Date(Date.now() + hoursFromNow * HOUR).toISOString();
-    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(due, t.id);
+    await db.execute('UPDATE tickets SET sla_due_at = ? WHERE id = ?', due, t.id);
     return t.id;
   }
 
@@ -313,9 +313,9 @@ describe('Filtro de tiempo de atención (?sla=)', () => {
     const res = await adminC.get('/api/tickets/export?sla=overdue&format=csv');
     assert.equal(res.status, 200);
     assert.match(res.text, new RegExp(`TCK-\\d+`), 'el CSV debe traer tickets');
-    const mine = db.prepare('SELECT ticket_number FROM tickets WHERE id = ?').get(vencido).ticket_number;
+    const mine = (await db.queryOne('SELECT ticket_number FROM tickets WHERE id = ?', vencido)).ticket_number;
     assert.match(res.text, new RegExp(mine), 'debe incluir el ticket vencido');
-    const otro = db.prepare('SELECT ticket_number FROM tickets WHERE id = ?').get(vigente).ticket_number;
+    const otro = (await db.queryOne('SELECT ticket_number FROM tickets WHERE id = ?', vigente)).ticket_number;
     assert.doesNotMatch(res.text, new RegExp(otro), 'no debe incluir el ticket aún vigente');
   });
 });
@@ -470,7 +470,7 @@ describe('Búsqueda, ordenamiento y paginación', () => {
     const a = await createTicket(adminC);
     const b = await createTicket(adminC);
     await adminC.patch(`/api/tickets/${a.id}`, { status: 'RESOLVED' });
-    db.prepare('UPDATE tickets SET resolved_at = ? WHERE id = ?').run(
+    await db.execute('UPDATE tickets SET resolved_at = ? WHERE id = ?',
       new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
       a.id
     );

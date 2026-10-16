@@ -20,7 +20,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { after, describe, it } from 'node:test';
 
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 import { seed } from '../src/seed.js';
 import { verifyPassword } from '../src/utils/password.js';
 import {
@@ -198,7 +198,7 @@ describe('la configuración de producción se valida antes de arrancar', () => {
       NODE_ENV: 'production',
       SESSION_SECRET: SECRETO_VALIDO,
       PUBLIC_URL: 'https://tickets.example.com',
-      SEED_ADMIN_PASSWORD: '123456',
+      SEED_ADMIN_PASSWORD: '12345', // 5 caracteres, menos que MIN_ADMIN_PASSWORD_LENGTH (6)
     });
     assert.equal(errors.length, 1);
     assert.match(errors[0], /SEED_ADMIN_PASSWORD/);
@@ -298,14 +298,14 @@ describe('el proceso real se niega a arrancar con la configuración incompleta',
 // Estado del entorno del seed que este archivo manipula.
 const VIEJAS = ['SEED_ADMIN_PASSWORD', 'SEED_ADMIN_FORCE_PASSWORD', 'SEED_DEMO_ACCOUNTS', 'SEED_DEMO_PASSWORD', 'SEED_TECH_PASSWORD'];
 
-function conSeed(vars, fn) {
+async function conSeed(vars, fn) {
   const guardadas = Object.fromEntries(VIEJAS.map((k) => [k, process.env[k]]));
   try {
     for (const [k, v] of Object.entries(vars)) {
       if (v === null) delete process.env[k];
       else process.env[k] = v;
     }
-    seed();
+    await seed();
   } finally {
     for (const [k, v] of Object.entries(guardadas)) {
       if (v === undefined) delete process.env[k];
@@ -314,18 +314,26 @@ function conSeed(vars, fn) {
   }
 }
 
-const usuario = (u) => db.prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)').get(u);
-const hashDe = (u) => (usuario(u) || {}).password_hash;
+const usuario = (u) => db.queryOne('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', u);
+const hashDe = async (u) => ((await usuario(u)) || {}).password_hash;
 
-function borrarCuentasIniciales() {
-  db.prepare("DELETE FROM users WHERE username IN ('admin', 'empleado', 'tecnico')").run();
+async function borrarCuentasIniciales() {
+  await db.execute("DELETE FROM users WHERE username IN ('admin', 'empleado', 'tecnico')");
 }
 
+// TODO(fase2-mssql): en el modelo SQLite cada archivo de pruebas tenía su propia
+// base temporal (DATA_DIR), así que borrar y resemblance de `admin`/`empleado`/
+// `tecnico` era inocuo. Ahora todos los archivos comparten la MISMA base de
+// SQL Server de pruebas, de modo que este bloque muta cuentas que otras suites
+// usan y puede interferir si corren en paralelo. Un humano debe decidir si estos
+// tests se aíslan (organización/tenant aparte), se serializan o se marcan como
+// no ejecutables contra la base compartida. Se convierten a async para no dejar
+// `db.prepare`, pero NO se ha inventado un aislamiento que no existe.
 describe('el seed no tiene ninguna contraseña por defecto', () => {
-  after(() => {
+  after(async () => {
     // Se deja la base de este archivo como la encontraron las pruebas.
-    borrarCuentasIniciales();
-    conSeed({
+    await borrarCuentasIniciales();
+    await conSeed({
       SEED_ADMIN_PASSWORD: '123456',
       SEED_DEMO_ACCOUNTS: 'true',
       SEED_DEMO_PASSWORD: 'Empleado1234!',
@@ -333,52 +341,52 @@ describe('el seed no tiene ninguna contraseña por defecto', () => {
     }, () => {});
   });
 
-  it('sin SEED_ADMIN_PASSWORD no crea el administrador', () => {
-    borrarCuentasIniciales();
-    conSeed({ SEED_ADMIN_PASSWORD: null }, () => {});
-    assert.equal(usuario('admin'), undefined, 'el seed creó un administrador sin que nadie lo pidiera');
+  it('sin SEED_ADMIN_PASSWORD no crea el administrador', async () => {
+    await borrarCuentasIniciales();
+    await conSeed({ SEED_ADMIN_PASSWORD: null }, () => {});
+    assert.equal(await usuario('admin'), undefined, 'el seed creó un administrador sin que nadie lo pidiera');
   });
 
-  it('con SEED_ADMIN_PASSWORD crea el administrador con esa contraseña', () => {
-    borrarCuentasIniciales();
+  it('con SEED_ADMIN_PASSWORD crea el administrador con esa contraseña', async () => {
+    await borrarCuentasIniciales();
     const elegida = 'UnaContrasenaLarga9!';
-    conSeed({ SEED_ADMIN_PASSWORD: elegida }, () => {});
-    assert.ok(usuario('admin'), 'no se creó el administrador que se pidió');
-    assert.equal(verifyPassword(elegida, hashDe('admin')), true);
+    await conSeed({ SEED_ADMIN_PASSWORD: elegida }, () => {});
+    assert.ok(await usuario('admin'), 'no se creó el administrador que se pidió');
+    assert.equal(verifyPassword(elegida, await hashDe('admin')), true);
   });
 
-  it('sin SEED_DEMO_ACCOUNTS no crea las cuentas de demostración', () => {
-    borrarCuentasIniciales();
-    conSeed({ SEED_DEMO_ACCOUNTS: null, SEED_ADMIN_PASSWORD: 'UnaContrasenaLarga9!' }, () => {});
-    assert.equal(usuario('empleado'), undefined, 'se creó empleado sin pedirlo');
-    assert.equal(usuario('tecnico'), undefined, 'se creó tecnico sin pedirlo');
+  it('sin SEED_DEMO_ACCOUNTS no crea las cuentas de demostración', async () => {
+    await borrarCuentasIniciales();
+    await conSeed({ SEED_DEMO_ACCOUNTS: null, SEED_ADMIN_PASSWORD: 'UnaContrasenaLarga9!' }, () => {});
+    assert.equal(await usuario('empleado'), undefined, 'se creó empleado sin pedirlo');
+    assert.equal(await usuario('tecnico'), undefined, 'se creó tecnico sin pedirlo');
   });
 
-  it('con SEED_DEMO_ACCOUNTS las crea con la contraseña indicada', () => {
-    borrarCuentasIniciales();
-    conSeed({
+  it('con SEED_DEMO_ACCOUNTS las crea con la contraseña indicada', async () => {
+    await borrarCuentasIniciales();
+    await conSeed({
       SEED_ADMIN_PASSWORD: 'UnaContrasenaLarga9!',
       SEED_DEMO_ACCOUNTS: 'true',
       SEED_DEMO_PASSWORD: 'EmpleadoDePrueba9!',
       SEED_TECH_PASSWORD: 'TecnicoDePrueba9!',
     }, () => {});
-    assert.equal(verifyPassword('EmpleadoDePrueba9!', hashDe('empleado')), true);
-    assert.equal(verifyPassword('TecnicoDePrueba9!', hashDe('tecnico')), true);
+    assert.equal(verifyPassword('EmpleadoDePrueba9!', await hashDe('empleado')), true);
+    assert.equal(verifyPassword('TecnicoDePrueba9!', await hashDe('tecnico')), true);
   });
 
-  it('sin contraseñas de demo, las cuentas nacen inservibles en vez de con una conocida', () => {
-    borrarCuentasIniciales();
-    conSeed({
+  it('sin contraseñas de demo, las cuentas nacen inservibles en vez de con una conocida', async () => {
+    await borrarCuentasIniciales();
+    await conSeed({
       SEED_ADMIN_PASSWORD: 'UnaContrasenaLarga9!',
       SEED_DEMO_ACCOUNTS: 'true',
       SEED_DEMO_PASSWORD: null,
       SEED_TECH_PASSWORD: null,
     }, () => {});
-    assert.ok(usuario('empleado'), 'no se creó la cuenta pedida');
-    assert.ok(usuario('tecnico'), 'no se creó la cuenta pedida');
+    assert.ok(await usuario('empleado'), 'no se creó la cuenta pedida');
+    assert.ok(await usuario('tecnico'), 'no se creó la cuenta pedida');
     for (const conocidas of ['123456', 'Empleado1234!', 'Tecnico1234!', 'empleado', 'tecnico', '']) {
-      assert.equal(verifyPassword(conocidas, hashDe('empleado')), false, `empleado entra con "${conocidas}"`);
-      assert.equal(verifyPassword(conocidas, hashDe('tecnico')), false, `tecnico entra con "${conocidas}"`);
+      assert.equal(verifyPassword(conocidas, await hashDe('empleado')), false, `empleado entra con "${conocidas}"`);
+      assert.equal(verifyPassword(conocidas, await hashDe('tecnico')), false, `tecnico entra con "${conocidas}"`);
     }
   });
 

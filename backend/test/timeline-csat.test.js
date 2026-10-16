@@ -1,7 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 
 let adminC;
 let tecnicoC;
@@ -172,13 +172,13 @@ describe('Reabrir un ticket reinicia la encuesta CSAT', () => {
     return ticket;
   }
 
-  function leerCsat(ticketId) {
-    return db.prepare('SELECT csat_rating, csat_comment, csat_answered_at FROM tickets WHERE id = ?').get(ticketId);
+  async function leerCsat(ticketId) {
+    return db.queryOne('SELECT csat_rating, csat_comment, csat_answered_at FROM tickets WHERE id = ?', ticketId);
   }
 
   it('la encuesta se guarda antes de reabrir', async () => {
     const ticket = await ticketResueltoYMegusto();
-    const fila = leerCsat(ticket.id);
+    const fila = await leerCsat(ticket.id);
     assert.equal(fila.csat_rating, 1);
     assert.equal(fila.csat_comment, 'Seguía sin funcionar');
     assert.ok(fila.csat_answered_at);
@@ -190,7 +190,7 @@ describe('Reabrir un ticket reinicia la encuesta CSAT', () => {
     const reopen = await adminC.post(`/api/tickets/${ticket.id}/reopen`, { reason: 'El fallo volvió' });
     assert.equal(reopen.status, 200);
 
-    const fila = leerCsat(ticket.id);
+    const fila = await leerCsat(ticket.id);
     assert.equal(fila.csat_rating, null, 'la valoración anterior ya no describe el servicio actual');
     assert.equal(fila.csat_comment, null);
     assert.equal(fila.csat_answered_at, null);
@@ -207,7 +207,7 @@ describe('Reabrir un ticket reinicia la encuesta CSAT', () => {
     const reopen = await adminC.patch(`/api/tickets/${ticket.id}`, { status: 'OPEN' });
     assert.equal(reopen.status, 400);
 
-    const fila = leerCsat(ticket.id);
+    const fila = await leerCsat(ticket.id);
     assert.equal(fila.csat_rating, 1);
     assert.equal(fila.csat_comment, 'Seguía sin funcionar');
     assert.ok(fila.csat_answered_at);
@@ -225,7 +225,7 @@ describe('Reabrir un ticket reinicia la encuesta CSAT', () => {
     const nuevo = await empleadoC.post(`/api/tickets/${ticket.id}/csat`, { rating: 5, comment: 'Perfecto' });
     assert.equal(nuevo.status, 200);
 
-    const fila = leerCsat(ticket.id);
+    const fila = await leerCsat(ticket.id);
     assert.equal(fila.csat_rating, 5);
     assert.equal(fila.csat_comment, 'Perfecto');
   });

@@ -1,7 +1,8 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db, { nowIso } from '../src/db.js';
+import db from '../src/db/runtime.js';
+import { nowIso } from '../src/utils/time.js';
 import { hashPassword } from '../src/utils/password.js';
 
 // ETAPA 4A: aislamiento real del Dashboard por organización.
@@ -22,18 +23,18 @@ let catB;
 let techA;
 let techB;
 
-function insertOrg(code, name) {
-  db.prepare('INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1)')
-    .run(code, name, 'Organización de prueba de aislamiento');
-  return db.prepare('SELECT id FROM organizations WHERE code = ?').get(code).id;
+async function insertOrg(code, name) {
+  await db.execute('INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1)', code, name, 'Organización de prueba de aislamiento');
+  const row = await db.queryOne('SELECT id FROM organizations WHERE code = ?', code);
+  return row.id;
 }
 
-function insertUser(orgId, username, roleCode) {
-  const roleId = db.prepare('SELECT id FROM roles WHERE code = ?').get(roleCode).id;
-  db.prepare(
+async function insertUser(orgId, username, roleCode) {
+  const role = await db.queryOne('SELECT id FROM roles WHERE code = ?', roleCode);
+  const roleId = role.id;
+  await db.execute(
     `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     `Nombre ${username}`,
     `Apellido ${username}`,
     username,
@@ -46,7 +47,8 @@ function insertUser(orgId, username, roleCode) {
     nowIso(),
     orgId
   );
-  return db.prepare('SELECT id FROM users WHERE username = ?').get(username).id;
+  const row = await db.queryOne('SELECT id FROM users WHERE username = ?', username);
+  return row.id;
 }
 
 const isoFromNow = (ms) => new Date(Date.now() + ms).toISOString();
@@ -68,11 +70,11 @@ const byLabel = (data) => Object.fromEntries(data.map((x) => [x.label, x]));
 
 describe('Dashboard aislado por organización (ETAPA 4A)', () => {
   before(async () => {
-    ids.orgA = insertOrg(ORGA, 'Organización A de dashboard');
-    ids.orgB = insertOrg(ORGB, 'Organización B de dashboard');
-    const adminA = insertUser(ids.orgA, 'admin_aisl_a', 'ADMIN');
-    const adminB = insertUser(ids.orgB, 'admin_aisl_b', 'ADMIN');
-    const superId = insertUser(null, 'super_aisl', 'SUPERADMIN');
+    ids.orgA = await insertOrg(ORGA, 'Organización A de dashboard');
+    ids.orgB = await insertOrg(ORGB, 'Organización B de dashboard');
+    const adminA = await insertUser(ids.orgA, 'admin_aisl_a', 'ADMIN');
+    const adminB = await insertUser(ids.orgB, 'admin_aisl_b', 'ADMIN');
+    const superId = await insertUser(null, 'super_aisl', 'SUPERADMIN');
     ids.adminA = adminA;
     ids.adminB = adminB;
     ids.super = superId;
@@ -98,8 +100,8 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
     assert.equal(cb.status, 201, JSON.stringify(cb.body));
     catB = cb.body.category.id;
 
-    techA = insertUser(ids.orgA, 'tecnico_dash_a', 'TECHNICIAN');
-    techB = insertUser(ids.orgB, 'tecnico_dash_b', 'TECHNICIAN');
+    techA = await insertUser(ids.orgA, 'tecnico_dash_a', 'TECHNICIAN');
+    techB = await insertUser(ids.orgB, 'tecnico_dash_b', 'TECHNICIAN');
   });
 
   it('/summary: las cifras de A no cambian cuando B agrega tickets; SUPERADMIN ve ceros', async () => {
@@ -154,7 +156,7 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
     const baseB = (await ids.cB.get('/api/dashboard/sla')).body;
 
     const tA = await newTicket(ids.cA, { priority: 'LOW' });
-    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(isoFromNow(-2 * 3600_000), tA.id);
+    await db.execute('UPDATE tickets SET sla_due_at = ? WHERE id = ?', isoFromNow(-2 * 3600_000), tA.id);
 
     const aAfter = (await ids.cA.get('/api/dashboard/sla')).body;
     assert.equal(aAfter.overdue, baseA.overdue + 1, 'A debe ver su vencido propio');
@@ -164,7 +166,7 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
     assert.equal(rowById(bAfter1.top, tA.id), undefined, 'B no debe ver el id del ticket de A');
 
     const tB = await newTicket(ids.cB, { priority: 'LOW', category_id: catB });
-    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(isoFromNow(-3600_000), tB.id);
+    await db.execute('UPDATE tickets SET sla_due_at = ? WHERE id = ?', isoFromNow(-3600_000), tB.id);
 
     const aAfter2 = (await ids.cA.get('/api/dashboard/sla')).body;
     assert.equal(rowById(aAfter2.top, tB.id), undefined, 'A no debe ver el id del vencido de B');
@@ -204,9 +206,11 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
     assert.ok(rowById(dataA, catA), 'A debe ver su propia categoría');
     assert.equal(rowById(dataA, catB), undefined, 'A no debe ver la categoría de B');
     const nCatA = rowById(dataA, catA).n;
-    const expectedCatA = db.prepare(
-      'SELECT COUNT(*) AS n FROM tickets WHERE category_id = ? AND organization_id = ?'
-    ).get(catA, ids.orgA).n;
+    const expectedCatA = (await db.queryOne(
+      'SELECT COUNT(*) AS n FROM tickets WHERE category_id = ? AND organization_id = ?',
+      catA,
+      ids.orgA
+    )).n;
     assert.equal(nCatA, expectedCatA, 'el conteo de A debe ser sobre tickets de A');
 
     await newTicket(ids.cB, { category_id: catB });
@@ -275,7 +279,7 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
     const baseB = (await ids.cB.get('/api/dashboard/needs-attention')).body;
 
     const tA = await newTicket(ids.cA, { priority: 'LOW' });
-    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(isoFromNow(-4 * 3600_000), tA.id);
+    await db.execute('UPDATE tickets SET sla_due_at = ? WHERE id = ?', isoFromNow(-4 * 3600_000), tA.id);
     const aAfter = (await ids.cA.get('/api/dashboard/needs-attention')).body;
     assert.equal(aAfter.totals.overdue, baseA.totals.overdue + 1);
     assert.ok(rowById(aAfter.data, tA.id), 'A debe ver su propio ticket en el triaje');
@@ -285,7 +289,7 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
     assert.equal(rowById(bAfter1.data, tA.id), undefined, 'B no debe ver el id del ticket de A');
 
     const tB = await newTicket(ids.cB, { priority: 'LOW', category_id: catB });
-    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(isoFromNow(-2 * 3600_000), tB.id);
+    await db.execute('UPDATE tickets SET sla_due_at = ? WHERE id = ?', isoFromNow(-2 * 3600_000), tB.id);
     const aAfter2 = (await ids.cA.get('/api/dashboard/needs-attention')).body;
     assert.equal(rowById(aAfter2.data, tB.id), undefined, 'A no debe ver el id del vencido de B');
     const bAfter2 = (await ids.cB.get('/api/dashboard/needs-attention')).body;
@@ -353,10 +357,9 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
     // Dato legacy típico de la migración: un ticket de A que apunta a un
     // usuario y a un rol de B. No pertenece a ninguna organización de datos
     // vivos, pero su org es A y el JOIN reforzado no debe sacar identidad de B.
-    const legacy = db.prepare(
+    const legacyIns = await db.insertAndGetId(
       `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, priority, status, sla_due_at, organization_id, created_at)
-       VALUES (?, ?, ?, ?, ?, 'MEDIUM', 'OPEN', ?, ?, ?)`
-    ).run(
+       VALUES (?, ?, ?, ?, ?, 'MEDIUM', 'OPEN', ?, ?, ?)`,
       'LEGACY-CROSS-ORG-A',
       'Legacy cross-org dashboard',
       'Ticket histórico de A con reporter y asignado de B',
@@ -366,8 +369,8 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
       ids.orgA,
       nowIso()
     );
-    const legacyId = legacy.lastInsertRowid;
-    db.prepare('UPDATE tickets SET assigned_to_id = ? WHERE id = ?').run(techB, legacyId);
+    const legacyId = legacyIns.id;
+    await db.execute('UPDATE tickets SET assigned_to_id = ? WHERE id = ?', techB, legacyId);
 
     const recentA = (await ids.cA.get('/api/dashboard/recent')).body.data;
     const rowRecent = rowById(recentA, legacyId);
@@ -388,8 +391,8 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
 
   it('/needs-attention: una asignación cross-org se neutraliza sin ocultar el ticket', async () => {
     const t = await newTicket(ids.cA, { priority: 'LOW' });
-    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(isoFromNow(-2 * 3600_000), t.id);
-    db.prepare('UPDATE tickets SET assigned_to_id = ? WHERE id = ?').run(techB, t.id);
+    await db.execute('UPDATE tickets SET sla_due_at = ? WHERE id = ?', isoFromNow(-2 * 3600_000), t.id);
+    await db.execute('UPDATE tickets SET assigned_to_id = ? WHERE id = ?', techB, t.id);
 
     const aRes = (await ids.cA.get('/api/dashboard/needs-attention')).body;
     const row = rowById(aRes.data, t.id);
@@ -411,8 +414,8 @@ describe('Dashboard aislado por organización (ETAPA 4A)', () => {
     const before = (await ids.cA.get('/api/dashboard/by-technician')).body;
 
     const legacyA = await newTicket(ids.cA, { priority: 'LOW' });
-    db.prepare('UPDATE tickets SET assigned_to_id = ? WHERE id = ?').run(techB, legacyA.id);
-    db.prepare('UPDATE tickets SET sla_due_at = ? WHERE id = ?').run(isoFromNow(-2 * 3600_000), legacyA.id);
+    await db.execute('UPDATE tickets SET assigned_to_id = ? WHERE id = ?', techB, legacyA.id);
+    await db.execute('UPDATE tickets SET sla_due_at = ? WHERE id = ?', isoFromNow(-2 * 3600_000), legacyA.id);
 
     const validA = await newTicket(ids.cA, { priority: 'MEDIUM' });
     const patch = await ids.cA.patch(`/api/tickets/${validA.id}`, { assigned_to_id: techA });

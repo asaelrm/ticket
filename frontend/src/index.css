@@ -226,6 +226,26 @@ tbody tr:hover { background: var(--surface-secondary); }
 :root[data-theme='dark'] .text-blue-600, :root[data-theme='dark'] .text-blue-700, :root[data-theme='dark'] .text-sky-700 { color: #93c5fd !important; }
 :root[data-theme='dark'] .text-emerald-600, :root[data-theme='dark'] .text-emerald-700, :root[data-theme='dark'] .text-teal-700 { color: #86efac !important; }
 :root[data-theme='dark'] .text-orange-600, :root[data-theme='dark'] .text-orange-700 { color: #fdba74 !important; }
+/* `divide-*` fija el color de las líneas en los hijos, no en el contenedor: sin
+   este puente las tablas oscuras conservaban las líneas claras de slate-100. */
+:root[data-theme='dark'] .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+:root[data-theme='dark'] .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--border) !important; }
+
+/* Puente del tema claro: espejo del bloque oscuro, para las utilidades de la
+   paleta que quedan por debajo de AA sobre las superficies claras. Se aplica
+   solo al tema claro; el oscuro ya tiene sus propias reglas arriba. */
+:root:not([data-theme='dark']) .text-slate-400 { color: var(--text-muted) !important; }
+:root:not([data-theme='dark']) .text-red-300,
+:root:not([data-theme='dark']) .text-red-400,
+:root:not([data-theme='dark']) .text-red-500 { color: var(--danger) !important; }
+:root:not([data-theme='dark']) .text-emerald-600 { color: var(--success) !important; }
+:root:not([data-theme='dark']) .text-amber-600 { color: var(--warning) !important; }
+:root:not([data-theme='dark']) .text-orange-600 { color: #c2410c !important; }
+/* La cabecera y la barra lateral son siempre oscuras (también en tema claro):
+   su texto atenuado conserva el gris claro institucional en vez del --text-muted
+   del puente, que sobre #0b0f19 se quedaría en 4:1. */
+:root:not([data-theme='dark']) .app-topbar .text-slate-400,
+:root:not([data-theme='dark']) .app-sidebar .text-slate-400 { color: #94a3b8 !important; }
 
 .nex-fade { animation: sifha-fade 160ms ease-out; }
 .nex-pop { animation: sifha-pop 180ms ease-out; }

@@ -1,20 +1,13 @@
-// Orquestación del arranque, separada por motor para que los dos caminos no se
-// pisen:
+// Orquestación del arranque sobre SQL Server (único motor).
 //
-//   - SQLite: comportamiento de siempre. Se importan db.js y seed.js (solo en
-//     esta rama, para no abrir/crear el archivo SQLite en modo MSSQL), se
-//     aplican las migraciones, se ejecuta el seed y se restaura la instantánea
-//     del directorio.
-//   - MSSQL: la base ya contiene los datos migrados. NO se importa db.js ni
-//     seed.js, NO se aplican migraciones, NO se ejecuta el seed, NO se restaura
-//     ninguna instantánea y NO se aplica schema.sql. Solo se valida de forma no
-//     destructiva (SELECT sobre catálogo del sistema) que el esquema requerido
-//     existe y es compatible. Si la validación falla, se lanza un error claro y
-//     el servidor HTTP nunca llega a iniciarse.
+// La base ya contiene los datos migrados. NO se aplican migraciones, NO se
+// ejecuta el seed, NO se restaura ninguna instantánea del directorio y NO se
+// aplica DDL. Solo se valida de forma NO destructiva (SELECT sobre catálogo del
+// sistema) que el esquema requerido existe y es compatible. Si la validación
+// falla, se lanza un error claro y el servidor HTTP nunca llega a iniciarse.
 //
-// Los imports de las dependencias SQLite son DINÁMICOS y viven dentro de la
-// rama SQLite: así, en modo MSSQL, el import de este módulo no evalúa db.js (que
-// abre el archivo SQLite al cargarse).
+// SQLite se ha eliminado del runtime: los archivos históricos del migrador se
+// conservan aparte, como referencia.
 
 import config from './config.js';
 import { createApp } from './app.js';
@@ -23,60 +16,45 @@ import { getRuntime } from './db/runtime.js';
 import { validateMssqlSchema, describeSchemaFailures } from './db/mssql/schemaValidator.js';
 
 /**
- * Prepara la base de datos según el motor efectivo.
+ * Prepara la base de datos: valida el esquema de SQL Server (solo lectura).
  *
  * @param {object} [options]
- * @param {'sqlite'|'mssql'} [options.dbClient] Motor efectivo (config.dbClient).
  * @param {object} [options.runtime] Fachada de runtime (inyectable en pruebas).
  * @param {object} [options.logger] Consola (inyectable en pruebas).
- * @returns {Promise<{ engine: string, migrated: boolean, seeded: boolean, snapshot: boolean, schema?: object }>}
+ * @returns {Promise<{ engine: 'mssql', migrated: false, seeded: false, snapshot: false, schema: object }>}
  */
 export async function prepareDatabase({
-  dbClient = config.dbClient,
   runtime = getRuntime(),
   logger = console,
 } = {}) {
-  if (dbClient === 'mssql') {
-    const schema = await validateMssqlSchema(runtime);
-    if (!schema.ok) {
-      throw new Error(describeSchemaFailures(schema));
-    }
-    logger.log(
-      '[db] Esquema SQL Server verificado (solo lectura): '
-        + `${schema.counts.tables} tablas y ${schema.counts.requiredColumns} columnas. `
-        + 'No se ejecutan migraciones ni seed.',
-    );
-    return { engine: 'mssql', migrated: false, seeded: false, snapshot: false, schema };
+  const schema = await validateMssqlSchema(runtime);
+  if (!schema.ok) {
+    throw new Error(describeSchemaFailures(schema));
   }
-
-  const { runMigrations } = await import('./db.js');
-  const { seed } = await import('./seed.js');
-  const { restoreDirectorySnapshot } = await import('./directorySync.js');
-
-  runMigrations();
-  seed();
-  const snapshot = await restoreDirectorySnapshot();
-
-  return { engine: 'sqlite', migrated: true, seeded: true, snapshot: snapshot.applied === true };
+  logger.log(
+    '[db] Esquema SQL Server verificado (solo lectura): '
+      + `${schema.counts.tables} tablas y ${schema.counts.requiredColumns} columnas. `
+      + 'No se ejecutan migraciones ni seed.',
+  );
+  return { engine: 'mssql', migrated: false, seeded: false, snapshot: false, schema };
 }
 
 /**
- * Arranca la aplicación: primero prepara/valida la base y solo después crea la
- * app, lanza las tareas de mantenimiento y abre el puerto. Un fallo en la
- * validación (MSSQL) impide cualquier inicio del servidor HTTP.
+ * Arranca la aplicación: primero valida la base y solo después crea la app,
+ * lanza las tareas de mantenimiento y abre el puerto. Un fallo en la validación
+ * impide cualquier inicio del servidor HTTP.
  *
  * @param {object} [options] Dependencias inyectables para pruebas.
  * @returns {Promise<{ app: object, server: object, database: object }>}
  */
 export async function startServer({
-  dbClient = config.dbClient,
   runtime = getRuntime(),
   logger = console,
   createAppFn = createApp,
   startJobsFn = startJobs,
   listenFn,
 } = {}) {
-  const database = await prepareDatabase({ dbClient, runtime, logger });
+  const database = await prepareDatabase({ runtime, logger });
 
   const app = createAppFn();
   startJobsFn();
@@ -84,13 +62,8 @@ export async function startServer({
   const listen = listenFn || ((application, port, callback) => application.listen(port, callback));
   const server = await listen(app, config.port, () => {
     logger.log(`[ticket] API escuchando en http://localhost:${config.port} (${config.env})`);
-    if (database.engine === 'mssql') {
-  logger.log(`[ticket] Motor: SQL Server`);
-  logger.log(`[ticket] Base de datos: ${process.env.DB_DATABASE}`);
-} else {
-  logger.log(`[ticket] Motor: SQLite`);
-  logger.log(`[ticket] Base de datos: ${config.dbFile}`);
-}
+    logger.log(`[ticket] Motor: SQL Server`);
+    logger.log(`[ticket] Base de datos: ${process.env.DB_DATABASE}`);
     logger.log(`[ticket] Uploads: ${config.uploadDir}`);
   });
 

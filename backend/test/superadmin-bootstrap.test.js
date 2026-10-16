@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db, { runMigrations, nowIso } from '../src/db.js';
+import db from '../src/db/runtime.js';
+import { nowIso } from '../src/utils/time.js';
 import { seed } from '../src/seed.js';
 import { hashPassword } from '../src/utils/password.js';
 import { bootstrapSuperadmin } from '../src/scripts/bootstrap-superadmin.js';
@@ -11,43 +12,50 @@ import {
   auditOrganizationConsistency,
 } from '../src/orgPolicy.js';
 
-function superRole() {
-  return db.prepare('SELECT id, code FROM roles WHERE code = ?').get(SUPERADMIN_ROLE_CODE);
+async function superRole() {
+  return db.queryOne('SELECT id, code FROM roles WHERE code = ?', SUPERADMIN_ROLE_CODE);
 }
 
-function uceId() {
-  return db.prepare("SELECT id FROM organizations WHERE code = 'UCE'").get().id;
+async function uceId() {
+  return (await db.queryOne("SELECT id FROM organizations WHERE code = 'UCE'")).id;
 }
 
-function techRole() {
-  return db.prepare('SELECT id FROM roles WHERE code = ?').get('TECHNICIAN');
+async function techRole() {
+  return db.queryOne('SELECT id FROM roles WHERE code = ?', 'TECHNICIAN');
 }
 
-function allPermCodes() {
-  return db.prepare('SELECT code FROM permissions').all().map((p) => p.code);
+async function allPermCodes() {
+  return (await db.queryMany('SELECT code FROM permissions')).map((p) => p.code);
 }
 
-function insertUser({ username, email, roleCode, password, organizationId }) {
-  const role = db.prepare('SELECT id FROM roles WHERE code = ?').get(roleCode);
-  return db
-    .prepare(
-      `INSERT INTO users (name, last_name, username, email, password_hash, role_id, active, last_password_change_at, organization_id)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
-    )
-    .run('Audit', 'Test', username, email, hashPassword(password), role.id, nowIso(), organizationId).lastInsertRowid;
+async function insertUser({ username, email, roleCode, password, organizationId }) {
+  const role = await db.queryOne('SELECT id FROM roles WHERE code = ?', roleCode);
+  const { id } = await db.insertAndGetId(
+    `INSERT INTO users (name, last_name, username, email, password_hash, role_id, active, last_password_change_at, organization_id)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+    'Audit',
+    'Test',
+    username,
+    email,
+    hashPassword(password),
+    role.id,
+    nowIso(),
+    organizationId
+  );
+  return id;
 }
 
 describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
   it('orgStateError aplica la regla de consistencia', async () => {
     assert.ok(await orgStateError({ roleCode: 'EMPLOYEE', organizationId: null }), 'normal sin org es inválido');
     assert.ok(await orgStateError({ roleCode: 'EMPLOYEE', organizationId: 999999 }), 'normal con org inexistente es inválido');
-    assert.ok(await orgStateError({ roleCode: SUPERADMIN_ROLE_CODE, organizationId: uceId() }), 'súper con org es inválido');
+    assert.ok(await orgStateError({ roleCode: SUPERADMIN_ROLE_CODE, organizationId: await uceId() }), 'súper con org es inválido');
     assert.equal(await orgStateError({ roleCode: SUPERADMIN_ROLE_CODE, organizationId: null }), null);
-    assert.equal(await orgStateError({ roleCode: 'EMPLOYEE', organizationId: uceId() }), null);
+    assert.equal(await orgStateError({ roleCode: 'EMPLOYEE', organizationId: await uceId() }), null);
   });
 
   it('el bootstrap se niega a ejecutarse en producción sin autorización explícita', async () => {
-    const before = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+    const before = (await db.queryOne('SELECT COUNT(*) AS n FROM users')).n;
     const save = process.env.BOOTSTRAP_SUPERADMIN_PROD_ALLOWED;
     delete process.env.BOOTSTRAP_SUPERADMIN_PROD_ALLOWED;
     await assert.rejects(
@@ -63,11 +71,11 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
       /refusing production/
     );
     if (save !== undefined) process.env.BOOTSTRAP_SUPERADMIN_PROD_ALLOWED = save;
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, before, 'el fallo no debe crear nada');
+    assert.equal((await db.queryOne('SELECT COUNT(*) AS n FROM users')).n, before, 'el fallo no debe crear nada');
   });
 
   it('rechaza datos inválidos y no crea nada', async () => {
-    const before = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+    const before = (await db.queryOne('SELECT COUNT(*) AS n FROM users')).n;
     await assert.rejects(
       () =>
         bootstrapSuperadmin({
@@ -101,7 +109,7 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
         }),
       /datos inválidos/
     );
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, before);
+    assert.equal((await db.queryOne('SELECT COUNT(*) AS n FROM users')).n, before);
   });
 
   it('crea la PRIMERA cuenta SUPERADMIN global sin exponer la contraseña', async () => {
@@ -131,11 +139,9 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
     const printed = output.join('\n');
     assert.ok(!printed.includes('BootstrapClave123!'), 'nada impreso debe contener la contraseña');
 
-    const row = db
-      .prepare(`SELECT u.* FROM users u WHERE u.username = ? AND u.id = ?`)
-      .get('bootstrap_super', created.id);
+    const row = await db.queryOne(`SELECT u.* FROM users u WHERE u.username = ? AND u.id = ?`, 'bootstrap_super', created.id);
     assert.ok(row, 'la cuenta debe existir');
-    assert.equal(row.role_id, superRole().id);
+    assert.equal(row.role_id, (await superRole()).id);
     assert.equal(row.organization_id, null, 'el SUPERADMIN nace global (organization_id null)');
     assert.notEqual(row.password_hash, 'BootstrapClave123!', 'solo se guarda el hash');
 
@@ -159,7 +165,7 @@ describe('ETAPA 1B: Bootstrap del primer SUPERADMIN', () => {
         }),
       /ya existe/
     );
-    const row = db.prepare('SELECT id FROM users WHERE username = ?').get('segundo_super');
+    const row = await db.queryOne('SELECT id FROM users WHERE username = ?', 'segundo_super');
     assert.equal(row, undefined, 'la segunda cuenta no debe crearse');
   });
 });
@@ -173,7 +179,7 @@ describe('ETAPA 1B: Protección del rol SUPERADMIN', () => {
   it('un admin normal no puede modificar los permisos del rol SUPERADMIN', async () => {
     const admin = createClient();
     await admin.login('admin', '123456');
-    const res = await admin.patch(`/api/roles/${superRole().id}/permissions`, { permissions: ['ticket.view.own'] });
+    const res = await admin.patch(`/api/roles/${(await superRole()).id}/permissions`, { permissions: ['ticket.view.own'] });
     assert.equal(res.status, 403);
     assert.match(res.body.error, /superadministrador/);
   });
@@ -181,7 +187,7 @@ describe('ETAPA 1B: Protección del rol SUPERADMIN', () => {
   it('otro SUPERADMIN sí puede (la barrera es por rol, no total)', async () => {
     const c = superClient();
     await c.login('bootstrap_super', 'BootstrapClave123!');
-    const res = await c.patch(`/api/roles/${superRole().id}/permissions`, { permissions: allPermCodes() });
+    const res = await c.patch(`/api/roles/${(await superRole()).id}/permissions`, { permissions: await allPermCodes() });
     assert.equal(res.status, 200, JSON.stringify(res.body));
   });
 });
@@ -196,7 +202,7 @@ describe('ETAPA 1B: Consistencia de organización en la API', () => {
       username: `orgsin.${Date.now()}`,
       email: `orgsin.${Date.now()}@empresa.com`,
       password: 'Temporal1234!',
-      role_id: techRole().id,
+      role_id: (await techRole()).id,
     });
     assert.equal(res.status, 400, 'el contexto de organización sale de la sesión y aquí no existe');
   });
@@ -210,11 +216,11 @@ describe('ETAPA 1B: Consistencia de organización en la API', () => {
       username: `promovible.${Date.now()}`,
       email: `promovible.${Date.now()}@empresa.com`,
       password: 'Temporal1234!',
-      role_id: techRole().id,
+      role_id: (await techRole()).id,
     });
     assert.equal(created.status, 201, JSON.stringify(created.body));
     const targetId = created.body.user.id;
-    assert.equal(created.body.user.organization_id, uceId(), 'nace en la org de la sesión');
+    assert.equal(created.body.user.organization_id, await uceId(), 'nace en la org de la sesión');
 
     const superAdmin = createClient();
     await superAdmin.login('bootstrap_super', 'BootstrapClave123!');
@@ -222,11 +228,11 @@ describe('ETAPA 1B: Consistencia de organización en la API', () => {
     // ETAPA 3: las rutas tenant NO confían en "sin organización = todas". Un
     // SUPERADMIN global no puede modificar a un usuario de ninguna
     // organización por PATCH /api/users/:id (404, sin revelar el recurso).
-    const intrusion = await superAdmin.patch(`/api/users/${targetId}`, { role_id: superRole().id });
+    const intrusion = await superAdmin.patch(`/api/users/${targetId}`, { role_id: (await superRole()).id });
     assert.equal(intrusion.status, 404, 'el SUPERADMIN sin org no modifica un usuario de organización');
-    const unchanged = db.prepare('SELECT organization_id, role_id FROM users WHERE id = ?').get(targetId);
-    assert.equal(unchanged.role_id, techRole().id, 'el rol del usuario de organización no cambia');
-    assert.equal(unchanged.organization_id, uceId(), 'sigue en su organización');
+    const unchanged = await db.queryOne('SELECT organization_id, role_id FROM users WHERE id = ?', targetId);
+    assert.equal(unchanged.role_id, (await techRole()).id, 'el rol del usuario de organización no cambia');
+    assert.equal(unchanged.organization_id, await uceId(), 'sigue en su organización');
 
     // La vía GLOBAL explícita sigue existiendo: crear directamente un
     // SUPERADMIN global desde el canal SUPERADMIN.
@@ -236,66 +242,68 @@ describe('ETAPA 1B: Consistencia de organización en la API', () => {
       username: `global.nuevo.${Date.now()}`,
       email: `global.nuevo.${Date.now()}@empresa.com`,
       password: 'Temporal1234!',
-      role_id: superRole().id,
+      role_id: (await superRole()).id,
     });
     assert.equal(global.status, 201, JSON.stringify(global.body));
     assert.equal(global.body.user.organization_id, null, 'el nuevo SUPERADMIN nace global');
     assert.equal(global.body.user.is_superadmin, true);
     const globalId = global.body.user.id;
 
-    const demote = await superAdmin.patch(`/api/users/${globalId}`, { role_id: techRole().id });
+    const demote = await superAdmin.patch(`/api/users/${globalId}`, { role_id: (await techRole()).id });
     assert.equal(demote.status, 400, 'quitar SUPERADMIN exige aprovisionar organización');
     assert.match(demote.body.error, /Convertir un SUPERADMIN/);
 
-    const stillGlobal = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(globalId);
+    const stillGlobal = await db.queryOne('SELECT organization_id FROM users WHERE id = ?', globalId);
     assert.equal(stillGlobal.organization_id, null, 'el descenso falla y nada cambia');
-    const orgEnd = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(targetId);
-    assert.equal(orgEnd.organization_id, uceId(), 'la cuenta de organización queda intacta');
+    const orgEnd = await db.queryOne('SELECT organization_id FROM users WHERE id = ?', targetId);
+    assert.equal(orgEnd.organization_id, await uceId(), 'la cuenta de organización queda intacta');
   });
 
   it('un cambio normal->normal conserva la organización del usuario', async () => {
     const admin = createClient();
     await admin.login('admin', '123456');
-    const emp = db.prepare('SELECT id, organization_id FROM users WHERE username = ?').get('empleado');
-    const res = await admin.patch(`/api/users/${emp.id}`, { role_id: techRole().id, position: 'Soporte' });
+    const emp = await db.queryOne('SELECT id, organization_id FROM users WHERE username = ?', 'empleado');
+    const res = await admin.patch(`/api/users/${emp.id}`, { role_id: (await techRole()).id, position: 'Soporte' });
     assert.equal(res.status, 200, JSON.stringify(res.body));
-    assert.equal(res.body.user.organization_id, uceId());
-    const after = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(emp.id);
-    assert.equal(after.organization_id, uceId());
+    assert.equal(res.body.user.organization_id, await uceId());
+    const after = await db.queryOne('SELECT organization_id FROM users WHERE id = ?', emp.id);
+    assert.equal(after.organization_id, await uceId());
   });
 });
 
 describe('ETAPA 1B: Auditoría de organizaciones (solo lectura)', () => {
   it('sobre datos consistentes no detecta nada y no modifica nada', async () => {
-    const usersBefore = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-    const orgsBefore = db.prepare('SELECT COUNT(*) AS n FROM organizations').get().n;
+    const usersBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM users')).n;
+    const orgsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM organizations')).n;
     const issues = await auditOrganizationConsistency();
     assert.equal(issues.length, 0, JSON.stringify(issues));
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM users').get().n, usersBefore);
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM organizations').get().n, orgsBefore);
+    assert.equal((await db.queryOne('SELECT COUNT(*) AS n FROM users')).n, usersBefore);
+    assert.equal((await db.queryOne('SELECT COUNT(*) AS n FROM organizations')).n, orgsBefore);
   });
 
   it('detecta los cuatro tipos de inconsistencia', async () => {
     const stamp = Date.now();
-    insertUser({
+    await insertUser({
       username: `audit.sinorg.${stamp}`,
       email: `audit.sinorg.${stamp}@empresa.com`,
       roleCode: 'EMPLOYEE',
       password: 'Clave1234!',
       organizationId: null,
     });
-    insertUser({
+    await insertUser({
       username: `audit.superorg.${stamp}`,
       email: `audit.superorg.${stamp}@empresa.com`,
       roleCode: 'SUPERADMIN',
       password: 'Clave1234!',
-      organizationId: uceId(),
+      organizationId: await uceId(),
     });
-    db.prepare(
-      "INSERT INTO organizations (code, name, description, active) VALUES (?, ?, '', 0) ON CONFLICT(code) DO NOTHING"
-    ).run(`INACTIVA_${stamp}`, 'Org inactiva de prueba');
-    const inactiveOrg = db.prepare('SELECT id FROM organizations WHERE code = ?').get(`INACTIVA_${stamp}`).id;
-    insertUser({
+    await db.execute(
+      "INSERT INTO organizations (code, name, description, active) VALUES (?, ?, '', 0) ON CONFLICT(code) DO NOTHING",
+      `INACTIVA_${stamp}`,
+      'Org inactiva de prueba'
+    );
+    const inactiveOrg = (await db.queryOne('SELECT id FROM organizations WHERE code = ?', `INACTIVA_${stamp}`)).id;
+    await insertUser({
       username: `audit.inactiva.${stamp}`,
       email: `audit.inactiva.${stamp}@empresa.com`,
       roleCode: 'TECHNICIAN',
@@ -303,20 +311,18 @@ describe('ETAPA 1B: Auditoría de organizaciones (solo lectura)', () => {
       organizationId: inactiveOrg,
     });
 
-    // La referencia a una organización inexistente exige pasar por encima de la
-    // FK de SQLite solo para sembrar el caso; se restaura al salir.
-    db.exec('PRAGMA foreign_keys = OFF');
-    try {
-      insertUser({
-        username: `audit.inexistente.${stamp}`,
-        email: `audit.inexistente.${stamp}@empresa.com`,
-        roleCode: 'EMPLOYEE',
-        password: 'Clave1234!',
-        organizationId: 999999,
-      });
-    } finally {
-      db.exec('PRAGMA foreign_keys = ON');
-    }
+    // TODO(fase2-mssql): en SQLite esta referencia a una organización
+    // inexistente se sembraba desactivando la FK (`PRAGMA foreign_keys = OFF`).
+    // MSSQL no ofrece un equivalente por sesión: un humano debe decidir cómo
+    // sembrar este caso (p. ej. `ALTER TABLE users NOCHECK CONSTRAINT ALL`) o
+    // relajar la FK. Por ahora se intenta el INSERT directo.
+    await insertUser({
+      username: `audit.inexistente.${stamp}`,
+      email: `audit.inexistente.${stamp}@empresa.com`,
+      roleCode: 'EMPLOYEE',
+      password: 'Clave1234!',
+      organizationId: 999999,
+    });
 
     const issues = await auditOrganizationConsistency();
     const types = issues.map((i) => [i.type, i.username]);
@@ -326,8 +332,8 @@ describe('ETAPA 1B: Auditoría de organizaciones (solo lectura)', () => {
     assert.ok(types.some(([t, u]) => t === 'ORGANIZACION_INEXISTENTE' && u === `audit.inexistente.${stamp}`));
     assert.equal(issues.length, 4, JSON.stringify(issues));
 
-    db.prepare(`DELETE FROM users WHERE username LIKE 'audit.%.${stamp}'`).run();
-    db.prepare('DELETE FROM organizations WHERE id = ?').run(inactiveOrg);
+    await db.execute(`DELETE FROM users WHERE username LIKE 'audit.%.${stamp}'`);
+    await db.execute('DELETE FROM organizations WHERE id = ?', inactiveOrg);
     assert.equal((await auditOrganizationConsistency()).length, 0, 'la auditoría sobre datos limpios no reporta');
   });
 });

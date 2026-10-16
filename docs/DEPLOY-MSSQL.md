@@ -42,8 +42,7 @@ El esquema canónico está en `backend/src/db/mssql/schema.sql` (24 tablas, 204 
 
 | Variable | Requerida | Descripción |
 |----------|-----------|-------------|
-| `DB_CLIENT` | Sí | `mssql` |
-| `MSSQL_RUNTIME` | Sí | `true` (activa pool MSSQL) |
+| `DB_CLIENT` | Sí | `mssql` (único motor soportado) |
 | `DB_SERVER` | Sí | Host/IP del SQL Server |
 | `DB_PORT` | No | Puerto (default 1433) |
 | `DB_DATABASE` | Sí | Nombre de la base |
@@ -68,7 +67,6 @@ El esquema canónico está en `backend/src/db/mssql/schema.sql` (24 tablas, 204 
 NODE_ENV=production
 PORT=4000
 DB_CLIENT=mssql
-MSSQL_RUNTIME=true
 DB_SERVER=sql.empresa.local
 DB_PORT=1433
 DB_DATABASE=SIFHA_Tickets_PROD
@@ -105,10 +103,11 @@ cd backend && npm ci
 npm start
 ```
 
-> **No** ejecute `npm run db:migrate` ni `npm run db:seed` con el motor MSSQL:
-> esos scripts operan sobre **SQLite** (`src/scripts/*` importan `db.js`) y no
-> tocan SQL Server. La única validación de esquema MSSQL es la del arranque. Para
-> una comprobación de arranque que no escriba (el job inicial sí escribe al
+> **No** ejecute `npm run db:migrate` esperando que aplique DDL: con el motor
+> MSSQL ese comando solo **valida el esquema en solo lectura** (no migra). El
+> seed (`npm run db:seed`) sí escribe sobre SQL Server (roles, permisos,
+> catálogos). La validación de esquema del arranque es la comprobación principal.
+> Para una comprobación de arranque que no escriba (el job inicial sí escribe al
 > iniciar), arranque una vez con `JOBS_ENABLED=false`.
 
 **Comportamiento al arrancar:**
@@ -131,7 +130,6 @@ cp backend/data/tickets.db tickets_backup_$(date +%F).db
 
 # 2. Configurar variables de migración
 export DB_CLIENT=mssql
-export MSSQL_RUNTIME=true
 export DB_SERVER=...
 export DB_DATABASE=SIFHA_Tickets_M5_Validation  # Base destino VACÍA
 export DB_USER=...
@@ -274,14 +272,22 @@ RESTORE LOG SIFHA_Tickets_PROD FROM DISK='...' WITH RECOVERY, STOPAT='2026-10-10
 
 ## 11. Pruebas de Certificación (Ejecución Local)
 
-### Pruebas SQLite (siempre)
+### Pruebas unitarias (sin base de datos)
+```bash
+cd backend && npm run test:unit
+```
+`npm run test:unit` ejecuta las pruebas que **no** necesitan base de datos
+(traducción SQLite→T-SQL, contrato MSSQL, validador de esquema, arranque,
+migrador, etc.). Es lo que corre en CI.
+
+### Pruebas de integración (requieren SQL Server)
 ```bash
 cd backend && npm test
 ```
-El glob `test/*.test.js` cubre el backend sobre SQLite temporal y **no** incluye
-las suites de integración contra SQL Server, que viven en `backend/test/mssql/` y
-se ejecutan aparte con `npm run test:mssql`. Última ejecución registrada:
-**890 pruebas, 888 pass, 0 fallos, 2 omitidas**.
+`npm test` es la suite completa; requiere un SQL Server de pruebas. Las suites de
+integración que usaban la API síncrona de SQLite (`db.prepare`) quedan pendientes
+de conversión al runtime asíncrono de MSSQL y las de SQL Server viven en
+`backend/test/mssql/`, ejecutables con `npm run test:mssql`.
 
 ### Pruebas MSSQL (requiere base aislada)
 ```bash

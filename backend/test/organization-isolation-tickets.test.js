@@ -1,7 +1,8 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db, { nowIso } from '../src/db.js';
+import db from '../src/db/runtime.js';
+import { nowIso } from '../src/utils/time.js';
 import { hashPassword } from '../src/utils/password.js';
 import { notifyAssigned, notifyComment, notifyCreated } from '../src/utils/mailer.js';
 import { createNotification } from '../src/utils/notifications.js';
@@ -26,18 +27,18 @@ let techA;
 let techB;
 let superId;
 
-function insertOrg(code, name) {
-  db.prepare('INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1)')
-    .run(code, name, 'Organización de prueba de aislamiento de tickets');
-  return db.prepare('SELECT id FROM organizations WHERE code = ?').get(code).id;
+async function insertOrg(code, name) {
+  await db.execute('INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1)', code, name, 'Organización de prueba de aislamiento de tickets');
+  const row = await db.queryOne('SELECT id FROM organizations WHERE code = ?', code);
+  return row.id;
 }
 
-function insertUser(orgId, username, roleCode) {
-  const roleId = db.prepare('SELECT id FROM roles WHERE code = ?').get(roleCode).id;
-  db.prepare(
+async function insertUser(orgId, username, roleCode) {
+  const role = await db.queryOne('SELECT id FROM roles WHERE code = ?', roleCode);
+  const roleId = role.id;
+  await db.execute(
     `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     `Nombre ${username}`,
     `Apellido ${username}`,
     username,
@@ -50,7 +51,8 @@ function insertUser(orgId, username, roleCode) {
     nowIso(),
     orgId
   );
-  return db.prepare('SELECT id FROM users WHERE username = ?').get(username).id;
+  const userRow = await db.queryOne('SELECT id FROM users WHERE username = ?', username);
+  return userRow.id;
 }
 
 async function login(username) {
@@ -60,16 +62,16 @@ async function login(username) {
   return c;
 }
 
-before(() => {
-  ids.orgA = insertOrg(ORGA, 'Organización A de aislamiento de tickets');
-  ids.orgB = insertOrg(ORGB, 'Organización B de aislamiento de tickets');
-  adminA = insertUser(ids.orgA, 'admin_isl3_a', 'ADMIN');
-  adminB = insertUser(ids.orgB, 'admin_isl3_b', 'ADMIN');
-  empA = insertUser(ids.orgA, 'emp_isl3_a', 'EMPLOYEE');
-  empB = insertUser(ids.orgB, 'emp_isl3_b', 'EMPLOYEE');
-  techA = insertUser(ids.orgA, 'tec_isl3_a', 'TECHNICIAN');
-  techB = insertUser(ids.orgB, 'tec_isl3_b', 'TECHNICIAN');
-  superId = insertUser(null, 'super_isl3', 'SUPERADMIN');
+before(async () => {
+  ids.orgA = await insertOrg(ORGA, 'Organización A de aislamiento de tickets');
+  ids.orgB = await insertOrg(ORGB, 'Organización B de aislamiento de tickets');
+  adminA = await insertUser(ids.orgA, 'admin_isl3_a', 'ADMIN');
+  adminB = await insertUser(ids.orgB, 'admin_isl3_b', 'ADMIN');
+  empA = await insertUser(ids.orgA, 'emp_isl3_a', 'EMPLOYEE');
+  empB = await insertUser(ids.orgB, 'emp_isl3_b', 'EMPLOYEE');
+  techA = await insertUser(ids.orgA, 'tec_isl3_a', 'TECHNICIAN');
+  techB = await insertUser(ids.orgB, 'tec_isl3_b', 'TECHNICIAN');
+  superId = await insertUser(null, 'super_isl3', 'SUPERADMIN');
 });
 
 describe('Aislamiento de tickets por organización (ETAPA 3)', () => {
@@ -158,8 +160,7 @@ describe('Aislamiento de tickets por organización (ETAPA 3)', () => {
     ids.fileA = attachA.body.attachment?.id ?? attachA.body.attachments?.[0]?.id ?? attachA.body.id;
 
     // Bitácora de correos ligada al ticket de A (el envío real se testea aparte).
-    db.prepare('INSERT INTO email_logs (kind, to_email, subject, ticket_id, status) VALUES (?, ?, ?, ?, ?)')
-      .run('NOTIFY_TO_REPORTER', 'reporta@correo.test', 'Correo del ticket A3', ids.ticketA, 'dev');
+    await db.execute('INSERT INTO email_logs (kind, to_email, subject, ticket_id, status) VALUES (?, ?, ?, ?, ?)', 'NOTIFY_TO_REPORTER', 'reporta@correo.test', 'Correo del ticket A3', ids.ticketA, 'dev');
 
     assert.ok(ids.fileA, 'debe existir el adjunto de A para probar su descarga');
   });
@@ -460,9 +461,10 @@ describe('Aislamiento de tickets por organización (ETAPA 3)', () => {
 
   it('38) la auditoría de A no incluye el historial de B y el SUPERADMIN no vuela listados', async () => {
     const bOnlyAction = 'B_ONLY_AUDIT_ACTION_I4';
-    db.prepare(
-      'INSERT INTO ticket_history (ticket_id, user_id, action, description, created_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(ids.ticketB, adminB, bOnlyAction, 'Acción exclusiva de B para probar el catálogo', nowIso());
+    await db.execute(
+      'INSERT INTO ticket_history (ticket_id, user_id, action, description, created_at) VALUES (?, ?, ?, ?, ?)',
+      ids.ticketB, adminB, bOnlyAction, 'Acción exclusiva de B para probar el catálogo', nowIso()
+    );
 
     const cA = await login('admin_isl3_a');
     const auditA = await cA.get('/api/audit');
@@ -497,7 +499,8 @@ describe('Aislamiento de tickets por organización (ETAPA 3)', () => {
 // dominios y la numeración es única y por organización bajo carga concurrente.
 describe('Defensa central y aislamiento global (ETAPA 3)', () => {
   it('39b) la defensa central bloquea correos y notificaciones hacia otra organización', async () => {
-    const beforeEmails = db.prepare('SELECT COUNT(*) AS n FROM email_logs').get().n;
+    const beforeEmailsRow = await db.queryOne('SELECT COUNT(*) AS n FROM email_logs');
+    const beforeEmails = beforeEmailsRow.n;
 
     // Un ticket con organización de A pero reportante/asignado de B (datos
     // corruptos que un flujo directo no debería poder armar): ningún correo
@@ -526,11 +529,11 @@ describe('Defensa central y aislamiento global (ETAPA 3)', () => {
 
     // Sin efectos secundarios: ninguna fila nueva en la bitácora, ninguna
     // notificación cruzada persistida.
-    const afterEmails = db.prepare('SELECT COUNT(*) AS n FROM email_logs').get().n;
+    const afterEmailsRow = await db.queryOne('SELECT COUNT(*) AS n FROM email_logs');
+    const afterEmails = afterEmailsRow.n;
     assert.equal(afterEmails, beforeEmails, 'ningún correo se emitió hacia otra organización');
-    const crossNotification = db
-      .prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND ticket_id = ? AND type = 'TEST'")
-      .get(empB, ids.ticketA).n;
+    const crossNotificationRow = await db.queryOne("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND ticket_id = ? AND type = 'TEST'", empB, ids.ticketA);
+    const crossNotification = crossNotificationRow.n;
     assert.equal(crossNotification, 0, 'la notificación cruzada no se creó');
   });
 

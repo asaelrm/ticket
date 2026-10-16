@@ -210,7 +210,7 @@ describe('Profile', () => {
 
   it('el aviso de longitud mínima acompaña al formulario', async () => {
     renderWithProviders(<Profile />, { route: '/app/profile' });
-    expect(await screen.findByText('Mínimo 12 caracteres.')).toBeInTheDocument();
+    expect(await screen.findByText('Mínimo 6 caracteres.')).toBeInTheDocument();
   });
 
   it('muestra el error de la API al cambiar la contraseña y conserva lo escrito', async () => {

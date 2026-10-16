@@ -4,7 +4,7 @@ import express from 'express';
 import session from 'express-session';
 import helmet from 'helmet';
 import config from './config.js';
-import SqliteSessionStore from './utils/sessionStore.js';
+import SessionStore from './utils/sessionStore.js';
 import { ensureCsrfCookie, csrfProtect } from './middleware/csrf.js';
 import { rateLimit } from './utils/rateLimit.js';
 import { resolveTrustProxy, shouldSendHsts } from './transportSecurity.js';
@@ -120,7 +120,7 @@ export function createApp(options = {}) {
   app.use(
     session({
       name: 'tf_sid',
-      store: new SqliteSessionStore(),
+      store: new SessionStore(),
       secret: config.session.secret,
       resave: false,
       saveUninitialized: false,

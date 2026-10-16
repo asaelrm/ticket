@@ -339,7 +339,7 @@ export default function Layout() {
             {initials}
           </span>
           <div className="min-w-0 flex-1 hidden md:block">
-            <p className="truncate text-sm font-semibold text-slate-800">
+            <p className="truncate text-sm font-semibold text-white">
               {user?.name} {user?.last_name}
             </p>
             <p className="truncate text-xs text-slate-400">{user?.role_name}</p>
@@ -378,7 +378,7 @@ export default function Layout() {
           <img src="/logo/TSIFHA-PNG.png" alt="SIFHA" className="hidden h-8 w-auto max-w-32 object-contain sm:block lg:hidden" />
           <button
             onClick={() => setOpen(true)}
-            className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 lg:hidden"
+            className="rounded-lg p-2 text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
             aria-label="Abrir menú"
           >
             <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -455,7 +455,7 @@ export default function Layout() {
                 <form onSubmit={onMobileSearchSubmit}>
                   <div className="relative">
                     <svg
-                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -537,7 +537,7 @@ export default function Layout() {
             <Tooltip text="Mi cuenta">
               <button
                 onClick={() => navigate('/app/profile')}
-                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-100"
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-white/10 hover:text-white"
                 aria-label="Mi cuenta"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">

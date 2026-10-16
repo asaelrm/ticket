@@ -1,12 +1,15 @@
 # Base de datos — SIFHA Ticket
 
-El sistema soporta dos motores con la misma fachada (`backend/src/db/runtime.js`):
+El sistema usa **SQL Server como único motor** a través de una fachada común
+(`backend/src/db/runtime.js`):
 
-- **SQLite** (`node:sqlite`) — motor por defecto; migraciones y seed automáticos
-  en el primer arranque. Base en `backend/data/tickets.db`.
-- **SQL Server 2022** — motor objetivo del despliegue; opcional y **no activo**
-  por defecto. Requiere `DB_CLIENT=mssql` + `MSSQL_RUNTIME=true` y el esquema
-  aplicado previamente.
+- **SQL Server 2022** — motor del despliegue. Requiere las variables de conexión
+  (`DB_CLIENT=mssql`, `DB_SERVER`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD`) y el
+  esquema ya aplicado. En el arranque solo se valida el esquema (solo lectura):
+  no migra ni siembra.
+- **SQLite** — eliminado del runtime. Los archivos históricos del migrador
+  SQLite → MSSQL (`backend/scripts/migration/`) se conservan aparte, como
+  referencia, y no forman parte del servidor.
 
 ## Esquema canónico MSSQL
 
@@ -21,13 +24,14 @@ El sistema soporta dos motores con la misma fachada (`backend/src/db/runtime.js`
   (p. ej. `departments.organization_id NOT NULL`, `users.organization_id NULL`),
   y auditoría en `ticket_history`.
 - La validación de esquema en **solo lectura** se ejecuta automáticamente en
-  `npm start` (rama MSSQL): si no coincide, el backend no arranca.
+  `npm start`: si no coincide, el backend no arranca.
 
 ## Fachada y traducción de dialecto
 
 - `backend/src/db/dialect.js` convierte las sentencias estáticas SQLite → T-SQL
   (249 sentencias cubiertas, 0 incompatibles en la prueba de traducción).
-- `backend/src/db/runtime.js` elige motor solo con `MSSQL_RUNTIME=true`.
+- `backend/src/db/runtime.js` ejecuta siempre sobre SQL Server; no hay selección
+  de motor.
 
 ## Migración por fases
 

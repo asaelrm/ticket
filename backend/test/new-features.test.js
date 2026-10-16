@@ -2,7 +2,7 @@ import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
 import { sentEmails } from '../src/utils/mailer.js';
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 import { runMaintenance } from '../src/utils/jobs.js';
 import { SLA_AT_RISK_HOURS } from '../src/utils/sla.js';
 
@@ -16,8 +16,8 @@ function emailsOf(kind) {
   return sentEmails.filter((e) => e.kind === kind);
 }
 
-function notificationsOf(userId) {
-  return db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC').all(userId);
+async function notificationsOf(userId) {
+  return await db.queryMany('SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC', userId);
 }
 
 async function newTicket(client, over = {}) {
@@ -79,11 +79,11 @@ describe('Cancelación de tickets', () => {
     assert.equal(mails[0].to, 'empleado@empresa.com');
     assert.match(mails[0].subject, /cancelado/i);
 
-    const n = notificationsOf(t.reporter_id).find((x) => x.type === 'CANCELLED');
+    const n = (await notificationsOf(t.reporter_id)).find((x) => x.type === 'CANCELLED');
     assert.ok(n, 'el reportante debe recibir notificación in-app');
     assert.equal(n.ticket_id, t.id);
 
-    const hist = db.prepare('SELECT * FROM ticket_history WHERE ticket_id = ? AND action = ?').get(t.id, 'CANCELLED');
+    const hist = await db.queryOne('SELECT * FROM ticket_history WHERE ticket_id = ? AND action = ?', t.id, 'CANCELLED');
     assert.ok(hist, 'debe registrarse en el historial');
   });
 
@@ -91,7 +91,7 @@ describe('Cancelación de tickets', () => {
     const t = await newTicket(empC);
     const res = await adminC.post(`/api/tickets/${t.id}/cancel`, {});
     assert.equal(res.status, 400);
-    const still = db.prepare('SELECT status FROM tickets WHERE id = ?').get(t.id);
+    const still = await db.queryOne('SELECT status FROM tickets WHERE id = ?', t.id);
     assert.notEqual(still.status, 'CANCELLED');
   });
 
@@ -172,10 +172,10 @@ describe('Notificaciones in-app', () => {
     const res = await adminC.post(`/api/tickets/${t.id}/assign`, { assigned_to_id: techId });
     assert.equal(res.status, 200);
 
-    const forTech = notificationsOf(techId).find((x) => x.type === 'ASSIGNED' && x.ticket_id === t.id);
+    const forTech = (await notificationsOf(techId)).find((x) => x.type === 'ASSIGNED' && x.ticket_id === t.id);
     assert.ok(forTech, 'el técnico debe recibir notificación de asignación');
 
-    const forReporter = notificationsOf(t.reporter_id).find((x) => x.type === 'ASSIGNED' && x.ticket_id === t.id);
+    const forReporter = (await notificationsOf(t.reporter_id)).find((x) => x.type === 'ASSIGNED' && x.ticket_id === t.id);
     assert.ok(forReporter, 'el reportante debe recibir notificación de asignación');
   });
 
@@ -186,13 +186,13 @@ describe('Notificaciones in-app', () => {
     const res = await adminC.post(`/api/tickets/${t.id}/comments`, { message: 'Comentario público' });
     assert.equal(res.status, 201);
 
-    const forTech = notificationsOf(techId).find((x) => x.type === 'COMMENT' && x.ticket_id === t.id);
+    const forTech = (await notificationsOf(techId)).find((x) => x.type === 'COMMENT' && x.ticket_id === t.id);
     assert.ok(forTech, 'el técnico debe recibir notificación de comentario');
 
-    const forReporter = notificationsOf(t.reporter_id).find((x) => x.type === 'COMMENT' && x.ticket_id === t.id);
+    const forReporter = (await notificationsOf(t.reporter_id)).find((x) => x.type === 'COMMENT' && x.ticket_id === t.id);
     assert.ok(forReporter, 'el reportante debe recibir notificación de comentario');
 
-    const forAdmin = notificationsOf(adminId).find((x) => x.type === 'COMMENT' && x.ticket_id === t.id);
+    const forAdmin = (await notificationsOf(adminId)).find((x) => x.type === 'COMMENT' && x.ticket_id === t.id);
     assert.equal(forAdmin, undefined, 'el autor no recibe su propia notificación');
   });
 
@@ -234,13 +234,13 @@ describe('Jobs de escalación automática', () => {
     const result = await runMaintenance();
     assert.ok(Number.isFinite(result.escalated));
 
-    const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(t.id);
+    const ticket = await db.queryOne('SELECT * FROM tickets WHERE id = ?', t.id);
     assert.equal(ticket.priority, 'HIGH', 'la prioridad debe subir a HIGH');
 
-    const hist = db.prepare('SELECT * FROM ticket_history WHERE ticket_id = ? AND action = ?').get(t.id, 'ESCALATED');
+    const hist = await db.queryOne('SELECT * FROM ticket_history WHERE ticket_id = ? AND action = ?', t.id, 'ESCALATED');
     assert.ok(hist, 'debe quedar auditada la escalación');
 
-    const alert = db.prepare('SELECT * FROM notifications WHERE ticket_id = ? AND type = ?').all(t.id, 'ESCALATED');
+    const alert = await db.queryMany('SELECT * FROM notifications WHERE ticket_id = ? AND type = ?', t.id, 'ESCALATED');
     assert.ok(alert.length >= 1, 'los administradores deben recibir la alerta');
 
     await adminC.patch('/api/settings', { rule_unassigned_hours: '8' });
@@ -250,7 +250,7 @@ describe('Jobs de escalación automática', () => {
     await adminC.patch('/api/settings', { rule_unassigned_hours: '0' });
     try {
       const t = await newTicket(empC, { priority: 'LOW' });
-      db.prepare("UPDATE tickets SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(t.id);
+    await db.execute("UPDATE tickets SET created_at = DATEADD(hour, -2, GETDATE()) WHERE id = ?", t.id);
       await runMaintenance();
       const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(t.id);
       assert.equal(ticket.priority, 'LOW');

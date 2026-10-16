@@ -1,16 +1,14 @@
-// Fixture de arranque por motor. Se ejecuta como proceso hijo
-// (`node startup-mssql.mjs`) con DB_CLIENT/MSSQL_RUNTIME ya fijados.
+// Fixture de arranque MSSQL. Se ejecuta como proceso hijo
+// (`node startup-mssql.mjs`) con DB_CLIENT ya fijado a mssql.
 //
-// - En modo MSSQL construye un CONTRATO FALSO en memoria (sin conexión real) a
-//   partir del esquema requerido, con la mutación indicada en
-//   STARTUP_TEST_MUTATION, y ejecuta el MISMO startServer() que usa server.js
-//   con ese runtime inyectado.
-// - En modo SQLite usa el arranque real (migra, siembra y restaura la
-//   instantánea del directorio).
+// Construye un CONTRATO FALSO en memoria (sin conexión real) a partir del
+// esquema requerido, con la mutación indicada en STARTUP_TEST_MUTATION, y
+// ejecuta el MISMO startServer() que usa server.js con ese runtime inyectado.
 //
 // El listen se sustituye por un espía para no abrir un puerto. Se reporta si el
-// archivo SQLite apareció, si hubo escrituras en el contrato falso, si la
-// instantánea del directorio se aplicó y, si algo falló, el mensaje de error.
+// archivo SQLite apareció (nunca debería: SQL Server es el único motor), si hubo
+// escrituras en el contrato falso, si la instantánea del directorio se aplicó y,
+// si algo falló, el mensaje de error.
 import fs from 'node:fs';
 import config from '../../src/config.js';
 import { createRuntime } from '../../src/db/runtime.js';
@@ -29,17 +27,17 @@ let error = null;
 let snapshotApplied = null;
 
 try {
-  let runtime;
-  if (engine === 'mssql') {
-    const catalog = catalogFromSchema(requiredSchema(), mutation);
-    runtime = createRuntime({ engine: 'mssql', contract: fakeContract(catalog, stats) });
-  } else {
-    runtime = (await import('../../src/db/runtime.js')).default;
-  }
+  // SQL Server es el único motor: siempre se construye el contrato falso en
+  // memoria a partir del esquema requerido, sin abrir ninguna conexión real.
+  const catalog = catalogFromSchema(requiredSchema(), mutation);
+  const runtime = createRuntime({ engine: 'mssql', contract: fakeContract(catalog, stats) });
 
   const result = await startServer({
     runtime,
     logger: { log() {}, warn() {}, error() {} },
+    // Las tareas de mantenimiento no forman parte de lo que se prueba aquí:
+    // se sustituyen por un no-op para que el arranque no escriba ni registre.
+    startJobsFn: () => {},
     listenFn: async (app, port) => {
       listenCalls.push(port);
       return { close() {} };

@@ -12,13 +12,24 @@ const EMPTY = {
   description: '',
 };
 
+const ADMIN_EMPTY = {
+  name: '',
+  last_name: '',
+  username: '',
+  email: '',
+  password: '',
+};
+
 export default function Organizations() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState({ page: 1, perPage: 15 });
   const [error, setError] = useState('');
   const [loadingModal, setLoadingModal] = useState(false);
   const [modal, setModal] = useState(null); // null | { mode: 'create'|'edit', form, id }
+  const [adminModal, setAdminModal] = useState(null); // null | { orgId, orgName, form, loading }
   const { user } = useAuth();
+
+  const isSuperadmin = user?.is_superadmin === true;
 
   const { data: list, error: queryError } = useQuery({
     queryKey: ['organizations', filters],
@@ -66,6 +77,40 @@ export default function Organizations() {
     onError: (err) => setError(err.message || 'No se pudo cambiar el estado'),
   });
 
+  const { data: organizationsForAdmin = [] } = useQuery({
+    queryKey: ['organizations-for-admin'],
+    queryFn: async () => {
+      const res = await api.get('/api/organizations?perPage=100');
+      return (res.data || []).filter((o) => o.active === 1);
+    },
+    enabled: isSuperadmin,
+  });
+
+  const createAdminMutation = useMutation({
+    mutationFn: (m) => api.post('/api/users', {
+      ...m.form,
+      role_id: m.roleId,
+      organization_id: m.orgId,
+    }),
+    onMutate: () => {
+      setAdminModal((prev) => prev ? { ...prev, loading: true } : null);
+      setError('');
+    },
+    onSuccess: () => {
+      setAdminModal(null);
+      invalidateOrganizations();
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+    },
+    onError: (err) => {
+      if (err.fields) setError(Object.values(err.fields).join('. '));
+      else setError(err.message || 'No se pudo crear el administrador');
+      setAdminModal((prev) => prev ? { ...prev, loading: false } : null);
+    },
+    onSettled: () => {
+      setAdminModal((prev) => prev ? { ...prev, loading: false } : null);
+    },
+  });
+
   function openCreate() {
     setError('');
     setModal({ mode: 'create', form: { ...EMPTY } });
@@ -104,6 +149,61 @@ export default function Organizations() {
 
   function toggleActive(org) {
     toggleActiveMutation.mutate(org);
+  }
+
+  function openCreateAdmin(org) {
+    setError('');
+    const adminRole = organizationsForAdmin.length > 0 ? null : null; // will fetch roles in modal
+    setAdminModal({
+      orgId: org.id,
+      orgName: org.name,
+      form: { ...ADMIN_EMPTY },
+      roleId: '',
+      loading: false,
+    });
+  }
+
+  function onAdminSave(e) {
+    e.preventDefault();
+    const m = adminModal;
+    if (!m) return;
+    if (!m.form.name) {
+      setError('El nombre es obligatorio');
+      return;
+    }
+    if (!m.form.last_name) {
+      setError('Los apellidos son obligatorios');
+      return;
+    }
+    if (!m.form.username) {
+      setError('El usuario es obligatorio');
+      return;
+    }
+    if (!m.form.email) {
+      setError('El correo es obligatorio');
+      return;
+    }
+    if (!m.form.password) {
+      setError('La contraseña es obligatoria');
+      return;
+    }
+    if (m.form.password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+    if (!m.roleId) {
+      setError('El rol es obligatorio');
+      return;
+    }
+    createAdminMutation.mutate({ form: m.form, orgId: m.orgId, roleId: m.roleId });
+  }
+
+  function onAdminFormChange(field, value) {
+    setAdminModal((prev) => prev ? { ...prev, form: { ...prev.form, [field]: value } } : null);
+  }
+
+  function onAdminRoleChange(roleId) {
+    setAdminModal((prev) => prev ? { ...prev, roleId } : null);
   }
 
   const showError = error || queryError?.message || '';
@@ -190,6 +290,20 @@ export default function Organizations() {
                       </td>
                       <td className="td">
                         <div className="flex justify-end gap-1">
+                          {isSuperadmin && (
+                            <Tooltip text="Crear administrador para esta empresa">
+                              <button
+                                className="btn-ghost !px-2 !py-1 text-xs"
+                                onClick={() => openCreateAdmin(org)}
+                                aria-label={`Crear administrador para ${org.name}`}
+                              >
+                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                                  <path d="M12 4v16m8-8H4" strokeLinecap="round" strokeLinejoin="round" />
+                                  <path d="M18 12a6 6 0 0 1-6 6 6 6 0 0 1-6-6H4" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </button>
+                            </Tooltip>
+                          )}
                           <Tooltip text="Editar empresa">
                             <button className="btn-ghost !px-2 !py-1 text-xs" onClick={() => openEdit(org)} aria-label={`Editar ${org.name}`}>
                               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
@@ -264,6 +378,102 @@ export default function Organizations() {
           </form>
         )}
       </Modal>
+
+      {isSuperadmin && (
+        <Modal
+          open={!!adminModal}
+          onClose={() => setAdminModal(null)}
+          title="Crear administrador"
+          wide
+        >
+          {adminModal && (
+            <form onSubmit={onAdminSave} className="space-y-4" noValidate>
+              <p className="text-sm text-slate-600">
+                Creando administrador para <b>{adminModal.orgName}</b>
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor="admin-name">Nombre *</label>
+                  <input
+                    className="input"
+                    id="admin-name"
+                    value={adminModal.form.name}
+                    onChange={(e) => onAdminFormChange('name', e.target.value)}
+                    maxLength={100}
+                    aria-label="Nombre del administrador"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="admin-last_name">Apellidos *</label>
+                  <input
+                    className="input"
+                    id="admin-last_name"
+                    value={adminModal.form.last_name}
+                    onChange={(e) => onAdminFormChange('last_name', e.target.value)}
+                    maxLength={100}
+                    aria-label="Apellidos del administrador"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="admin-username">Usuario *</label>
+                  <input
+                    className="input"
+                    id="admin-username"
+                    value={adminModal.form.username}
+                    onChange={(e) => onAdminFormChange('username', e.target.value)}
+                    maxLength={30}
+                    aria-label="Usuario del administrador"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="admin-email">Correo *</label>
+                  <input
+                    className="input"
+                    id="admin-email"
+                    type="email"
+                    value={adminModal.form.email}
+                    onChange={(e) => onAdminFormChange('email', e.target.value)}
+                    maxLength={120}
+                    aria-label="Correo del administrador"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="admin-password">Contraseña inicial *</label>
+                  <input
+                    className="input"
+                    id="admin-password"
+                    type="password"
+                    value={adminModal.form.password}
+                    onChange={(e) => onAdminFormChange('password', e.target.value)}
+                    minLength={6}
+                    aria-label="Contraseña inicial del administrador"
+                    placeholder="Mínimo 6 caracteres"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="admin-role">Rol *</label>
+                  <Select
+                    id="admin-role"
+                    placeholder="Seleccione rol"
+                    options={[{ value: 'ADMIN', label: 'Administrador' }]}
+                    value={adminModal.roleId}
+                    onChange={onAdminRoleChange}
+                    disabled={adminModal.loading}
+                  />
+                </div>
+              </div>
+              {error && <ErrorBox message={error} />}
+              <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+                <button type="button" className="btn-secondary" onClick={() => setAdminModal(null)} disabled={adminModal.loading}>Cancelar</button>
+                <button type="submit" className="btn-primary" disabled={adminModal.loading}>
+                  {adminModal.loading && <Spinner className="h-4 w-4 text-white" />}
+                  Crear administrador
+                </button>
+              </div>
+            </form>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }

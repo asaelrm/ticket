@@ -33,7 +33,8 @@ COPY backend/package*.json ./
 COPY backend ./
 COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
 
-# Directorios de datos persistentes
+# Directorio de adjuntos persistente. `data` se conserva por compatibilidad con
+# el volumen histórico de SQLite, pero el runtime (SQL Server) ya no escribe ahí.
 RUN mkdir -p /app/backend/data /app/backend/uploads \
     && chown -R node:node /app/backend
 

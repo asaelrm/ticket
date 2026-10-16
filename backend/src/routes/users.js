@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import express from 'express';
 import config from '../config.js';
+import { MIN_PASSWORD_LENGTH, MIN_ADMIN_PASSWORD_LENGTH, MIN_SUPERADMIN_PASSWORD_LENGTH } from '../config.js';
 import runtime from '../db/runtime.js';
 import { nowIso } from '../utils/time.js';
 import { hashPassword } from '../utils/password.js';
@@ -107,8 +108,6 @@ router.get('/roles', requirePermission('user.view'), async (req, res) => {
 router.post('/', requirePermission('user.manage'), async (req, res) => {
   try {
     const body = req.body || {};
-    const rejected = rejectClientOrg(body);
-    if (rejected) return res.status(400).json({ error: rejected });
     const name = body.name;
     const lastName = body.last_name;
     const username = safeStr(body.username);
@@ -117,25 +116,46 @@ router.post('/', requirePermission('user.manage'), async (req, res) => {
     const departmentId = body.department_id == null || body.department_id === '' ? null : parseIntSafe(body.department_id);
     const position = safeStr(body.position);
     const roleId = parseIntSafe(body.role_id);
+    const requestedOrgId = body.organization_id == null || body.organization_id === '' ? null : parseIntSafe(body.organization_id);
+
+    // Rechazar organization_id del cliente si no es SUPERADMIN global
+    if (requestedOrgId !== null && !req.user.is_superadmin) {
+      return res.status(400).json({ error: 'La organización no puede ser establecida desde el cliente' });
+    }
+
+    // Obtener el rol para determinar la longitud mínima de contraseña
+    const role = await runtime.queryOne('SELECT id, code FROM roles WHERE id = ? AND active = 1', roleId);
+    if (!role) return res.status(400).json({ error: 'Rol inválido' });
+
+    let minLength = MIN_PASSWORD_LENGTH;
+    if (isSuperadminRoleCode(role.code)) {
+      minLength = MIN_SUPERADMIN_PASSWORD_LENGTH;
+    } else if (role.code === 'ADMIN') {
+      minLength = MIN_ADMIN_PASSWORD_LENGTH;
+    }
 
     validate({
       name: rules.required(name, 'Nombre') + rules.max(name, 100, 'Nombre'),
       last_name: rules.required(lastName, 'Apellidos') + rules.max(lastName, 100, 'Apellidos'),
       username: rules.required(username, 'Usuario') + rules.username(username),
       email: rules.required(email, 'Correo') + rules.email(email),
-      password: rules.password(password),
+      password: rules.password(password, minLength),
       role: rules.required(roleId, 'Rol'),
     });
 
-    const role = await runtime.queryOne('SELECT id, code FROM roles WHERE id = ? AND active = 1', roleId);
-    if (!role) return res.status(400).json({ error: 'Rol inválido' });
-
-    let organizationId = req.user.organization_id;
+    let organizationId;
     if (isSuperadminRoleCode(role.code)) {
       if (!req.user.is_superadmin) {
         return res.status(403).json({ error: 'Solo un superadministrador puede asignar el rol SUPERADMIN' });
       }
       organizationId = null;
+    } else if (req.user.is_superadmin && requestedOrgId !== null) {
+      const org = await runtime.queryOne('SELECT id, active FROM organizations WHERE id = ?', requestedOrgId);
+      if (!org) return res.status(400).json({ error: 'La organización especificada no existe' });
+      if (!org.active) return res.status(400).json({ error: 'La organización especificada no está activa' });
+      organizationId = requestedOrgId;
+    } else {
+      organizationId = req.user.organization_id;
     }
 
     const stateError = await orgStateError({ roleCode: role.code, organizationId });

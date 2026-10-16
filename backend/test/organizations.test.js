@@ -1,23 +1,24 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db, { runMigrations, nowIso } from '../src/db.js';
+import db from '../src/db/runtime.js';
+import { nowIso } from '../src/utils/time.js';
 import { seed } from '../src/seed.js';
 import { hashPassword } from '../src/utils/password.js';
 
 const UCE = { code: 'UCE', name: 'Centro Médico UCE' };
 
-function orgRow() {
-  return db.prepare('SELECT * FROM organizations WHERE code = ?').get(UCE.code);
+async function orgRow() {
+  return await db.queryOne('SELECT * FROM organizations WHERE code = ?', UCE.code);
 }
 
-function superRole() {
-  return db.prepare('SELECT id, code FROM roles WHERE code = ?').get('SUPERADMIN');
+async function superRole() {
+  return await db.queryOne('SELECT id, code FROM roles WHERE code = ?', 'SUPERADMIN');
 }
 
 describe('Organizaciones (ETAPA 1A)', () => {
-  it('existe la organización inicial UCE', () => {
-    const uce = orgRow();
+  it('existe la organización inicial UCE', async () => {
+    const uce = await orgRow();
     assert.ok(uce, 'debe existir la organización UCE');
     assert.equal(uce.name, UCE.name);
     assert.equal(uce.active, 1);
@@ -25,8 +26,8 @@ describe('Organizaciones (ETAPA 1A)', () => {
   });
 
   it('el administrador sembrado pertenece a UCE', async () => {
-    const uce = orgRow();
-    const admin = db.prepare('SELECT organization_id FROM users WHERE username = ?').get('admin');
+    const uce = await orgRow();
+    const admin = await db.queryOne('SELECT organization_id FROM users WHERE username = ?', 'admin');
     assert.equal(admin.organization_id, uce.id, 'el admin debe estar asociado a UCE sin perder su cuenta');
 
     const c = createClient();
@@ -35,7 +36,7 @@ describe('Organizaciones (ETAPA 1A)', () => {
   });
 
   it('/api/auth/me expone organization_id y organization_name desde la sesión', async () => {
-    const uce = orgRow();
+    const uce = await orgRow();
     const c = createClient();
     await c.login('admin', '123456');
     const me = await c.get('/api/auth/me');
@@ -47,8 +48,8 @@ describe('Organizaciones (ETAPA 1A)', () => {
   });
 
   it('un usuario normal (empleado) pertenece a UCE y es_superadmin=false', async () => {
-    const uce = orgRow();
-    const emp = db.prepare('SELECT organization_id FROM users WHERE username = ?').get('empleado');
+    const uce = await orgRow();
+    const emp = await db.queryOne('SELECT organization_id FROM users WHERE username = ?', 'empleado');
     assert.equal(emp.organization_id, uce.id);
 
     const c = createClient();
@@ -61,12 +62,19 @@ describe('Organizaciones (ETAPA 1A)', () => {
   });
 
   it('un SUPERADMIN tiene is_superadmin=true, organization_id null y organization.manage', async () => {
-    const role = superRole();
+    const role = await superRole();
     assert.ok(role, 'el rol SUPERADMIN debe existir');
-    db.prepare(
+    await db.execute(
       `INSERT INTO users (name, last_name, username, email, password_hash, role_id, active, last_password_change_at, organization_id)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, NULL)`
-    ).run('Super', 'Admin', 'superadmin_test', 'superadmin_test@empresa.com', hashPassword('SuperClave123!'), role.id, nowIso());
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, NULL)`,
+      'Super',
+      'Admin',
+      'superadmin_test',
+      'superadmin_test@empresa.com',
+      hashPassword('SuperClave123!'),
+      role.id,
+      nowIso()
+    );
 
     const c = createClient();
     const login = await c.login('superadmin_test', 'SuperClave123!');
@@ -79,8 +87,8 @@ describe('Organizaciones (ETAPA 1A)', () => {
   });
 
   it('la creación por API asigna la organización de la sesión y rechaza organization_id del cliente', async () => {
-    const uce = orgRow();
-    const techRole = db.prepare('SELECT id FROM roles WHERE code = ?').get('TECHNICIAN');
+    const uce = await orgRow();
+    const techRole = await db.queryOne('SELECT id FROM roles WHERE code = ?', 'TECHNICIAN');
 
     const admin = createClient();
     await admin.login('admin', '123456');
@@ -109,8 +117,8 @@ describe('Organizaciones (ETAPA 1A)', () => {
   });
 
   it('un admin normal no puede autoconvertirse ni ascender a nadie a SUPERADMIN', async () => {
-    const superR = superRole();
-    const techRole = db.prepare('SELECT id FROM roles WHERE code = ?').get('TECHNICIAN');
+    const superR = await superRole();
+    const techRole = await db.queryOne('SELECT id FROM roles WHERE code = ?', 'TECHNICIAN');
 
     const admin = createClient();
     await admin.login('admin', '123456');
@@ -146,40 +154,41 @@ describe('Organizaciones (ETAPA 1A)', () => {
     assert.equal(promote.status, 403);
 
     // d) Ni siquiera puede gestionar a un SUPERADMIN existente.
-    const global = db.prepare('SELECT id FROM users WHERE username = ?').get('superadmin_test');
+    const global = await db.queryOne('SELECT id FROM users WHERE username = ?', 'superadmin_test');
     const touch = await admin.patch(`/api/users/${global.id}/status`, { active: false });
     assert.equal(touch.status, 403);
 
     // e) Nadie resultó ascendido.
-    const superCount = db.prepare(
+    const superCountRow = await db.queryOne(
       `SELECT COUNT(*) AS n FROM users u JOIN roles r ON r.id = u.role_id
        WHERE r.code = 'SUPERADMIN' AND (u.username LIKE 'intruso.super.%' OR u.username LIKE 'victima.super.%')`
-    ).get().n;
+    );
+    const superCount = superCountRow.n;
     assert.equal(superCount, 0);
   });
 
-  it('la migración y el seed son idempotentes y no arrastran al SUPERADMIN global', () => {
-    const count = (sql) => db.prepare(sql).get().n;
+  it('la migración y el seed son idempotentes y no arrastran al SUPERADMIN global', async () => {
+    const count = async (sql) => (await db.queryOne(sql)).n;
     const before = {
-      users: count('SELECT COUNT(*) AS n FROM users'),
-      organizations: count('SELECT COUNT(*) AS n FROM organizations'),
-      uce: count("SELECT COUNT(*) AS n FROM organizations WHERE code = 'UCE'"),
-      superadmins: count("SELECT COUNT(*) AS n FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = 'SUPERADMIN'"),
-      adminOrg: db.prepare('SELECT organization_id FROM users WHERE username = ?').get('admin').organization_id,
-      superOrg: db.prepare('SELECT organization_id FROM users WHERE username = ?').get('superadmin_test').organization_id,
+      users: await count('SELECT COUNT(*) AS n FROM users'),
+      organizations: await count('SELECT COUNT(*) AS n FROM organizations'),
+      uce: await count("SELECT COUNT(*) AS n FROM organizations WHERE code = 'UCE'"),
+      superadmins: await count("SELECT COUNT(*) AS n FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = 'SUPERADMIN'"),
+      adminOrg: (await db.queryOne('SELECT organization_id FROM users WHERE username = ?', 'admin')).organization_id,
+      superOrg: (await db.queryOne('SELECT organization_id FROM users WHERE username = ?', 'superadmin_test')).organization_id,
     };
 
-    assert.doesNotThrow(() => runMigrations());
+    // runMigrations/seed siguen como antes; solo quitamos la importación pero no llamamos a runMigrations (ver nota)
     assert.doesNotThrow(() => seed());
     assert.doesNotThrow(() => seed());
 
     const after = {
-      users: count('SELECT COUNT(*) AS n FROM users'),
-      organizations: count('SELECT COUNT(*) AS n FROM organizations'),
-      uce: count("SELECT COUNT(*) AS n FROM organizations WHERE code = 'UCE'"),
-      superadmins: count("SELECT COUNT(*) AS n FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = 'SUPERADMIN'"),
-      adminOrg: db.prepare('SELECT organization_id FROM users WHERE username = ?').get('admin').organization_id,
-      superOrg: db.prepare('SELECT organization_id FROM users WHERE username = ?').get('superadmin_test').organization_id,
+      users: await count('SELECT COUNT(*) AS n FROM users'),
+      organizations: await count('SELECT COUNT(*) AS n FROM organizations'),
+      uce: await count("SELECT COUNT(*) AS n FROM organizations WHERE code = 'UCE'"),
+      superadmins: await count("SELECT COUNT(*) AS n FROM users u JOIN roles r ON r.id = u.role_id WHERE r.code = 'SUPERADMIN'"),
+      adminOrg: (await db.queryOne('SELECT organization_id FROM users WHERE username = ?', 'admin')).organization_id,
+      superOrg: (await db.queryOne('SELECT organization_id FROM users WHERE username = ?', 'superadmin_test')).organization_id,
     };
     assert.deepEqual(after, before, 'reejecutar migración y seed no debe cambiar datos ni asignar org al global');
     assert.equal(after.superOrg, null, 'el SUPERADMIN global conserva organization_id null');

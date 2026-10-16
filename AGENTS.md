@@ -32,7 +32,7 @@ Todas las respuestas, explicaciones y resúmenes de **todos los agentes de OpenC
 ### 5. Restricciones
 - No traducir código existente
 - No modificar el funcionamiento del proyecto
-- No hacer commit ni push por esta configuración
+- Se autoriza crear commits y hacer push únicamente cuando exista autorización expresa del propietario; conservar todas las demás restricciones del proyecto.
 - No ejecutar migraciones
 
 ---

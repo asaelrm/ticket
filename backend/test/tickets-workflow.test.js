@@ -1,7 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient, createSuperadminClient } from './helpers.js';
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 
 const IMG_JPG = {
   name: 'foto.jpg',
@@ -229,13 +229,13 @@ describe('Regresiones I1-I3: exportación, avisos y tickets terminales', () => {
     const cancelled = await adminC.post(`/api/tickets/${ticket.id}/cancel`, { reason: 'Duplicado de prueba' });
     assert.equal(cancelled.status, 200);
 
-    const emailsBefore = db.prepare('SELECT COUNT(*) AS n FROM email_logs WHERE ticket_id = ?').get(ticket.id).n;
-    const notificationsBefore = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?').get(ticket.id).n;
+    const emailsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM email_logs WHERE ticket_id = ?', ticket.id)).n;
+    const notificationsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
     const patch = await adminC.patch(`/api/tickets/${ticket.id}`, { title: 'No debe cambiar' });
     assert.equal(patch.status, 400);
 
-    const emailsAfter = db.prepare('SELECT COUNT(*) AS n FROM email_logs WHERE ticket_id = ?').get(ticket.id).n;
-    const notificationsAfter = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?').get(ticket.id).n;
+    const emailsAfter = (await db.queryOne('SELECT COUNT(*) AS n FROM email_logs WHERE ticket_id = ?', ticket.id)).n;
+    const notificationsAfter = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
     assert.equal(emailsAfter, emailsBefore, 'no reenvía el correo de cancelación');
     assert.equal(notificationsAfter, notificationsBefore, 'no duplica avisos in-app de cancelación');
 
@@ -249,10 +249,10 @@ describe('Regresiones I1-I3: exportación, avisos y tickets terminales', () => {
     assert.equal((await adminC.post(`/api/tickets/${ticket.id}/resolve`, { resolution: 'Resuelto para cerrar' })).status, 200);
     assert.equal((await adminC.post(`/api/tickets/${ticket.id}/close`, {})).status, 200);
 
-    const notificationsBefore = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?').get(ticket.id).n;
+    const notificationsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
     const patch = await adminC.patch(`/api/tickets/${ticket.id}`, { priority: 'CRITICAL' });
     assert.equal(patch.status, 400);
-    const notificationsAfter = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?').get(ticket.id).n;
+    const notificationsAfter = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
     assert.equal(notificationsAfter, notificationsBefore, 'no duplica avisos de cierre');
 
     const detail = await adminC.get(`/api/tickets/${ticket.id}`);
@@ -279,14 +279,14 @@ describe('Regresiones I1-I3: exportación, avisos y tickets terminales', () => {
     const ticket = await newTicket(empleadoC, { title: 'Terminal sin reasignar I4' });
     assert.equal((await adminC.post(`/api/tickets/${ticket.id}/cancel`, { reason: 'Duplicado' })).status, 200);
 
-    const notificationsBefore = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?').get(ticket.id).n;
+    const notificationsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
     const assign = await adminC.post(`/api/tickets/${ticket.id}/assign`, { assigned_to_id: tecnico.id });
     assert.equal(assign.status, 400, 'la asignación de un ticket terminal se rechaza');
     assert.match(assign.body.error, /terminal/i);
 
     const detail = await adminC.get(`/api/tickets/${ticket.id}`);
     assert.equal(detail.body.ticket.assigned_to_id, null, 'no se reasigna el ticket terminal');
-    const notificationsAfter = db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?').get(ticket.id).n;
+    const notificationsAfter = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
     assert.equal(notificationsAfter, notificationsBefore, 'no dispara avisos de asignación');
   });
 });

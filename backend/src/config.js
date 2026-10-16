@@ -14,38 +14,23 @@ function int(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Motor de base de datos. SQL Server es el ÚNICO motor soportado: SQLite se ha
+// eliminado del runtime. Un DB_CLIENT distinto (o "sqlite") detiene el arranque
+// en el import de la configuración, antes de abrir ninguna conexión.
 export function requestedDbClient(v) {
-  const client = String(v || 'sqlite').trim().toLowerCase();
-  if (!['sqlite', 'mssql'].includes(client)) {
-    throw new Error(`DB_CLIENT no soportado: "${client}". Se admite "sqlite" o "mssql".`);
+  const client = String(v || 'mssql').trim().toLowerCase();
+  if (client !== 'mssql') {
+    throw new Error(
+      `DB_CLIENT no soportado: "${client}". SQL Server es el único motor soportado (use "mssql").`,
+    );
   }
   return client;
 }
 
-// Motor que pide el entorno (lo consumen los scripts de migración y la
-// validación de arranque). `DB_CLIENT=mssql` NO implica por sí solo que el
-// proceso vaya a hablar con SQL Server: eso lo decide `dbClient`.
-export function mssqlRuntimeRequested(env = process.env) {
-  return requestedDbClient(env.DB_CLIENT) === 'mssql';
-}
-
-// Activación explícita del runtime MSSQL. Sin `MSSQL_RUNTIME=true` el proceso
-// sigue sobre SQLite aunque `DB_CLIENT=mssql`, porque la migración por fases aún
-// no ha convertido todos los módulos ni se ha aplicado el esquema MSSQL. Es la
-// puerta que la fase de cutover abrirá cuando el runtime esté completo.
-export function mssqlRuntimeActivated(env = process.env) {
-  return bool(env.MSSQL_RUNTIME, false);
-}
-
-// Motor real de ejecución. Solo devuelve 'mssql' cuando además de pedirlo se ha
-// activado explícitamente; en cualquier otro caso el runtime usa SQLite, que es
-// donde vive la única fuente de verdad mientras no se complete el cutover. Un
-// valor inválido de DB_CLIENT detiene el arranque en el import de la
-// configuración, antes de abrir ninguna conexión.
-export function dbClient(v, env = process.env) {
-  const requested = requestedDbClient(v);
-  if (requested === 'mssql' && !mssqlRuntimeActivated(env)) return 'sqlite';
-  return requested;
+// Motor efectivo de ejecución. Con SQL Server como único motor siempre es
+// "mssql". Se conserva la función para no romper a sus consumidores.
+export function dbClient(v) {
+  return requestedDbClient(v);
 }
 
 // Mantenimiento programado (SLA vencido, escalaciones automáticas y poda de
@@ -75,11 +60,12 @@ const rootDir = path.resolve(__dirname, '..');
 // adivinable o reutilizado de otro entorno acaba firmando cookies ajenas.
 export const MIN_SESSION_SECRET_LENGTH = 32;
 
-// Toda contraseña nueva debe cumplir la misma política. Las cuentas existentes
-// no se invalidan por su longitud histórica: el mínimo se aplica al crear,
-// cambiar o restablecer una contraseña.
-export const MIN_PASSWORD_LENGTH = 12;
-export const MIN_ADMIN_PASSWORD_LENGTH = MIN_PASSWORD_LENGTH;
+// Longitud mínima de contraseña según tipo de usuario.
+// Las cuentas existentes no se invalidan por su longitud histórica: el mínimo
+// se aplica al crear, cambiar o restablecer una contraseña.
+export const MIN_PASSWORD_LENGTH = 6;
+export const MIN_ADMIN_PASSWORD_LENGTH = 6;
+export const MIN_SUPERADMIN_PASSWORD_LENGTH = 12;
 
 // Solo para desarrollo y pruebas. Es público: vive en el repositorio y en el
 // compose de desarrollo, así que en producción se rechaza siempre.
@@ -215,12 +201,11 @@ export function assertStartupConfig(env = process.env) {
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: int(process.env.PORT, 4000),
-  // Motor de ejecución: `sqlite` (node:sqlite, por defecto) o `mssql` (pool de
-  // SQL Server, solo con MSSQL_RUNTIME=true). La traducción de dialecto vive en
-  // src/db/dialect.js y el cambio de motor en src/db/runtime.js.
+  // Motor de ejecución: SQL Server exclusivamente. Las consultas se siguen
+  // escribiendo en dialecto SQLite y src/db/dialect.js las traduce a T-SQL; ese
+  // traductor se conserva temporalmente. El motor se resuelve en src/db/runtime.js.
   requestedDbClient: requestedDbClient(process.env.DB_CLIENT),
-  dbClient: dbClient(process.env.DB_CLIENT, process.env),
-  mssqlRuntimeEnabled: dbClient(process.env.DB_CLIENT, process.env) === 'mssql',
+  dbClient: dbClient(process.env.DB_CLIENT),
   mssql: {
     server: (process.env.DB_SERVER || '').trim(),
     port: process.env.DB_PORT ? int(process.env.DB_PORT, 1433) : undefined,
@@ -234,6 +219,10 @@ const config = {
       instanceName: (process.env.DB_INSTANCE || '').trim() || undefined,
     },
   },
+  // `dataDir`/`dbFile` ya NO son parte del runtime (SQL Server es el único
+  // motor). Se conservan porque el migrador histórico SQLite → MSSQL
+  // (scripts/migrate-sqlite-to-mssql.js) los usa para localizar el archivo
+  // SQLite de origen. No abren ni crean ninguna base en el runtime.
   dataDir: path.resolve(rootDir, process.env.DATA_DIR || 'data'),
   uploadDir: path.resolve(rootDir, process.env.UPLOAD_DIR || 'uploads'),
   dbFile: process.env.DB_FILE || null,
@@ -301,6 +290,8 @@ const config = {
   },
 };
 
+// Resolución del archivo SQLite de origen. Solo lo consume el migrador
+// histórico; el runtime de SQL Server no lee `dbFile`.
 config.dbFile =
   config.dbFile && config.dbFile !== 'false'
     ? path.resolve(rootDir, config.dbFile)
@@ -319,7 +310,8 @@ config.directory.snapshotFile = path.resolve(rootDir, config.directory.snapshotF
 const bootEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
 if (bootEnv !== 'development' && bootEnv !== 'test') assertStartupConfig(process.env);
 
-fs.mkdirSync(config.dataDir, { recursive: true });
+// El runtime de SQL Server no crea ningún directorio de datos local. Solo el de
+// adjuntos, que sí es parte de la aplicación.
 fs.mkdirSync(config.uploadDir, { recursive: true });
 
 export default config;

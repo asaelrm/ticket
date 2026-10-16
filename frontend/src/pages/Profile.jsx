@@ -15,6 +15,8 @@ export default function Profile() {
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const minLength = user?.role === 'SUPERADMIN' ? 12 : 6;
+
   const passwordMutation = useMutation({
     mutationFn: ({ currentPassword, newPassword }) =>
       api.post('/api/auth/change-password', { current_password: currentPassword, new_password: newPassword }),
@@ -45,8 +47,8 @@ export default function Profile() {
       setError('Las contraseñas no coinciden');
       return;
     }
-    if (next.length < 12) {
-      setError('La contraseña debe tener al menos 12 caracteres');
+    if (next.length < minLength) {
+      setError(`La contraseña debe tener al menos ${minLength} caracteres`);
       return;
     }
     passwordMutation.mutate({ currentPassword: current, newPassword: next });
@@ -105,14 +107,14 @@ export default function Profile() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="label" htmlFor="next">Nueva contraseña</label>
-              <input id="next" type="password" className="input" value={next} onChange={(e) => setNext(e.target.value)} minLength={12} required />
+              <input id="next" type="password" className="input" value={next} onChange={(e) => setNext(e.target.value)} minLength={minLength} required />
             </div>
             <div>
               <label className="label" htmlFor="confirm">Confirmar nueva</label>
               <input id="confirm" type="password" className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
             </div>
           </div>
-          <p className="text-xs text-slate-400">Mínimo 12 caracteres.</p>
+          <p className="text-xs text-slate-400">Mínimo {minLength} caracteres.</p>
           {error && <ErrorBox message={error} />}
           {success && <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{success}</div>}
           <div className="flex justify-end">

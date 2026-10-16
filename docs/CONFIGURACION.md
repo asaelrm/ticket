@@ -37,12 +37,11 @@ Todas las variables se definen en `backend/.env` (copia de
 
 | Variable | Valores | Efecto |
 |----------|---------|--------|
-| `DB_CLIENT` | `sqlite` (defecto) \| `mssql` | Motor pedido (para migración) |
-| `MSSQL_RUNTIME=true` | — | **Activa** el runtime MSSQL; sin ella el motor real sigue siendo SQLite |
-| `DATA_DIR` | `data` | Directorio de datos SQLite/sesiones |
-| `DB_SERVER`, `DB_PORT`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD` | — | Conexión SQL Server (solo migración) |
+| `DB_CLIENT` | `mssql` (único) | Motor de base de datos. Solo se admite `mssql`; otro valor detiene el arranque |
+| `DATA_DIR` | `data` | Directorio histórico del migrador SQLite → MSSQL (el runtime ya no lo usa) |
+| `DB_SERVER`, `DB_PORT`, `DB_DATABASE`, `DB_USER`, `DB_PASSWORD` | — | Conexión SQL Server (obligatoria) |
 | `DB_ENCRYPT`, `DB_TRUST_SERVER_CERTIFICATE`, `DB_INSTANCE` | — | TLS e instancia de SQL Server |
-| `JOBS_ENABLED=false` | — | Desactiva jobs de SLA/escalaciones (útli en validaciones MSSQL) |
+| `JOBS_ENABLED=false` | — | Desactiva jobs de SLA/escalaciones (útil en validaciones de solo lectura) |
 
 ## Correo (SMTP)
 

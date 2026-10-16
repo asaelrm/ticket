@@ -1,7 +1,8 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient, createSuperadminClient } from './helpers.js';
-import db, { nowIso } from '../src/db.js';
+import db from '../src/db/runtime.js';
+import { nowIso } from '../src/utils/time.js';
 import { hashPassword } from '../src/utils/password.js';
 
 // V4: administración de organizaciones. Sólo el SUPERADMIN puede usarla; un
@@ -18,8 +19,8 @@ let orgAdmin;
 let employee;
 let uceSnapshot;
 
-function row(code) {
-  return db.prepare('SELECT * FROM organizations WHERE code = ?').get(code);
+async function row(code) {
+  return await db.queryOne('SELECT * FROM organizations WHERE code = ?', code);
 }
 
 before(async () => {
@@ -28,7 +29,7 @@ before(async () => {
   assert.equal((await orgAdmin.login('admin', '123456')).status, 200);
   employee = createClient();
   assert.equal((await employee.login('empleado', 'Empleado1234!')).status, 200);
-  uceSnapshot = { ...row('UCE') };
+  uceSnapshot = { ...(await row('UCE')) };
 });
 
 describe('API de organizaciones exclusiva del SUPERADMIN (V4)', () => {
@@ -54,7 +55,7 @@ describe('API de organizaciones exclusiva del SUPERADMIN (V4)', () => {
     }
     const create = await orgAdmin.post('/api/organizations', { code: 'NOPEADM', name: 'No debe crearse' });
     assert.equal(create.status, 403);
-    assert.ok(!row('NOPEADM'), 'el administrador no creó organizaciones');
+    assert.ok(!(await row('NOPEADM')), 'el administrador no creó organizaciones');
   });
 
   it('un empleado NO puede usar el canal', async () => {
@@ -62,7 +63,8 @@ describe('API de organizaciones exclusiva del SUPERADMIN (V4)', () => {
     assert.equal(res.status, 403);
     const patch = await employee.patch('/api/organizations/1', { name: 'Hackeado' });
     assert.equal(patch.status, 403);
-    assert.equal(db.prepare('SELECT name FROM organizations WHERE id = 1').get().name !== 'Hackeado', true);
+    const row1 = await db.queryOne('SELECT name FROM organizations WHERE id = 1');
+    assert.equal(row1.name !== 'Hackeado', true);
   });
 
   it('sin sesión no hay acceso (401)', async () => {
@@ -96,7 +98,7 @@ describe('API de organizaciones exclusiva del SUPERADMIN (V4)', () => {
 
     const dupName = await superadmin.post('/api/organizations', { code: 'OTRAORG', name: NEW_NAME.toUpperCase() });
     assert.equal(dupName.status, 409);
-    assert.ok(!row('OTRAORG'));
+    assert.ok(!(await row('OTRAORG')));
   });
 
   it('el cliente no puede inyectar organization_id en la petición', async () => {
@@ -106,42 +108,45 @@ describe('API de organizaciones exclusiva del SUPERADMIN (V4)', () => {
       organization_id: 999,
     });
     assert.equal(res.status, 400);
-    assert.ok(!row('INJECTORG'));
+    assert.ok(!(await row('INJECTORG')));
 
-    const org = row(NEW_CODE);
+    const org = await row(NEW_CODE);
     const patch = await superadmin.patch(`/api/organizations/${org.id}`, { organization_id: 1, name: 'Otro nombre' });
     assert.equal(patch.status, 400);
-    assert.equal(row(NEW_CODE).name, NEW_NAME, 'nada cambió tras el intento');
+    const after = await row(NEW_CODE);
+    assert.equal(after.name, NEW_NAME, 'nada cambió tras el intento');
   });
 
   it('el código es inmutable y la edición persiste', async () => {
-    const org = row(NEW_CODE);
+    const org = await row(NEW_CODE);
     const codeChange = await superadmin.patch(`/api/organizations/${org.id}`, { code: 'CAMBIADO' });
     assert.equal(codeChange.status, 400);
-    assert.equal(row(NEW_CODE).name, NEW_NAME);
+    const after = await row(NEW_CODE);
+    assert.equal(after.name, NEW_NAME);
 
     const ok = await superadmin.patch(`/api/organizations/${org.id}`, {
       name: `${NEW_NAME} v2`,
       description: 'Descripción actualizada',
     });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
-    assert.equal(row(NEW_CODE).name, `${NEW_NAME} v2`);
-    assert.equal(row(NEW_CODE).description, 'Descripción actualizada');
+    const updated = await row(NEW_CODE);
+    assert.equal(updated.name, `${NEW_NAME} v2`);
+    assert.equal(updated.description, 'Descripción actualizada');
   });
 
   it('la desactivación bloquea el acceso de ESA organización y sólo de ella', async () => {
-    const org = row(NEW_CODE);
+    const org = await row(NEW_CODE);
 
     // Cuenta ficticia DENTRO de la organización que se va a apagar.
     const orgUser = 'admin_orgapi_test';
-    const roleId = db.prepare("SELECT id FROM roles WHERE code = 'ADMIN'").get().id;
-    db.prepare(
+    const role = await db.queryOne("SELECT id FROM roles WHERE code = 'ADMIN'");
+    const roleId = role.id;
+    await db.execute(
       `INSERT INTO users (name, last_name, username, email, password_hash, position, role_id, active, last_password_change_at, organization_id)
-       VALUES ('Org', 'API', ?, ?, ?, 'Puesto de prueba', ?, 1, ?, ?)`
-    ).run(
+       VALUES ('Org', 'API', ?, ?, ?, 'Puesto de prueba', ?, 1, ?, ?)`,
       orgUser,
-      `${orgUser}@organizacion.test`,
-      hashPassword('OrgApiClave123!'),
+      `${orgUser}@orgapi.test`,
+      hashPassword('ClaveOrgApi123!'),
       roleId,
       nowIso(),
       org.id
