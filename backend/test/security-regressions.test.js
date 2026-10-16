@@ -185,6 +185,12 @@ describe('Login: coste constante para enumeración de cuentas', () => {
       `Un login de usuario inexistente tardó ${msInexistente.toFixed(1)} ms: no se ejecutó bcrypt (existente: ${msExistente.toFixed(1)} ms)`
     );
   });
+
+  it('un cuerpo de login sin cuenta devuelve 400 de validación, nunca un 500 interno', async () => {
+    const c = createClient();
+    const res = await c.post('/api/auth/login', { password: 'solo-una-clave' });
+    assert.equal(res.status, 400);
+  });
 });
 
 describe('Restablecimiento de contraseña por administrador', () => {
@@ -260,4 +266,109 @@ describe('Descarga de adjuntos', () => {
   // determinista. Simularla con mock.method(fs, 'createReadStream') cuelga la
   // suite, porque supertest usa fs por dentro y recibe el stream falso. Se
   // verificó a mano que sin el manejador la petición se queda colgada.
+});
+
+describe('Inyección de fórmulas en exportaciones CSV', () => {
+  async function ticketConTitulo(titulo) {
+    const admin = createClient();
+    await admin.login('admin', '123456');
+    const creado = await admin.post('/api/tickets', {
+      title: titulo,
+      description: 'Datos sensibles que no deben convertirse en fórmula',
+      category_id: 1,
+      priority: 'LOW',
+    });
+    assert.equal(creado.status, 201, 'debe crearse el ticket de la prueba');
+    return admin;
+  }
+
+  for (const titulo of ['=2+2', '+41', '-1+2', '@SUM(A1)']) {
+    it(`el CSV de /api/tickets/export neutraliza un título que inicia con ${titulo}`, async () => {
+      const admin = await ticketConTitulo(titulo);
+      const res = await admin.get('/api/tickets/export?format=csv&search=' + encodeURIComponent(titulo));
+      assert.equal(res.status, 200);
+      assert.ok(
+        res.text.includes(`"'${titulo}`),
+        `el título ${titulo} debe exportarse con la comilla de neutralización`
+      );
+    });
+  }
+
+  for (const titulo of ['=' + "'+1+1'", '=HOLA()', '-42']) {
+    it(`el CSV de /api/reports/export neutraliza un título que inicia con ${titulo}`, async () => {
+      const admin = await ticketConTitulo(titulo);
+      const res = await admin.get('/api/reports/export?sections=details');
+      assert.equal(res.status, 200);
+      assert.ok(
+        res.text.includes(`"'${titulo}`),
+        `el título ${titulo} debe exportarse con la comilla de neutralización`
+      );
+    });
+  }
+});
+
+describe('Restablecimiento de contraseña por administrador: token', () => {
+  async function crearUsuario() {
+    const admin = createClient();
+    await admin.login('admin', '123456');
+    const roles = await admin.get('/api/roles');
+    const tecnico = roles.body.roles.find((r) => r.code === 'TECHNICIAN');
+    const creado = await admin.post('/api/users', {
+      name: 'Reset',
+      last_name: 'Token',
+      username: `reset_token_${Date.now()}`,
+      email: `reset_token_${Date.now()}@empresa.test`,
+      password: 'ClaveSegura1234!',
+      role_id: tecnico.id,
+    });
+    assert.equal(creado.status, 201);
+    return { admin, id: creado.body.user.id };
+  }
+
+  it('en desarrollo devuelve el token para poder compartirlo', async () => {
+    const { admin, id } = await crearUsuario();
+    const res = await admin.post(`/api/users/${id}/reset-password`, {});
+    assert.equal(res.status, 200);
+    assert.ok(res.body.token, 'en desarrollo el administrador debe recibir el token');
+    assert.ok(res.body.resetUrl);
+  });
+
+  it('fuera de desarrollo NUNCA expone el token por HTTP', async () => {
+    const { admin, id } = await crearUsuario();
+    const original = config.env;
+    config.env = 'staging';
+    try {
+      const res = await admin.post(`/api/users/${id}/reset-password`, {});
+      assert.equal(res.status, 200);
+      assert.ok(!res.body.token, 'fuera de desarrollo el token no debe viajar por HTTP');
+      assert.ok(!res.body.resetUrl);
+    } finally {
+      config.env = original;
+    }
+  });
+});
+
+describe('Endurecimiento de respuestas (CORS y health)', () => {
+  it('declara Vary: Origin para que ningún caché reutilice una respuesta CORS', async () => {
+    const c = createClient();
+    const res = await c.get('/api/health', { headers: { Origin: 'https://tickets.lan' } });
+    assert.equal(res.status, 200);
+    // Sin Vary, un proxy/CDN podría cachear la respuesta de un origen permitido
+    // y reservírsela a otro: la corrección añade la cabecera.
+    assert.match(String(res.headers.vary || ''), /(^|,\s*)Origin(\s*,|$)/i);
+  });
+
+  it('sin cabecera Origin no declara Vary: Origin', async () => {
+    const c = createClient();
+    const res = await c.get('/api/health');
+    assert.ok(!/(^|,\s*)Origin(\s*,|$)/i.test(String(res.headers.vary || '')));
+  });
+
+  it('/api/health no revela el entorno (NODE_ENV)', async () => {
+    const c = createClient();
+    const res = await c.get('/api/health');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.env, undefined, 'el entorno no debe exponerse en un endpoint anónimo');
+  });
 });

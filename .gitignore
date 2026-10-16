@@ -68,6 +68,11 @@ backups/
 *.db.bak
 *.tar.gz
 
+# Copias de trabajo del editor (por ejemplo al reescribir un archivo). No
+# aportan nada al historial y suelen llevar la version anterior.
+*.bak
+*~
+
 # OS
 .DS_Store
 Thumbs.db
@@ -82,3 +87,12 @@ git-watch.ps1
 git-watch-hidden.vbs
 
 deploy/central/.env
+
+.env.backup-local
+.env.mssql-test
+.env.*.local
+
+# Artefactos de diagnostico del grupo D (copia de resultados de consola) no
+# deben versionarse: se regeneran con los scripts de backend/scripts/migration.
+inventario-grupoD.txt
+resultado-verificacion-D.txt

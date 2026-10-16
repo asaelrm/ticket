@@ -155,6 +155,12 @@ describe('catálogo de categorías de conocimiento', () => {
     assert.equal(visible.body.data.map((c) => c.id).includes(category.id), false);
     assert.equal(visible.body.data.every((c) => c.active === 1), true);
 
+    // `active=0` no eleva permisos: kb.view no autoriza a enumerar inactivas.
+    const forgedFilter = await tech.get('/api/kb-categories?active=0');
+    assert.equal(forgedFilter.status, 200);
+    assert.equal(forgedFilter.body.data.map((c) => c.id).includes(category.id), false);
+    assert.equal(forgedFilter.body.data.every((c) => c.active === 1), true);
+
     const direct = await tech.get(`/api/kb-categories/${category.id}`);
     assert.equal(direct.status, 404);
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 import { ErrorBox, Spinner, LoadingScreen } from '../components/ui';
 
 const PERM_GROUPS = [
@@ -33,6 +34,21 @@ const PERM_GROUPS = [
 export default function Roles() {
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
+  const auth = useAuth();
+
+  // V2 (aislamiento multiempresa): `roles` y `role_permissions` no tienen
+  // `organization_id`, así que la matriz que se pinta aquí es la que comparten
+  // TODAS las organizaciones. El permiso `role.manage` lo tienen los
+  // administradores de cada empresa, así que por sí solo ya no alcanza para
+  // modificarla: el backend exige además ser SUPERADMIN (403 "Solo un
+  // superadministrador puede realizar esta acción") y aquí sólo se decide qué se
+  // pinta. Los administradores de organización conservan la consulta en modo
+  // solo lectura.
+  //
+  // `auth` es `null` sólo cuando el componente se pinta sin `AuthProvider` (las
+  // pruebas aisladas de esta página). En la aplicación real el proveedor está
+  // siempre montado (main.jsx), de modo que el valor del servidor manda.
+  const canEdit = auth ? !!auth.user?.is_superadmin : true;
 
   // `error` y `refetch` cierran el caso "la consulta falló": `data` sólo existe
   // si el PromiseAll tuvo éxito, así que un 500 en cualquiera de las dos
@@ -75,6 +91,7 @@ export default function Roles() {
   }
 
   function togglePerm(role, code) {
+    if (!canEdit) return;
     setError('');
     const next = role.permissions.includes(code)
       ? role.permissions.filter((c) => c !== code)
@@ -85,9 +102,19 @@ export default function Roles() {
   return (
     <div className="space-y-6">
       <div className="mb-3">{error && <ErrorBox message={error} />}</div>
+      {!canEdit && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+          Vista de solo lectura. La matriz de permisos es global y compartida por todas las
+          organizaciones, así que únicamente el superadministrador puede modificarla.
+        </div>
+      )}
       <div className="flex items-center gap-2 text-sm text-slate-500">
         {toggleMutation.isPending && <Spinner className="h-4 w-4 text-brand-600" />}
-        <span>Seleccione los permisos de cada rol. El rol Administrador siempre conserva todos.</span>
+        <span>
+          {canEdit
+            ? 'Seleccione los permisos de cada rol. El rol Administrador siempre conserva todos.'
+            : 'Permisos de cada rol. El rol Administrador siempre conserva todos.'}
+        </span>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -106,10 +133,11 @@ export default function Roles() {
                     <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">{group.label}</p>
                     <label className="flex items-start gap-2 mx-1">
                       <input
-                        disabled={isAdmin}
+                        disabled={isAdmin || !canEdit}
                         type="checkbox"
                         checked={isAdmin || group.codes.every((c) => role.permissions.includes(c))}
                         onChange={(e) => {
+                          if (!canEdit) return;
                           setError('');
                           const target = e.target.checked;
                           const codes = new Set(role.permissions);
@@ -127,7 +155,7 @@ export default function Roles() {
                           <li key={code}>
                             <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1 transition hover:bg-slate-50">
                               <input
-                                disabled={isAdmin || toggleMutation.isPending}
+                                disabled={isAdmin || !canEdit || toggleMutation.isPending}
                                 type="checkbox"
                                 checked={isAdmin || role.permissions.includes(code)}
                                 onChange={() => togglePerm(role, code)}

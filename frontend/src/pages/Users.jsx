@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, formatDate, formatDateTime } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,7 @@ const EMPTY = {
   department_id: '',
   position: '',
   role_id: '',
+  organization_id: '',
 };
 
 // Enlace de restablecimiento. Se usa el origen real del navegador para que
@@ -28,11 +29,25 @@ export function resetEnlace(token) {
 }
 
 function TextField({ label, value, onChange, type = 'text', help }) {
+  const inputId = useId();
   return (
     <div>
-      <label className="label">{label}</label>
-      <input className="input" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
-      {help && <p className="mt-1 text-xs text-slate-400">{help}</p>}
+      <label className="label" htmlFor={inputId}>
+        {label}
+      </label>
+      <input
+        className="input"
+        id={inputId}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-describedby={help ? `${inputId}-help` : undefined}
+      />
+      {help && (
+        <p id={`${inputId}-help`} className="mt-1 text-xs text-slate-400">
+          {help}
+        </p>
+      )}
     </div>
   );
 }
@@ -73,6 +88,15 @@ export default function Users() {
     retry: false,
   });
 
+  const { data: organizationsForUser = [] } = useQuery({
+    queryKey: ['organizations-for-user'],
+    queryFn: async () => {
+      const res = await api.get('/api/organizations?perPage=100');
+      return (res.data || []).filter((o) => o.active === 1);
+    },
+    enabled: user?.is_superadmin === true,
+  });
+
   const invalidateUsers = () => queryClient.invalidateQueries({ queryKey: ['users'] });
 
   // Los tres filtros tenían opción vacía seleccionable, así que se conservan
@@ -104,6 +128,16 @@ export default function Users() {
   const saveMutation = useMutation({
     mutationFn: (m) => {
       const body = { ...m.form };
+      // SUPERADMIN puede especificar organization_id al crear usuarios
+      if (m.mode === 'create' && user?.is_superadmin && body.organization_id) {
+        // organization_id ya está en el body
+      } else if (m.mode === 'create') {
+        // Usuarios no SUPERADMIN no pueden especificar organization_id
+        delete body.organization_id;
+      } else {
+        // En edición, nunca se envía organization_id desde el cliente
+        delete body.organization_id;
+      }
       return m.mode === 'create' ? api.post('/api/users', body) : api.patch(`/api/users/${m.id}`, body);
     },
     onMutate: () => {
@@ -150,7 +184,14 @@ export default function Users() {
 
   function openCreate() {
     setError('');
-    setModal({ mode: 'create', form: { ...EMPTY, role_id: roles.find((r) => r.code === 'EMPLOYEE')?.id || '' } });
+    setModal({
+      mode: 'create',
+      form: {
+        ...EMPTY,
+        role_id: roles.find((r) => r.code === 'EMPLOYEE')?.id || '',
+        organization_id: user?.is_superadmin ? '' : '',
+      },
+    });
   }
 
   function openEdit(u) {
@@ -176,6 +217,14 @@ export default function Users() {
     if (m.mode === 'create' && !m.form.password) {
       setError('La contraseña es obligatoria');
       return;
+    }
+    if (m.mode === 'create') {
+      const role = roles.find((r) => r.id === Number(m.form.role_id));
+      const minLength = role?.code === 'SUPERADMIN' ? 12 : 6;
+      if (m.form.password.length < minLength) {
+        setError(`La contraseña debe tener al menos ${minLength} caracteres`);
+        return;
+      }
     }
     saveMutation.mutate(m);
   }
@@ -281,13 +330,21 @@ export default function Users() {
                         {u.last_login_at ? formatDateTime(u.last_login_at) : 'Nunca'}
                       </td>
                       <td className="td">
-                        <ConfirmToggle
-                          active={u.active}
-                          name={`estado de ${u.username}`}
-                          labelActivate="Desactivar"
-                          labelDeactivate="Activar"
-                          onToggle={() => toggleActive(u)}
-                        />
+                        {user?.permissions?.includes('user.manage') ? (
+                          <ConfirmToggle
+                            active={u.active}
+                            name={`estado de ${u.username}`}
+                            labelActivate="Desactivar"
+                            labelDeactivate="Activar"
+                            onToggle={() => toggleActive(u)}
+                          />
+                        ) : (
+                          <span
+                            className={`badge ring-1 ${u.active ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' : 'bg-slate-100 text-slate-500 ring-slate-400/20'}`}
+                          >
+                            {u.active ? 'Activo' : 'Inactivo'}
+                          </span>
+                        )}
                       </td>
                       <td className="td">
                         <div className="flex justify-end gap-1">
@@ -354,9 +411,27 @@ export default function Users() {
                     onChange={(v) => setModal({ ...modal, form: { ...modal.form, role_id: v } })}
                   />
                 </div>
+              {user?.is_superadmin && modal.mode === 'create' && (
+                <div className="sm:col-span-2">
+                  <label className="label" htmlFor="user-organization">Empresa</label>
+                  <Select
+                    id="user-organization"
+                    placeholder="Seleccione empresa (opcional)"
+                    options={[{ value: '', label: 'Sin empresa (usuario global)' }, ...organizationsForUser.map((o) => ({ value: o.id, label: o.name }))]}
+                    value={modal.form.organization_id}
+                    onChange={(v) => setModal({ ...modal, form: { ...modal.form, organization_id: v } })}
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Solo SUPERADMIN puede asignar empresa. Usuarios normales pertenecen a su empresa de sesión.
+                  </p>
+                </div>
+              )}
               {modal.mode === 'create' && (
                 <div className="sm:col-span-2">
-                  <TextField label="Contraseña inicial *" type="password" help="Mínimo 6 caracteres." value={modal.form.password} onChange={(v) => setModal({ ...modal, form: { ...modal.form, password: v } })} />
+                  <TextField label="Contraseña inicial *" type="password" help={(() => {
+                    const role = roles.find((r) => r.id === Number(modal.form.role_id));
+                    return role?.code === 'SUPERADMIN' ? 'Mínimo 12 caracteres.' : 'Mínimo 6 caracteres.';
+                  })()} value={modal.form.password} onChange={(v) => setModal({ ...modal, form: { ...modal.form, password: v } })} />
                 </div>
               )}
             </div>

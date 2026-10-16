@@ -1,13 +1,15 @@
 import express from 'express';
-import db, { nowIso } from '../db.js';
+import db from '../db/runtime.js';
 import { requireAuth, requirePermission } from '../middleware/auth.js';
-import { currentOrgId } from '../middleware/org.js';
+import { currentOrgId, rejectClientOrg } from '../middleware/org.js';
 import {
   getResolutionCategories,
   getRootCauses,
   getPendingReasons,
 } from '../utils/options.js';
 import { getMailConfig } from '../utils/mailer.js';
+import { getSetting, setGlobalSetting, setOrgSetting } from '../utils/settingsStore.js';
+import { GLOBAL_KEYS, isGlobalSetting } from '../utils/settings.js';
 
 const router = express.Router();
 router.use(requireAuth, requirePermission('settings.manage'));
@@ -53,29 +55,89 @@ const DEFAULTS = {
   rule_critical_hours: '12',
 };
 
+// Mensaje cuando un administrador de organización intenta cambiar una clave que
+// pertenece a TODAS las empresas (V1: app_name y ticket_prefix son globales).
+const GLOBAL_FORBIDDEN =
+  'El nombre del sistema y el prefijo de tickets son configuración global: solo un superadministrador puede cambiarlos';
+
 function boolSetting(raw, fallback) {
   if (raw === null || raw === undefined || raw === '') return fallback ? '1' : '0';
   return ['0', 'false', 'no', 'off'].includes(String(raw).toLowerCase()) ? '0' : '1';
 }
 
-function readSettings() {
-  const rows = db.prepare('SELECT key, value FROM settings').all();
-  const raw = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+/**
+ * Lee la configuración visible para una organización.
+ *
+ * V1: las ORG_KEYS se resuelven con la sobrescritura de ESA organización (y en
+ * su defecto con el global legacy); las GLOBAL_KEYS salen siempre del valor
+ * global. `organizationId` viene de `currentOrgId(req.user)`, jamás del cuerpo
+ * de la petición.
+ */
+async function readSettings(organizationId) {
   const settings = {};
   for (const key of Object.keys(KEYS)) {
     if (LIST_KEYS.includes(key)) continue;
-    if (BOOL_KEYS.includes(key)) settings[key] = boolSetting(raw[key], true);
-    else settings[key] = raw[key] || DEFAULTS[key] || '';
+    const value = await getSetting(key, organizationId);
+    if (BOOL_KEYS.includes(key)) settings[key] = boolSetting(value, true);
+    else settings[key] = value || DEFAULTS[key] || '';
   }
-  settings.resolution_categories = getResolutionCategories().join(', ');
-  settings.root_causes = getRootCauses().join(', ');
-  settings.pending_reasons = getPendingReasons().join(', ');
+  settings.resolution_categories = (await getResolutionCategories(organizationId)).join(', ');
+  settings.root_causes = (await getRootCauses(organizationId)).join(', ');
+  settings.pending_reasons = (await getPendingReasons(organizationId)).join(', ');
   if (!settings.ticket_prefix) settings.ticket_prefix = DEFAULT_PREFIX;
   return settings;
 }
 
-router.get('/', (req, res) => {
-  res.json({ data: readSettings(), meta: KEYS });
+/**
+ * Valida y normaliza el valor recibido para una clave.
+ * Devuelve `{ value }`, `{ skip: true }` (no hay nada que guardar) o `{ error }`.
+ */
+function parseSetting(key, raw) {
+  if (LIST_KEYS.includes(key)) {
+    const arr = Array.isArray(raw) ? raw : String(raw ?? '').split(',');
+    const clean = arr.map((s) => String(s).trim()).filter(Boolean).slice(0, 40);
+    return { value: JSON.stringify(clean) };
+  }
+  if (BOOL_KEYS.includes(key)) {
+    const on = ['1', 'true', 'on', 'si', 'sí', 'yes'].includes(String(raw).toLowerCase());
+    return { value: on ? '1' : '0' };
+  }
+  if (NUM_KEYS.includes(key)) {
+    const n = parseInt(String(raw), 10);
+    if (!Number.isFinite(n) || n < 0 || n > 8760) {
+      return { error: `${KEYS[key]} debe ser un número entre 0 y 8760` };
+    }
+    return { value: String(n) };
+  }
+  if (key === 'ticket_prefix') {
+    const prefix = String(raw ?? '').trim().toUpperCase();
+    if (!PREFIX_RE.test(prefix)) {
+      return { error: 'El prefijo de tickets debe tener entre 1 y 8 caracteres alfanuméricos' };
+    }
+    return { value: prefix };
+  }
+  if (key === 'rule_unassigned_priority') {
+    const priority = String(raw ?? '').trim().toUpperCase();
+    if (!PRIORITY_VALUES.includes(priority)) {
+      return { error: 'Prioridad de escalación inválida' };
+    }
+    return { value: priority };
+  }
+  const value = typeof raw === 'string' ? raw.trim().slice(0, 300) : '';
+  if (!value) return { skip: true };
+  return { value };
+}
+
+router.get('/', async (req, res) => {
+  const organizationId = currentOrgId(req.user);
+  res.json({
+    data: await readSettings(organizationId),
+    meta: KEYS,
+    // Las claves que sólo un SUPERADMIN puede cambiar. El frontend las pinta en
+    // solo lectura para un administrador de organización; la garantía real es
+    // la comprobación de abajo.
+    global_keys: GLOBAL_KEYS,
+  });
 });
 
 // Bitácora de correos enviados/intentados (últimas 50 entradas).
@@ -83,17 +145,16 @@ router.get('/', (req, res) => {
 // administrador que consulta (la cola con ticket debe pertenecer a su org).
 // Un SUPERADMIN sin contexto (org NULL) obtiene una lista vacía: ningún
 // `? IS NULL OR ...` que destape correos de otras organizaciones.
-router.get('/emails', (req, res) => {
+router.get('/emails', async (req, res) => {
   const org = currentOrgId(req.user);
-  const rows = db
-    .prepare(
-      `SELECT el.*, t.ticket_number
-       FROM email_logs el
-       LEFT JOIN tickets t ON t.id = el.ticket_id
-       WHERE t.organization_id = ?
-       ORDER BY el.id DESC LIMIT 50`
-    )
-    .all(org);
+  const rows = await db.queryMany(
+    `SELECT el.*, t.ticket_number
+     FROM email_logs el
+     LEFT JOIN tickets t ON t.id = el.ticket_id
+     WHERE t.organization_id = ?
+     ORDER BY el.id DESC LIMIT 50`,
+    org,
+  );
   res.json({ data: rows });
 });
 
@@ -113,50 +174,48 @@ router.get('/mail', (req, res) => {
   });
 });
 
-router.patch('/', (req, res) => {
+router.patch('/', async (req, res) => {
   const body = req.body || {};
-  const stmt = db.prepare(
-    `INSERT INTO settings (key, value, updated_by, updated_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`
-  );
+
+  // V1: la organización no se acepta del cliente. Sale del contexto de sesión.
+  const orgError = rejectClientOrg(body);
+  if (orgError) return res.status(400).json({ error: orgError });
+
+  const organizationId = currentOrgId(req.user);
+  const isSuperadmin = Boolean(req.user.is_superadmin);
 
   for (const key of Object.keys(KEYS)) {
     if (!(key in body)) continue;
-    let value;
-    if (LIST_KEYS.includes(key)) {
-      const arr = Array.isArray(body[key]) ? body[key] : String(body[key] ?? '').split(',');
-      const clean = arr.map((s) => String(s).trim()).filter(Boolean).slice(0, 40);
-      value = JSON.stringify(clean);
-    } else if (BOOL_KEYS.includes(key)) {
-      const on = ['1', 'true', 'on', 'si', 'sí', 'yes'].includes(String(body[key]).toLowerCase());
-      value = on ? '1' : '0';
-    } else if (NUM_KEYS.includes(key)) {
-      const n = parseInt(String(body[key]), 10);
-      if (!Number.isFinite(n) || n < 0 || n > 8760) {
-        return res.status(400).json({ error: `${KEYS[key]} debe ser un número entre 0 y 8760` });
+
+    const parsed = parseSetting(key, body[key]);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+    if (parsed.skip) continue;
+    const value = parsed.value;
+
+    if (isGlobalSetting(key)) {
+      if (!isSuperadmin) {
+        // Sólo se rechaza un CAMBIO real: el formulario envía siempre todos los
+        // campos, y reenviar el valor vigente no es un intento de tocar lo
+        // global. Si el valor difiere, ahí sí hay 403.
+        const current = await getSetting(key, organizationId);
+        if (String(current ?? '') !== value) {
+          return res.status(403).json({ error: GLOBAL_FORBIDDEN });
+        }
+        continue;
       }
-      value = String(n);
-    } else if (key === 'ticket_prefix') {
-      const prefix = String(body[key] ?? '').trim().toUpperCase();
-      if (!PREFIX_RE.test(prefix)) {
-        return res.status(400).json({ error: 'El prefijo de tickets debe tener entre 1 y 8 caracteres alfanuméricos' });
-      }
-      value = prefix;
-    } else if (key === 'rule_unassigned_priority') {
-      const priority = String(body[key] ?? '').trim().toUpperCase();
-      if (!PRIORITY_VALUES.includes(priority)) {
-        return res.status(400).json({ error: 'Prioridad de escalación inválida' });
-      }
-      value = priority;
-    } else {
-      value = typeof body[key] === 'string' ? body[key].trim().slice(0, 300) : '';
-      if (!value) continue;
+      await setGlobalSetting(key, value, req.user.id);
+      continue;
     }
-    stmt.run(key, value, req.user.id, nowIso());
+
+    // ORG_KEYS: el administrador de una organización sólo escribe la SUYA. Un
+    // SUPERADMIN global no tiene contexto de organización, así que actualiza el
+    // valor por defecto de la plataforma (el que heredan las organizaciones
+    // sin sobrescritura).
+    if (organizationId != null) await setOrgSetting(organizationId, key, value, req.user.id);
+    else await setGlobalSetting(key, value, req.user.id);
   }
 
-  res.json({ data: readSettings() });
+  res.json({ data: await readSettings(organizationId) });
 });
 
 export default router;

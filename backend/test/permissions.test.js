@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient } from './helpers.js';
+import { createClient, createSuperadminClient } from './helpers.js';
 
 describe('Permisos', () => {
   it('admin puede acceder a usuarios, dashboard, categorías, roles', async () => {
@@ -176,16 +176,16 @@ describe('Autorización de los directorios asignables', () => {
   it('un rol con ticket.assign (sin ver todos) sí accede a los asignables', async () => {
     // ticket.assign es el permiso que habilita los selectores de la bandeja y
     // del detalle; no debe exigir ticket.view.all para funcionar.
-    const admin = createClient();
-    await admin.login('admin', '123456');
+    // V2: la matriz de permisos es global, así que solo el SUPERADMIN la toca.
+    const superadmin = await createSuperadminClient();
 
-    const roles = await admin.get('/api/roles');
+    const roles = await superadmin.get('/api/roles');
     assert.equal(roles.status, 200);
     const tecnico = roles.body.roles.find((r) => r.code === 'TECHNICIAN');
     assert.ok(tecnico, 'Debe existir el rol TECHNICIAN');
     const original = tecnico.permissions;
 
-    const soloAssign = await admin.patch(`/api/roles/${tecnico.id}/permissions`, {
+    const soloAssign = await superadmin.patch(`/api/roles/${tecnico.id}/permissions`, {
       permissions: ['ticket.create', 'ticket.comment', 'ticket.assign', 'ticket.resolve', 'ticket.close'],
     });
     assert.equal(soloAssign.status, 200);
@@ -199,18 +199,17 @@ describe('Autorización de los directorios asignables', () => {
       }
     } finally {
       // Restaura la matriz sembrada para no afectar a los tests siguientes.
-      await admin.patch(`/api/roles/${tecnico.id}/permissions`, { permissions: original });
+      await superadmin.patch(`/api/roles/${tecnico.id}/permissions`, { permissions: original });
     }
   });
 
   it('un rol sin ninguno de los tres permisos no accede a los asignables', async () => {
-    const admin = createClient();
-    await admin.login('admin', '123456');
-    const roles = await admin.get('/api/roles');
+    const superadmin = await createSuperadminClient();
+    const roles = await superadmin.get('/api/roles');
     const tecnico = roles.body.roles.find((r) => r.code === 'TECHNICIAN');
     const original = tecnico.permissions;
 
-    const stripped = await admin.patch(`/api/roles/${tecnico.id}/permissions`, {
+    const stripped = await superadmin.patch(`/api/roles/${tecnico.id}/permissions`, {
       permissions: ['ticket.create', 'ticket.comment'],
     });
     assert.equal(stripped.status, 200);
@@ -223,7 +222,7 @@ describe('Autorización de los directorios asignables', () => {
         assert.equal(res.status, 403, `${url} debería devolver 403 sin permisos de directorio`);
       }
     } finally {
-      await admin.patch(`/api/roles/${tecnico.id}/permissions`, { permissions: original });
+      await superadmin.patch(`/api/roles/${tecnico.id}/permissions`, { permissions: original });
     }
   });
 });

@@ -54,9 +54,24 @@ describe('M2 MSSQL multi-tenant schema (static)', () => {
       assert.match(table(name), /organization_id INT NOT NULL/, `dbo.${name}.organization_id must be NOT NULL`);
     }
     assert.match(table('users'), /organization_id INT NULL/, 'users.organization_id must stay nullable for SUPERADMIN');
-    for (const name of ['ticket_comments', 'ticket_attachments', 'ticket_history', 'notifications', 'kb_ticket_articles', 'kb_article_history', 'team_members']) {
+    for (const name of ['ticket_comments', 'ticket_attachments', 'ticket_history', 'kb_ticket_articles', 'kb_article_history', 'team_members']) {
       assert.match(table(name), /organization_id INT NOT NULL/, `dbo.${name}.organization_id must be present and NOT NULL`);
     }
+  });
+
+  it('allows notifications.organization_id NULL only for global SUPERADMIN notices', () => {
+    const notifications = table('notifications');
+    // La única tabla tenant con organization_id NULL, y solo para avisos
+    // globales sin ticket a una cuenta SUPERADMIN sin organización.
+    assert.match(notifications, /organization_id INT NULL/, 'notifications.organization_id must be nullable');
+    assert.match(
+      notifications,
+      /CONSTRAINT CK_notifications_ticket_requires_org CHECK \(organization_id IS NOT NULL OR ticket_id IS NULL\)/,
+      'una notificación de ticket debe exigir organización',
+    );
+    // Las FK compuestas se mantienen aunque la columna sea nullable.
+    assert.match(notifications, /FK_notifications_user_same_org[\s\S]*?REFERENCES dbo\.users\(organization_id, id\)/);
+    assert.match(notifications, /FK_notifications_ticket_same_org[\s\S]*?REFERENCES dbo\.tickets\(organization_id, id\)/);
   });
 
   it('enforces tenant-unique ticket numbering, never a global UNIQUE(ticket_number)', () => {

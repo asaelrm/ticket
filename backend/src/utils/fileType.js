@@ -99,7 +99,7 @@ export function persistUpload(buffer, info) {
 
   return {
     ok: true,
-    originalName: (info.originalName || '').trim().replace(/[\\/:*?"<>|]/g, '_').slice(0, 200),
+    originalName: (info.originalName || '').trim().replace(/[\\/:*?"<>|]/g, '_').replace(/[\r\n\t]/g, '_').slice(0, 200),
     storedName,
     mime: info.mime,
     size: buffer.length,

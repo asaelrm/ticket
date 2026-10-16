@@ -1,7 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 
 let adminC;
 let tecnicoC;
@@ -43,17 +43,16 @@ async function crearTicket(client, over = {}) {
 // Fija el resultado del servicio para poder medirlo sin esperar al reloj.
 // Las tres fechas encajan (creado 09:00, resuelto 12:00) para que la duración
 // medida sea real y no un número negativo por comparar contra el reloj actual.
-function registrarResolucion(ticketId, { tecnico, minutos, csat, team, slaDueAt, answeredAt }) {
+async function registrarResolucion(ticketId, { tecnico, minutos, csat, team, slaDueAt, answeredAt }) {
   const creado = '2026-03-15T09:00:00.000Z';
   const ahora = '2026-03-15T12:00:00.000Z';
-  db.prepare(
+  await db.execute(
     `UPDATE tickets
         SET status = 'CLOSED', created_at = ?, resolved_at = ?, closed_at = ?,
             resolved_by = ?, closed_by = ?,
             time_spent_minutes = ?, assigned_team_id = COALESCE(?, assigned_team_id),
             sla_due_at = ?, csat_rating = ?, csat_comment = ?, csat_answered_at = ?
-      WHERE id = ?`
-  ).run(
+      WHERE id = ?`,
     creado,
     ahora,
     ahora,
@@ -72,7 +71,7 @@ function registrarResolucion(ticketId, { tecnico, minutos, csat, team, slaDueAt,
 describe('Métricas de satisfacción (CSAT)', () => {
   it('sin respuestas no inventa una media ni una tasa cero', async () => {
     const ticket = await crearTicket(empleadoC, { title: 'Sin encuesta para CSAT' });
-    registrarResolucion(ticket.id, { tecnico: tecnicoId, minutos: 30 });
+    await registrarResolucion(ticket.id, { tecnico: tecnicoId, minutos: 30 });
 
     const res = await adminC.get('/api/reports/csat');
     assert.equal(res.status, 200);
@@ -96,12 +95,12 @@ describe('Métricas de satisfacción (CSAT)', () => {
 
   it('calcula media, respuestas, tasa y distribución con datos reales', async () => {
     const t1 = await crearTicket(empleadoC, { title: 'CSAT 5 estrellas' });
-    registrarResolucion(t1.id, { tecnico: tecnicoId, minutos: 45, csat: 5 });
+    await registrarResolucion(t1.id, { tecnico: tecnicoId, minutos: 45, csat: 5 });
     const t2 = await crearTicket(empleadoC, { title: 'CSAT 1 estrella' });
-    registrarResolucion(t2.id, { tecnico: tecnicoId, minutos: 90, csat: 1 });
+    await registrarResolucion(t2.id, { tecnico: tecnicoId, minutos: 90, csat: 1 });
     // Resuelto sin encuesta: entra en el denominador, no en el numerador.
     const t3 = await crearTicket(empleadoC, { title: 'CSAT sin contestar' });
-    registrarResolucion(t3.id, { tecnico: tecnicoId, minutos: 20 });
+    await registrarResolucion(t3.id, { tecnico: tecnicoId, minutos: 20 });
 
     const res = await adminC.get('/api/reports/csat');
     assert.equal(res.status, 200);
@@ -151,7 +150,7 @@ describe('Métricas de satisfacción (CSAT)', () => {
 
   it('reabrir un ticket saca su valoración de las métricas', async () => {
     const ticket = await crearTicket(empleadoC, { title: 'CSAT que se reinicia' });
-    registrarResolucion(ticket.id, { tecnico: tecnicoId, minutos: 30, csat: 4 });
+    await registrarResolucion(ticket.id, { tecnico: tecnicoId, minutos: 30, csat: 4 });
 
     const conCsat = await adminC.get('/api/reports/csat');
     const antes = conCsat.body.responses;
@@ -169,7 +168,7 @@ describe('Rendimiento por técnico', () => {
     await adminC.patch(`/api/tickets/${abierto.id}`, { assigned_to_id: tecnicoId, assigned_team_id: equipoId });
 
     const cerrado = await crearTicket(empleadoC, { title: 'Trabajo ya cerrado' });
-    registrarResolucion(cerrado.id, { tecnico: tecnicoId, minutos: 120, team: equipoId });
+    await registrarResolucion(cerrado.id, { tecnico: tecnicoId, minutos: 120, team: equipoId });
 
     const res = await adminC.get('/api/reports/performance');
     assert.equal(res.status, 200);
@@ -189,13 +188,13 @@ describe('Rendimiento por técnico', () => {
 
   it('el cumplimiento de SLA se expresa sobre los tickets comparables', async () => {
     const aTiempo = await crearTicket(empleadoC, { title: 'Resuelto dentro del SLA' });
-    registrarResolucion(aTiempo.id, {
+    await registrarResolucion(aTiempo.id, {
       tecnico: tecnicoId,
       minutos: 10,
       slaDueAt: '2026-03-15T18:00:00.000Z', // se resolvió a las 12:00
     });
     const tarde = await crearTicket(empleadoC, { title: 'Resuelto fuera del SLA' });
-    registrarResolucion(tarde.id, {
+    await registrarResolucion(tarde.id, {
       tecnico: tecnicoId,
       minutos: 10,
       slaDueAt: '2026-03-15T09:00:00.000Z', // se resolvió a las 12:00
@@ -213,7 +212,7 @@ describe('Rendimiento por técnico', () => {
   it('no se cuela un ticket en el rendimiento de otro técnico', async () => {
     const ticket = await crearTicket(empleadoC, { title: 'Atribución exacta' });
     await adminC.patch(`/api/tickets/${ticket.id}`, { assigned_to_id: tecnicoId });
-    registrarResolucion(ticket.id, { tecnico: tecnicoId, minutos: 15 });
+    await registrarResolucion(ticket.id, { tecnico: tecnicoId, minutos: 15 });
 
     const res = await adminC.get('/api/reports/performance');
     const admin = await adminC.get('/api/auth/me');
@@ -249,7 +248,7 @@ describe('Rendimiento por equipo', () => {
 
   it('los tickets completados se atribuyen al equipo actual y se advierte', async () => {
     const ticket = await crearTicket(empleadoC, { title: 'Completado en equipo' });
-    registrarResolucion(ticket.id, { tecnico: tecnicoId, minutos: 60, team: equipoId });
+    await registrarResolucion(ticket.id, { tecnico: tecnicoId, minutos: 60, team: equipoId });
 
     const res = await adminC.get('/api/reports/performance');
     const mio = res.body.by_team.data.find((x) => x.id === equipoId);

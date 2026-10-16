@@ -244,7 +244,7 @@ export default function Tickets() {
       <div className="card mb-4">
         <div className="flex flex-wrap items-center justify-between gap-2 p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" className="btn-secondary !text-white" onClick={() => setShowAdvanced(true)}>
+              <button type="button" className="btn-secondary" onClick={() => setShowAdvanced(true)}>
                 Búsqueda avanzada
                 {advancedCount > 0 && <span className="badge bg-brand-600 text-white">{advancedCount}</span>}
               </button>

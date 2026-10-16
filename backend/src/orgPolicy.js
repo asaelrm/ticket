@@ -1,4 +1,4 @@
-import db from './db.js';
+import db from './db/runtime.js';
 
 // Política de organización (ETAPA 1B).
 //
@@ -17,21 +17,21 @@ export function isSuperadminRoleCode(code) {
   return code === SUPERADMIN_ROLE_CODE;
 }
 
-export function roleCodeForUser(userId) {
-  const row = db.prepare(`
+export async function roleCodeForUser(userId) {
+  const row = await db.queryOne(`
     SELECT r.code FROM roles r JOIN users u ON u.role_id = r.id WHERE u.id = ?
-  `).get(userId);
+  `, userId);
   return row ? row.code : null;
 }
 
-export function getOrg(id) {
+export async function getOrg(id) {
   if (!Number.isInteger(id)) return null;
-  return db.prepare('SELECT id, code, name, active FROM organizations WHERE id = ?').get(id) || null;
+  return await db.queryOne('SELECT id, code, name, active FROM organizations WHERE id = ?', id) || null;
 }
 
 // Comprueba el estado { roleCode, organizationId } contra la regla de
 // consistencia. Devuelve un mensaje legible si es inválido, o null si es válido.
-export function orgStateError({ roleCode, organizationId }) {
+export async function orgStateError({ roleCode, organizationId }) {
   if (isSuperadminRoleCode(roleCode)) {
     if (organizationId !== null) {
       return `Un SUPERADMIN debe tener organization_id NULL (recibió ${organizationId})`;
@@ -41,7 +41,7 @@ export function orgStateError({ roleCode, organizationId }) {
   if (!Number.isInteger(organizationId)) {
     return 'Un usuario normal debe pertenecer a una organización';
   }
-  const org = getOrg(organizationId);
+  const org = await getOrg(organizationId);
   if (!org) {
     return `La organización ${organizationId} no existe`;
   }
@@ -53,15 +53,15 @@ export function orgStateError({ roleCode, organizationId }) {
 
 // Auditoría de solo lectura: detecta estados inconsistentes sin modificar nada.
 // Reporta (nunca corrige): los datos ambiguos deben revisarse manualmente.
-export function auditOrganizationConsistency() {
+export async function auditOrganizationConsistency() {
   const issues = [];
-  const rows = db.prepare(`
+  const rows = await db.queryMany(`
     SELECT u.id AS user_id, u.username, u.organization_id, u.active AS user_active,
            r.code AS role_code, o.code AS org_code, o.active AS org_active
     FROM users u
     JOIN roles r ON r.id = u.role_id
     LEFT JOIN organizations o ON o.id = u.organization_id
-  `).all();
+  `);
 
   for (const row of rows) {
     if (isSuperadminRoleCode(row.role_code)) {
@@ -102,23 +102,21 @@ export function auditOrganizationConsistency() {
   // asignado, departamento, categoría y equipo. Un ticket sin organización es
   // un huérfano (el backfill no corrió o llegó corrupto); una referencia con
   // organization_id NULL es un campo sin backfillear.
-  const ticketRows = db
-    .prepare(
-      `SELECT t.id AS ticket_id, t.ticket_number, t.organization_id AS ticket_org,
-              t.reporter_id, t.assigned_to_id, t.department_id, t.category_id, t.assigned_team_id,
-              r.organization_id AS reporter_org,
-              a.organization_id AS assignee_org,
-              d.organization_id AS dept_org,
-              c.organization_id AS cat_org,
-              te.organization_id AS team_org
-       FROM tickets t
-       JOIN users r ON r.id = t.reporter_id
-       LEFT JOIN users a ON a.id = t.assigned_to_id
-       LEFT JOIN departments d ON d.id = t.department_id
-       LEFT JOIN categories c ON c.id = t.category_id
-       LEFT JOIN teams te ON te.id = t.assigned_team_id`
-    )
-    .all();
+  const ticketRows = await db.queryMany(
+    `SELECT t.id AS ticket_id, t.ticket_number, t.organization_id AS ticket_org,
+            t.reporter_id, t.assigned_to_id, t.department_id, t.category_id, t.assigned_team_id,
+            r.organization_id AS reporter_org,
+            a.organization_id AS assignee_org,
+            d.organization_id AS dept_org,
+            c.organization_id AS cat_org,
+            te.organization_id AS team_org
+     FROM tickets t
+     JOIN users r ON r.id = t.reporter_id
+     LEFT JOIN users a ON a.id = t.assigned_to_id
+     LEFT JOIN departments d ON d.id = t.department_id
+     LEFT JOIN categories c ON c.id = t.category_id
+     LEFT JOIN teams te ON te.id = t.assigned_team_id`,
+  );
 
   for (const t of ticketRows) {
     if (t.ticket_org == null) {

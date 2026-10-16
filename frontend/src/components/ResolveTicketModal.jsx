@@ -87,7 +87,7 @@ export default function ResolveTicketModal({ ticket, busy = false, onClose, onSu
             mantiene a la vista sin sacarlos del `<form>` ni duplicar el
             sistema de diálogo; los márgenes negativos hacen que el pie llegue
             al borde de la tarjeta en vez de flotar dentro del relleno. */}
-        <div className="sticky bottom-0 -mx-5 -mb-4 mt-5 flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-[var(--surface-2)] px-5 py-3">
+        <div className="sticky bottom-0 -mx-5 -mb-4 mt-5 flex shrink-0 justify-end gap-2 border-t border-slate-200 bg-[var(--surface)] px-5 py-3">
           <button type="button" className="btn-secondary" onClick={onClose} disabled={locked}>
             Volver
           </button>

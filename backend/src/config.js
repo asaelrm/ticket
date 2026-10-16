@@ -14,20 +14,31 @@ function int(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// Motor de base de datos. SQL Server es el ÚNICO motor soportado: SQLite se ha
+// eliminado del runtime. Un DB_CLIENT distinto (o "sqlite") detiene el arranque
+// en el import de la configuración, antes de abrir ninguna conexión.
 export function requestedDbClient(v) {
-  const client = String(v || 'sqlite').trim().toLowerCase();
-  if (!['sqlite', 'mssql'].includes(client)) {
-    throw new Error(`DB_CLIENT no soportado: "${client}". Se admite "sqlite" o "mssql".`);
+  const client = String(v || 'mssql').trim().toLowerCase();
+  if (client !== 'mssql') {
+    throw new Error(
+      `DB_CLIENT no soportado: "${client}". SQL Server es el único motor soportado (use "mssql").`,
+    );
   }
   return client;
 }
 
-// M1 has MSSQL infrastructure, but db.js has not selected it yet. Keep the
-// effective runtime backend explicit so DB_CLIENT=mssql cannot be mistaken for
-// a live migration.
+// Motor efectivo de ejecución. Con SQL Server como único motor siempre es
+// "mssql". Se conserva la función para no romper a sus consumidores.
 export function dbClient(v) {
-  requestedDbClient(v);
-  return 'sqlite';
+  return requestedDbClient(v);
+}
+
+// Mantenimiento programado (SLA vencido, escalaciones automáticas y poda de
+// notificaciones). Activo por defecto. `JOBS_ENABLED=false` lo desactiva por
+// completo, lo que permite una prueba de arranque contra SQL Server que NO
+// escriba en la base al iniciarse (el job inicial se ejecuta nada más arrancar).
+export function jobsEnabled(env = process.env) {
+  return bool(env.JOBS_ENABLED, true);
 }
 
 const rootDir = path.resolve(__dirname, '..');
@@ -49,9 +60,12 @@ const rootDir = path.resolve(__dirname, '..');
 // adivinable o reutilizado de otro entorno acaba firmando cookies ajenas.
 export const MIN_SESSION_SECRET_LENGTH = 32;
 
-// El administrador es la primera credencial que existe en una instalación
-// nueva, así que su contraseña tiene que ser larga de verdad.
-export const MIN_ADMIN_PASSWORD_LENGTH = 12;
+// Longitud mínima de contraseña según tipo de usuario.
+// Las cuentas existentes no se invalidan por su longitud histórica: el mínimo
+// se aplica al crear, cambiar o restablecer una contraseña.
+export const MIN_PASSWORD_LENGTH = 6;
+export const MIN_ADMIN_PASSWORD_LENGTH = 6;
+export const MIN_SUPERADMIN_PASSWORD_LENGTH = 12;
 
 // Solo para desarrollo y pruebas. Es público: vive en el repositorio y en el
 // compose de desarrollo, así que en producción se rechaza siempre.
@@ -125,8 +139,11 @@ export function collectStartupProblems(env = process.env) {
   const errors = [];
   const warnings = [];
 
-  // Desarrollo y pruebas arrancan con lo mínimo. Solo producción es la barrera.
-  if ((env.NODE_ENV || 'development') !== 'production') return { errors, warnings };
+  // Desarrollo y pruebas arrancan con lo mínimo. Cualquier otro entorno
+  // (producción, staging u otro despliegue real) exige configuración completa:
+  // el secreto de desarrollo es público y permitiría forjar cookies de sesión.
+  const nodeEnv = (env.NODE_ENV || 'development').trim().toLowerCase();
+  if (nodeEnv === 'development' || nodeEnv === 'test') return { errors, warnings };
 
   const secretProblem = checkSessionSecret(env.SESSION_SECRET);
   if (secretProblem) errors.push(secretProblem);
@@ -184,11 +201,11 @@ export function assertStartupConfig(env = process.env) {
 const config = {
   env: process.env.NODE_ENV || 'development',
   port: int(process.env.PORT, 4000),
-  // M1: solo preparación. db.js continúa usando SQLite hasta que los
-  // consumidores hayan migrado explícitamente al contrato async.
+  // Motor de ejecución: SQL Server exclusivamente. Las consultas se siguen
+  // escribiendo en dialecto SQLite y src/db/dialect.js las traduce a T-SQL; ese
+  // traductor se conserva temporalmente. El motor se resuelve en src/db/runtime.js.
   requestedDbClient: requestedDbClient(process.env.DB_CLIENT),
   dbClient: dbClient(process.env.DB_CLIENT),
-  mssqlRuntimeEnabled: false,
   mssql: {
     server: (process.env.DB_SERVER || '').trim(),
     port: process.env.DB_PORT ? int(process.env.DB_PORT, 1433) : undefined,
@@ -202,6 +219,10 @@ const config = {
       instanceName: (process.env.DB_INSTANCE || '').trim() || undefined,
     },
   },
+  // `dataDir`/`dbFile` ya NO son parte del runtime (SQL Server es el único
+  // motor). Se conservan porque el migrador histórico SQLite → MSSQL
+  // (scripts/migrate-sqlite-to-mssql.js) los usa para localizar el archivo
+  // SQLite de origen. No abren ni crean ninguna base en el runtime.
   dataDir: path.resolve(rootDir, process.env.DATA_DIR || 'data'),
   uploadDir: path.resolve(rootDir, process.env.UPLOAD_DIR || 'uploads'),
   dbFile: process.env.DB_FILE || null,
@@ -269,6 +290,8 @@ const config = {
   },
 };
 
+// Resolución del archivo SQLite de origen. Solo lo consume el migrador
+// histórico; el runtime de SQL Server no lee `dbFile`.
 config.dbFile =
   config.dbFile && config.dbFile !== 'false'
     ? path.resolve(rootDir, config.dbFile)
@@ -281,9 +304,14 @@ config.directory.snapshotFile = path.resolve(rootDir, config.directory.snapshotF
 // y de seed). Ocurre antes de crear directorios, migrar o insertar usuarios, de
 // modo que una instalación incompleta para aquí en vez de arrancar con secretos
 // conocidos del repositorio.
-if (config.env === 'production') assertStartupConfig(process.env);
+// Cualquier entorno que no sea desarrollo/pruebas valida su configuración antes
+// de arrancar. No solo producción: también staging u otro despliegue real, que
+// de otro modo arrancaría con el secreto de sesión público del repositorio.
+const bootEnv = (process.env.NODE_ENV || 'development').trim().toLowerCase();
+if (bootEnv !== 'development' && bootEnv !== 'test') assertStartupConfig(process.env);
 
-fs.mkdirSync(config.dataDir, { recursive: true });
+// El runtime de SQL Server no crea ningún directorio de datos local. Solo el de
+// adjuntos, que sí es parte de la aplicación.
 fs.mkdirSync(config.uploadDir, { recursive: true });
 
 export default config;

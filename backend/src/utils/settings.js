@@ -1,15 +1,43 @@
-import {
-  DEFAULT_RESOLUTION_CATEGORIES,
-  DEFAULT_ROOT_CAUSES,
-  DEFAULT_PENDING_REASONS,
-} from './options.js';
-import { DEFAULT_SLA } from './sla.js';
-
 // Catalog and policy for multi-organization settings. This module deliberately
-// has no database dependency. A future repository supplies values to resolveSetting.
-// Future SQLite legacy -> MSSQL parity will locate UCE by stable identity, copy
-// only ORG_KEYS, and never overwrite existing overrides.
+// has no database dependency AND no local imports: it is the leaf that
+// options.js, sla.js and settingsStore.js build on. Importing options.js or
+// sla.js from here closed a cycle (settings → options → settingsStore →
+// settings) that made DEFAULT_SLA unavailable while DEFAULT_SETTINGS was still
+// being evaluated, so the defaults of both live here instead.
 export const GLOBAL_KEYS = ['app_name', 'ticket_prefix'];
+
+// Regla de SLA por defecto (horas para resolver según prioridad).
+export const DEFAULT_SLA = { CRITICAL: 4, HIGH: 24, MEDIUM: 48, LOW: 72 };
+
+// Valores por defecto de las listas configurables del flujo de resolución.
+export const DEFAULT_RESOLUTION_CATEGORIES = [
+  'Configuración',
+  'Reparación',
+  'Reemplazo',
+  'Instalación',
+  'Actualización',
+  'Capacitación',
+  'Otro',
+];
+
+export const DEFAULT_ROOT_CAUSES = [
+  'Falla de hardware',
+  'Configuración',
+  'Error de usuario',
+  'Problema de red',
+  'Software',
+  'Permisos',
+  'Desconocida',
+  'Otra',
+];
+
+export const DEFAULT_PENDING_REASONS = [
+  'Esperando usuario',
+  'Esperando proveedor',
+  'Esperando pieza/equipo',
+  'Esperando autorización',
+  'Otro',
+];
 
 export const ORG_KEYS = [
   'company_name', 'footer_text', 'sla_critical_hours', 'sla_high_hours',

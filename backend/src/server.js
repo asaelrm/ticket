@@ -1,19 +1,17 @@
-import { createApp } from './app.js';
-import config from './config.js';
-import { runMigrations } from './db.js';
-import { seed } from './seed.js';
-import { restoreDirectorySnapshot } from './directorySync.js';
-import { startJobs } from './utils/jobs.js';
+import { startServer } from './startup.js';
 
-runMigrations();
-seed();
-restoreDirectorySnapshot();
-
-const app = createApp();
-startJobs();
-
-app.listen(config.port, () => {
-  console.log(`[ticket] API escuchando en http://localhost:${config.port} (${config.env})`);
-  console.log(`[ticket] Base de datos: ${config.dbFile}`);
-  console.log(`[ticket] Uploads: ${config.uploadDir}`);
-});
+// SQL Server es el único motor de base de datos. El arranque valida el esquema
+// (solo lectura) y, si la validación falla, NO se llega a abrir el puerto HTTP.
+//
+// El fallo se captura para dejar un mensaje claro y salir con código distinto de
+// cero: credenciales incorrectas o un esquema incompatible NO deben arrancar un
+// servidor a medias.
+try {
+  await startServer();
+} catch (error) {
+  console.error(
+    '[ticket] No se pudo iniciar el servidor:',
+    error && error.message ? error.message : error,
+  );
+  process.exitCode = 1;
+}

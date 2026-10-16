@@ -286,7 +286,7 @@ export default function Select({
                   onClick={() => choose(i)}
                 >
                   {/* Hueco fijo para que el check no desplace los rótulos. */}
-                  <span className="flex w-4 shrink-0 justify-end text-white/85">{isSelected && <Check />}</span>
+                  <span className="flex w-4 shrink-0 justify-end">{isSelected && <Check />}</span>
                   <span className="flex-1 truncate">{option.label}</span>
                 </li>
               );

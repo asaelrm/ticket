@@ -1,50 +1,33 @@
 // Se carga con `node --import` antes que cualquier prueba, una vez por cada
 // archivo de test (node --test usa un proceso por archivo).
 //
-// Hasta ahora las pruebas NO tenían base de datos propia: importan app.js, que
-// no aplica migraciones ni seed, así que se apoyaban en
-// backend/data/tickets.db con lo que hubiera en ese momento. Dos consecuencias:
-// si alguien cambiaba la contraseña de una cuenta demo, la suite fallaba; y al
-// ejecutarla se escribían tickets y sesiones de verdad en la base real.
+// SQL Server es el ÚNICO motor: la suite ya no crea una base SQLite temporal ni
+// ejecuta migraciones/seed. Las pruebas de integración se ejecutan contra una
+// base de SQL Server de PRUEBAS autorizada, indicada por variables de entorno
+// (DB_* o sus alias MSSQL_TEST_*). Este archivo solo fija el entorno; NO abre
+// conexión, NO migra y NO siembra.
 //
-// Aquí la base se crea vacía, se migra y se siembra en un directorio temporal
-// que se borra al terminar, de modo que ejecutar la suite nunca toca la real.
+// Si no hay base configurada, las pruebas que dependen de la base fallarán con
+// un error de conexión: es el comportamiento esperado mientras no se disponga de
+// un SQL Server de pruebas (documentado en el informe de la Fase 2).
 
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
+process.env.DB_CLIENT = 'mssql';
+process.env.JOBS_ENABLED = 'false';
+process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'ticket-pruebas';
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-pruebas-'));
-
-// Estas variables se fijan antes de que se importe config.js, que es quien las
-// lee. config resuelve DATA_DIR contra la raíz del backend, así que basta una
-// ruta relativa.
-process.env.DATA_DIR = dir;
-process.env.UPLOAD_DIR = path.join(dir, 'uploads');
-// La instantánea del directorio se resuelve contra la raíz del backend, no
-// contra DATA_DIR: si no se indica, la suite escribiría backend/directory.json.
-process.env.DIRECTORY_SNAPSHOT_FILE = path.join(dir, 'directory.json');
-// Las pruebas necesitan las cuentas que usa el resto de la suite, y el seed ya
-// no inventa ninguna: se las pide explícitamente con contraseñas de fixture que
-// solo existen aquí. Además, el resultado no puede depender del NODE_ENV de
-// quien lanza la suite.
-process.env.NODE_ENV = 'development';
-process.env.SESSION_SECRET = 'ticket-pruebas';
-process.env.SEED_ADMIN_PASSWORD = '123456';
-process.env.SEED_DEMO_ACCOUNTS = 'true';
-process.env.SEED_DEMO_PASSWORD = 'Empleado1234!';
-process.env.SEED_TECH_PASSWORD = 'Tecnico1234!';
-
-const { runMigrations } = await import('../src/db.js');
-const { seed } = await import('../src/seed.js');
-
-runMigrations();
-seed();
-
-process.on('exit', () => {
-  try {
-    fs.rmSync(dir, { recursive: true, force: true });
-  } catch {
-    // Si no se puede borrar, que no tumbe el resultado de las pruebas.
-  }
-});
+// Alias: permite reutilizar la configuración de integración MSSQL_TEST_* como
+// configuración de runtime DB_* para la suite.
+const ALIASES = [
+  ['DB_SERVER', 'MSSQL_TEST_SERVER'],
+  ['DB_PORT', 'MSSQL_TEST_PORT'],
+  ['DB_DATABASE', 'MSSQL_TEST_DATABASE'],
+  ['DB_USER', 'MSSQL_TEST_USER'],
+  ['DB_PASSWORD', 'MSSQL_TEST_PASSWORD'],
+  ['DB_ENCRYPT', 'MSSQL_TEST_ENCRYPT'],
+  ['DB_TRUST_SERVER_CERTIFICATE', 'MSSQL_TEST_TRUST_SERVER_CERTIFICATE'],
+  ['DB_INSTANCE', 'MSSQL_TEST_INSTANCE'],
+];
+for (const [target, source] of ALIASES) {
+  if (!process.env[target] && process.env[source]) process.env[target] = process.env[source];
+}

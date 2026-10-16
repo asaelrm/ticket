@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { api, onUnauthorized } from '../lib/api';
 
 const AuthContext = createContext(null);
 
@@ -40,6 +40,17 @@ export function AuthProvider({ children }) {
       active = false;
     };
   }, [user]);
+
+  useEffect(() => {
+    // Sesión caducada detectada por un 401 de cualquier llamada: se cierra la
+    // sesión local y se vacía la caché, para que las rutas protegidas redirijan
+    // a /login sin reutilizar datos de la sesión anterior.
+    const unsubscribe = onUnauthorized?.(() => {
+      queryClient.clear();
+      setUser(null);
+    });
+    return unsubscribe;
+  }, [queryClient]);
 
   const login = useCallback(async (account, password, remember) => {
     // Antes de fijar la identidad nueva: las claves de caché no incluyen el

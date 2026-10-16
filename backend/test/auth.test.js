@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
+import { authRateLimit } from '../src/utils/rateLimit.js';
+import config from '../src/config.js';
 
 describe('Autenticación', () => {
   it('login con credenciales válidas devuelve el usuario', async () => {
@@ -61,6 +63,21 @@ describe('Autenticación', () => {
     assert.ok(!res.body.token);
   });
 
+  it('forgot-password no devuelve el token fuera de desarrollo (p. ej. staging)', async () => {
+    const original = config.env;
+    config.env = 'staging';
+    try {
+      const c = createClient();
+      await c.get('/api/health');
+      const res = await c.post('/api/auth/forgot-password', { account: 'admin' });
+      assert.equal(res.status, 200);
+      assert.ok(!res.body.token, 'staging no debe recibir el token por HTTP');
+      assert.ok(!res.body.resetUrl, 'staging no debe recibir la URL de reset');
+    } finally {
+      config.env = original;
+    }
+  });
+
   it('reset-password con token válido funciona', async () => {
     const c = createClient();
     await c.login('admin', '123456');
@@ -68,24 +85,24 @@ describe('Autenticación', () => {
     const token = forgot.body.token;
     const c2 = createClient();
     await c2.get('/api/health');
-    const res = await c2.post('/api/auth/reset-password', { token, password: 'Nueva1234!' });
+    const res = await c2.post('/api/auth/reset-password', { token, password: 'NuevaClave1234!' });
     assert.equal(res.status, 200);
     assert.equal((await c.get('/api/auth/me')).status, 401, 'el restablecimiento invalida sesiones existentes');
     // Login con nueva contraseña funciona
     const c3 = createClient();
-    const login = await c3.login('admin', 'Nueva1234!');
+    const login = await c3.login('admin', 'NuevaClave1234!');
     assert.equal(login.status, 200);
-    // Restaurar contraseña original
+    // Un token ya usado no puede volver a imponer una contraseña corta.
     await c3.get('/api/health');
-    await c3.post('/api/auth/reset-password', { token, password: '123456' }).catch(() => {});
-    // Usar forgot para restaurar
+    await c3.post('/api/auth/reset-password', { token, password: 'AdminRestaurada123!' }).catch(() => {});
+    // Usar forgot para cambiar otra vez con una contraseña que cumple la política.
     const c4 = createClient();
     await c4.get('/api/health');
     const f2 = await c4.post('/api/auth/forgot-password', { account: 'admin' });
     if (f2.body.token) {
       const c5 = createClient();
       await c5.get('/api/health');
-      await c5.post('/api/auth/reset-password', { token: f2.body.token, password: '123456' });
+      await c5.post('/api/auth/reset-password', { token: f2.body.token, password: 'AdminRestaurada123!' });
     }
   });
 
@@ -94,5 +111,33 @@ describe('Autenticación', () => {
     const res = await c.login('empleado', 'Empleado1234!');
     assert.equal(res.status, 200);
     assert.equal(res.body.user.role, 'EMPLOYEE');
+  });
+
+  it('reset-password usa la misma barrera de intentos que login y forgot-password', () => {
+    // La suite desactiva los límites por diseño para no compartir cuotas entre
+    // casos. Se activa de forma local para probar el middleware que protege la
+    // ruta en ejecución normal.
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    try {
+      const limit = authRateLimit();
+      const req = { ip: '203.0.113.6', socket: { remoteAddress: '203.0.113.6' } };
+      let limited;
+      for (let i = 0; i < 11; i++) {
+        let continued = false;
+        const res = {
+          set() {},
+          status(code) { this.statusCode = code; return this; },
+          json(body) { this.body = body; return this; },
+        };
+        limit(req, res, () => { continued = true; });
+        if (i < 10) assert.equal(continued, true, `el intento ${i + 1} sigue permitido`);
+        else limited = res;
+      }
+      assert.equal(limited.statusCode, 429);
+      assert.match(limited.body.error, /demasiados intentos/i);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
   });
 });

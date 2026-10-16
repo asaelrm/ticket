@@ -15,7 +15,7 @@ vi.mock('../lib/api', async () => {
 });
 
 const TOKEN = 'tok-recuperacion-123';
-const CLAVE = 'NuevaClave1';
+const CLAVE = 'NuevaClave123!';
 
 const campoToken = () => screen.getByLabelText('Token de recuperación');
 const campoClave = () => screen.getByLabelText('Nueva contraseña');
@@ -111,8 +111,8 @@ describe('ResetPassword', () => {
     renderWithProviders(<ResetPassword />, { route: `/reset-password?token=${TOKEN}` });
     await waitFor(() => expect(campoToken()).toHaveValue(TOKEN));
 
-    await user.type(campoClave(), 'corta');
-    await user.type(campoConfirmar(), 'corta');
+    await user.type(campoClave(), CLAVE);
+    await user.type(campoConfirmar(), CLAVE);
     await user.click(screen.getByRole('button', { name: /Restablecer contraseña/ }));
 
     expect(await screen.findByText('Datos inválidos')).toBeInTheDocument();

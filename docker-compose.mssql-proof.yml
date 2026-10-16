@@ -1,0 +1,95 @@
+# ============================================================================
+# Prueba AISLADA de arranque del backend contra SQL Server (M5 autorizado).
+#
+# NO reemplaza ni toca los contenedores actuales:
+#   - se levanta como PROYECTO Compose aparte (-p sifha-mssql-proof), con su
+#     propia red y sus propios volÃºmenes;
+#   - publica el puerto 4001 (el backend de desarrollo usa 4000);
+#   - NO define el frontend, asÃ­ que no choca con el 5173;
+#   - NO reutiliza los volÃºmenes SQLite (ticket_dev_data / ticket_dev_uploads).
+#
+# NO copia ni monta `backend/.env` (credenciales de DEV): en vez de montar el
+# directorio backend completo, se montan solo `src/` y los package*.json. El
+# runtime nunca lee .env por sÃ­ mismo (no hay dotenv): solo lo leerÃ­a un
+# `--env-file`, que aquÃ­ no se usa. El destino queda ademas verificado por un
+# guardia en el comando de arranque.
+#
+# Las credenciales de M5 se leen del ENTORNO del host en el momento de levantar
+# el proyecto y NO se guardan en el repositorio ni en la imagen.
+#
+# Arranque (PowerShell, desde E:\ticket):
+#   $env:DB_USER = 'sifha_migration_dev'
+#   $sec = Read-Host -AsSecureString 'DB_PASSWORD'
+#   $env:DB_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+#     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+#   docker compose -p sifha-mssql-proof -f docker-compose.mssql-proof.yml up
+#
+# ReversiÃ³n (elimina solo este proyecto; los contenedores actuales siguen):
+#   docker compose -p sifha-mssql-proof -f docker-compose.mssql-proof.yml down -v
+# ============================================================================
+services:
+  backend:
+    image: node:24-alpine
+    container_name: ticket-mssql-proof-backend
+    working_dir: /app/backend
+    # Sin --env-file (el .env del repo no se lee) y con guardia de destino: si
+    # el motor, el servidor o la base no son exactamente los autorizados, el
+    # contenedor se niega a arrancar.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        test "$$DB_CLIENT" = "mssql" || { echo "[proof] DB_CLIENT no autorizado: $$DB_CLIENT"; exit 1; }
+        test "$$DB_SERVER" = "100.100.4.60" || { echo "[proof] DB_SERVER no autorizado: $$DB_SERVER"; exit 1; }
+        test "$$DB_DATABASE" = "SIFHA_Tickets_M5_Validation" || { echo "[proof] DB_DATABASE no autorizado: $$DB_DATABASE"; exit 1; }
+        test "$$MSSQL_RUNTIME" = "true" || { echo "[proof] MSSQL_RUNTIME no activado"; exit 1; }
+        test "$$JOBS_ENABLED" = "false" || { echo "[proof] JOBS_ENABLED debe ser false"; exit 1; }
+        echo "[proof] destino verificado: $$DB_SERVER/$$DB_DATABASE (solo lectura de esquema al arrancar)"
+        npm ci
+        exec node src/server.js
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      SESSION_SECRET: "${SESSION_SECRET:?defina SESSION_SECRET}"
+      COOKIE_SECURE: "false"
+      CORS_ORIGIN: http://localhost:4001
+      PUBLIC_URL: http://localhost:4001
+      # --- Runtime SQL Server (M5 autorizado) ---
+      DB_CLIENT: mssql
+      MSSQL_RUNTIME: "true"
+      DB_SERVER: "100.100.4.60"
+      DB_PORT: "1433"
+      DB_INSTANCE: SIFHADEV
+      DB_DATABASE: SIFHA_Tickets_M5_Validation
+      DB_ENCRYPT: "true"
+      DB_TRUST_SERVER_CERTIFICATE: "true"
+      DB_USER: "${DB_USER:?defina DB_USER (sifha_migration_dev) en el entorno}"
+      DB_PASSWORD: "${DB_PASSWORD:?defina DB_PASSWORD de M5 en el entorno (no se guarda)}"
+      # Arranque SIN escrituras: desactiva el mantenimiento (el job inicial
+      # escribirÃ­a SLA/escalaciones/poda al iniciar).
+      JOBS_ENABLED: "false"
+      # En modo MSSQL no se ejecuta el seed.
+      SEED_ADMIN_PASSWORD: "${SEED_ADMIN_PASSWORD:?defina SEED_ADMIN_PASSWORD}"
+    volumes:
+      # Solo el cÃ³digo y su manifiesto. NO se monta el directorio backend
+      # completo, para que `backend/.env` no exista dentro del contenedor.
+      - ./backend/src:/app/backend/src:ro
+      - ./backend/package.json:/app/backend/package.json:ro
+      - ./backend/package-lock.json:/app/backend/package-lock.json:ro
+      - mssql_proof_node_modules:/app/backend/node_modules
+      - mssql_proof_data:/app/backend/data
+      - mssql_proof_uploads:/app/backend/uploads
+    ports:
+      - "4001:4000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  mssql_proof_node_modules:
+  mssql_proof_data:
+  mssql_proof_uploads:

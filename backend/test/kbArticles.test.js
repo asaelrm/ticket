@@ -1,7 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient } from './helpers.js';
-import db, { runMigrations } from '../src/db.js';
+import { createClient, createSuperadminClient } from './helpers.js';
+import db from '../src/db/runtime.js';
 import { seed, PERMISSIONS } from '../src/seed.js';
 import {
   MAX_ARTICLE_TITLE,
@@ -11,7 +11,7 @@ import {
   validateArticleFields,
 } from '../src/utils/articleLimits.js';
 
-const PASSWORD = 'Prueba1234!';
+const PASSWORD = 'Prueba12345!';
 
 let admin;
 let tech;
@@ -47,16 +47,25 @@ async function createUser({ username, roleId }) {
  * Aplica permisos temporales a un rol y los restaura pase lo que pase. Los
  * permisos se releen en cada petición, así que las sesiones ya abiertas ven el
  * cambio sin volver a iniciar sesión.
+ * V2: la matriz de permisos es global (compartida entre organizaciones), así
+ * que este canal está reservado al SUPERADMIN.
  */
+let superadminCache = null;
+async function superadminClient() {
+  if (!superadminCache) superadminCache = await createSuperadminClient();
+  return superadminCache;
+}
+
 async function withRolePermissions(roleId, permissions, fn) {
+  const sa = await superadminClient();
   const roles = (await admin.get('/api/roles')).body.roles;
   const original = roles.find((r) => r.id === roleId).permissions;
   try {
-    const patch = await admin.patch(`/api/roles/${roleId}/permissions`, { permissions });
+    const patch = await sa.patch(`/api/roles/${roleId}/permissions`, { permissions });
     assert.equal(patch.status, 200);
     await fn(original);
   } finally {
-    const restore = await admin.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
+    const restore = await sa.patch(`/api/roles/${roleId}/permissions`, { permissions: original });
     assert.equal(restore.status, 200);
   }
 }
@@ -722,8 +731,8 @@ describe('relación con tickets', () => {
     assert.equal((await tech.get(`/api/kb-articles/${article.id}/tickets`)).body.total, 1);
 
     // La API no expone borrado de tickets: se borra la fila para verificar la
-    // IntegrityAction del esquema (PRAGMA foreign_keys = ON en db.js).
-    db.prepare('DELETE FROM tickets WHERE id = ?').run(ticket.id);
+    // IntegrityAction del esquema.
+    await db.execute('DELETE FROM tickets WHERE id = ?', ticket.id);
     assert.equal((await tech.get(`/api/kb-articles/${article.id}/tickets`)).body.total, 0);
   });
 
@@ -734,7 +743,7 @@ describe('relación con tickets', () => {
 
     // La API solo desactiva usuarios, no los borra: se borra la fila para
     // verificar la IntegrityAction del esquema.
-    db.prepare('DELETE FROM users WHERE id = ?').run(usuario.id);
+    await db.execute('DELETE FROM users WHERE id = ?', usuario.id);
 
     const after = await tech.get(`/api/kb-articles/${article.id}`);
     assert.equal(after.status, 200);
@@ -745,43 +754,44 @@ describe('relación con tickets', () => {
 });
 
 describe('migraciones y siembra idempotentes', () => {
+  // TODO(fase2-mssql): `runMigrations()` ya no existe (SQLite fue eliminado) y
+  // `sqlite_master` no tiene equivalente directo en SQL Server (sería
+  // sys.objects/INFORMATION_SCHEMA). La suite NO migra: la base de pruebas ya
+  // trae el esquema. Un humano debe decidir si esta comprobación de idempotencia
+  // del esquema sigue teniendo sentido en MSSQL o si la cubre la validación
+  // estática del esquema (test/mssql-schema-static.test.js).
   const kbObjects = () =>
-    db
-      .prepare(
-        `SELECT type, name FROM sqlite_master
-         WHERE name LIKE 'kb_%' OR name LIKE 'idx_kb_%'
-         ORDER BY type, name`
-      )
-      .all();
+    db.queryMany(
+      `SELECT type, name FROM sqlite_master
+       WHERE name LIKE 'kb_%' OR name LIKE 'idx_kb_%'
+       ORDER BY type, name`
+    );
 
   it('reaplicar el esquema no duplica tablas ni índices ni altera los datos', async () => {
     const article = await createDraft(tech, { title: uniq('Sobrevive a la migración') });
-    const before = kbObjects();
+    const before = await kbObjects();
     assert.ok(before.length >= 13, 'faltan objetos de conocimiento en el esquema');
 
-    runMigrations();
-    runMigrations();
-
-    assert.deepEqual(kbObjects(), before);
+    assert.deepEqual(await kbObjects(), before);
     const after = await tech.get(`/api/kb-articles/${article.id}`);
     assert.equal(after.status, 200);
     assert.equal(after.body.article.title, article.title);
   });
 
-  it('reejecutar la semilla no duplica permisos, roles ni categorías', () => {
-    const count = (sql) => db.prepare(sql).get().n;
-    const perms = count('SELECT COUNT(*) AS n FROM permissions');
-    const roles = count('SELECT COUNT(*) AS n FROM roles');
-    const cats = count('SELECT COUNT(*) AS n FROM kb_categories');
-    const articles = count('SELECT COUNT(*) AS n FROM kb_articles');
+  it('reejecutar la semilla no duplica permisos, roles ni categorías', async () => {
+    const count = async (sql) => (await db.queryOne(sql)).n;
+    const perms = await count('SELECT COUNT(*) AS n FROM permissions');
+    const roles = await count('SELECT COUNT(*) AS n FROM roles');
+    const cats = await count('SELECT COUNT(*) AS n FROM kb_categories');
+    const articles = await count('SELECT COUNT(*) AS n FROM kb_articles');
 
-    seed();
-    seed();
+    await seed();
+    await seed();
 
-    assert.equal(count('SELECT COUNT(*) AS n FROM permissions'), perms);
-    assert.equal(count('SELECT COUNT(*) AS n FROM roles'), roles);
-    assert.equal(count('SELECT COUNT(*) AS n FROM kb_categories'), cats);
-    assert.equal(count('SELECT COUNT(*) AS n FROM kb_articles'), articles);
+    assert.equal(await count('SELECT COUNT(*) AS n FROM permissions'), perms);
+    assert.equal(await count('SELECT COUNT(*) AS n FROM roles'), roles);
+    assert.equal(await count('SELECT COUNT(*) AS n FROM kb_categories'), cats);
+    assert.equal(await count('SELECT COUNT(*) AS n FROM kb_articles'), articles);
   });
 
   it('la semilla no revierte los cambios hechos desde la interfaz', async () => {
@@ -790,31 +800,31 @@ describe('migraciones y siembra idempotentes', () => {
     const renamed = await admin.patch(`/api/kb-categories/${target.id}`, { name: uniq('Renombrada a mano') });
     assert.equal(renamed.status, 200);
 
-    seed();
+    await seed();
 
-    const stillRenamed = db.prepare('SELECT name FROM kb_categories WHERE id = ?').get(target.id);
+    const stillRenamed = await db.queryOne('SELECT name FROM kb_categories WHERE id = ?', target.id);
     assert.equal(stillRenamed.name, renamed.body.category.name);
   });
 
-  it('conserva la asignación de kb.* a los roles sembrados', () => {
-    const codeOf = (roleCode) =>
-      db
-        .prepare(
+  it('conserva la asignación de kb.* a los roles sembrados', async () => {
+    const codeOf = async (roleCode) =>
+      (
+        await db.queryMany(
           `SELECT p.code FROM permissions p
            JOIN role_permissions rp ON rp.permission_id = p.id
            JOIN roles r ON r.id = rp.role_id
-           WHERE r.code = ?`
+           WHERE r.code = ?`,
+          roleCode
         )
-        .all(roleCode)
-        .map((r) => r.code);
+      ).map((r) => r.code);
 
-    assert.deepEqual(codeOf('EMPLOYEE').filter((c) => c.startsWith('kb.')), ['kb.view']);
+    assert.deepEqual((await codeOf('EMPLOYEE')).filter((c) => c.startsWith('kb.')), ['kb.view']);
     assert.deepEqual(
-      codeOf('TECHNICIAN').filter((c) => c.startsWith('kb.')).sort(),
+      (await codeOf('TECHNICIAN')).filter((c) => c.startsWith('kb.')).sort(),
       ['kb.create', 'kb.publish', 'kb.view']
     );
     assert.deepEqual(
-      codeOf('ADMIN').filter((c) => c.startsWith('kb.')).sort(),
+      (await codeOf('ADMIN')).filter((c) => c.startsWith('kb.')).sort(),
       ['kb.create', 'kb.manage', 'kb.publish', 'kb.view']
     );
   });

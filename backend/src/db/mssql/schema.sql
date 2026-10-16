@@ -321,16 +321,20 @@ CREATE TABLE dbo.email_logs (
 
 CREATE TABLE dbo.notifications (
   id INT IDENTITY(1,1) NOT NULL,
-  organization_id INT NOT NULL,
+  -- organization_id es NULL solo para avisos globales legítimos dirigidos a una
+  -- cuenta SUPERADMIN sin organización. Una notificación ligada a un ticket
+  -- SIEMPRE pertenece a la organización del ticket (lo exige el CHECK y la FK).
+  organization_id INT NULL,
   user_id INT NOT NULL,
   ticket_id INT NULL,
   type NVARCHAR(100) NOT NULL,
   title NVARCHAR(500) NOT NULL,
-  body NVARCHAR(MAX) NULL,
-  link NVARCHAR(2000) NULL,
+  body NVARCHAR(500) NULL,
+  link NVARCHAR(500) NULL,
   read_at DATETIME2(3) NULL,
   created_at DATETIME2(3) NOT NULL CONSTRAINT DF_notifications_created_at DEFAULT (SYSUTCDATETIME()),
   CONSTRAINT PK_notifications PRIMARY KEY CLUSTERED (id),
+  CONSTRAINT CK_notifications_ticket_requires_org CHECK (organization_id IS NOT NULL OR ticket_id IS NULL),
   CONSTRAINT FK_notifications_user_same_org FOREIGN KEY (organization_id, user_id) REFERENCES dbo.users(organization_id, id) ON DELETE NO ACTION,
   CONSTRAINT FK_notifications_ticket_same_org FOREIGN KEY (organization_id, ticket_id) REFERENCES dbo.tickets(organization_id, id) ON DELETE CASCADE
 );

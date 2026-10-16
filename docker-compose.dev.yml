@@ -7,6 +7,18 @@
     environment:
       NODE_ENV: development
       PORT: 4000
+      # --- Base de datos: SQL Server es el ÚNICO motor ----------------------
+      # El desarrollo ya no usa SQLite. Ajuste estas variables (o el .env) para
+      # apuntar a su SQL Server de desarrollo antes de arrancar.
+      DB_CLIENT: mssql
+      DB_SERVER: "${DB_SERVER:-}"
+      DB_PORT: "${DB_PORT:-1433}"
+      DB_DATABASE: "${DB_DATABASE:-}"
+      DB_USER: "${DB_USER:-}"
+      DB_PASSWORD: "${DB_PASSWORD:-}"
+      DB_ENCRYPT: "${DB_ENCRYPT:-true}"
+      DB_TRUST_SERVER_CERTIFICATE: "${DB_TRUST_SERVER_CERTIFICATE:-false}"
+      DB_INSTANCE: "${DB_INSTANCE:-}"
       # Secreto de DESARROLLO. Es público a propósito y por eso la
       # aplicación lo rechaza en producción. No lo reutilice en ningún
       # despliegue real.
@@ -35,6 +47,12 @@
       - ticket_uploads:/app/backend/uploads
     ports:
       - "4000:4000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   frontend:
     image: node:24-alpine
@@ -48,6 +66,15 @@
       - "5173:5173"
     depends_on:
       - backend
+    healthcheck:
+      # Vite con --host 0.0.0.0 escucha solo IPv4; en Alpine "localhost"
+      # resuelve a ::1 primero y el wget de busybox falla (Connection refused).
+      # 127.0.0.1 evita el falso "unhealthy" aunque el puerto responda.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5173/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   backend_node_modules:

@@ -70,11 +70,17 @@ export default function Audit() {
     placeholderData: keepPreviousData,
   });
 
-  const { data: users = [] } = useQuery({
+  const { data: users = [], error: usersError } = useQuery({
     queryKey: ['audit-users'],
-    queryFn: () => api.get('/api/users').then((d) => d.data || []),
+    // El directorio puede exceder los 15 por página que devuelve el listado por
+    // defecto: se piden hasta 100 para que el filtro ofrezca a todos los actores.
+    queryFn: () => api.get('/api/users?perPage=100').then((d) => d.data || []),
     retry: false,
   });
+
+  // Un rol con settings.manage pero sin user.view no puede listar usuarios: el
+  // directorio responde 403 y, en vez de fallar en silencio, se oculta el filtro.
+  const showUserFilter = !usersError;
 
   // "Todas" y "Todos" eran `<option>` vacías seleccionables: se conservan como
   // primera opción real para poder volver a ellas. El id numérico del usuario
@@ -132,17 +138,19 @@ export default function Audit() {
               onChange={(v) => setFilters({ ...filters, action: v })}
             />
           </div>
-          <div>
-            <label className="label" htmlFor="audit-user">
-              Usuario
-            </label>
-            <Select
-              id="audit-user"
-              options={userOptions}
-              value={filters.user}
-              onChange={(v) => setFilters({ ...filters, user: v })}
-            />
-          </div>
+          {showUserFilter && (
+            <div>
+              <label className="label" htmlFor="audit-user">
+                Usuario
+              </label>
+              <Select
+                id="audit-user"
+                options={userOptions}
+                value={filters.user}
+                onChange={(v) => setFilters({ ...filters, user: v })}
+              />
+            </div>
+          )}
           <label className="label">
             Desde
             <input type="date" className="input" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />

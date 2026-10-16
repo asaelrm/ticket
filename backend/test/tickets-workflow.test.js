@@ -1,6 +1,7 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient } from './helpers.js';
+import { createClient, createSuperadminClient } from './helpers.js';
+import db from '../src/db/runtime.js';
 
 const IMG_JPG = {
   name: 'foto.jpg',
@@ -58,16 +59,25 @@ async function ticketCerrado(client = adminC) {
  * pase lo que pase. Los permisos se releen en cada petición, así que la sesión
  * ya abierta ve el cambio. Sirve para probar el caso "tiene ticket.update.any
  * pero NO ticket.reopen", que ningún rol del seed cubre.
+ * V2: la matriz de permisos es global (compartida entre organizaciones), así
+ * que este canal está reservado al SUPERADMIN.
  */
+let superadminCache = null;
+async function superadminClient() {
+  if (!superadminCache) superadminCache = await createSuperadminClient();
+  return superadminCache;
+}
+
 async function conPermisos(permisos, fn) {
+  const sa = await superadminClient();
   const roles = (await adminC.get('/api/roles')).body.roles;
   const original = roles.find((r) => r.id === tecnicoRoleId).permissions;
   try {
-    const patch = await adminC.patch(`/api/roles/${tecnicoRoleId}/permissions`, { permissions: permisos });
+    const patch = await sa.patch(`/api/roles/${tecnicoRoleId}/permissions`, { permissions: permisos });
     assert.equal(patch.status, 200);
     await fn();
   } finally {
-    const restore = await adminC.patch(`/api/roles/${tecnicoRoleId}/permissions`, { permissions: original });
+    const restore = await sa.patch(`/api/roles/${tecnicoRoleId}/permissions`, { permissions: original });
     assert.equal(restore.status, 200);
   }
 }
@@ -198,6 +208,86 @@ describe('La reapertura sólo se puede hacer por POST /:id/reopen', () => {
     // que el actor no puede ver, así que el permiso ni siquiera se llega a mirar.
     assert.equal((await empleadoC.patch(`/api/tickets/${t.id}`, { status: 'OPEN' })).status, 404);
     assert.equal((await empleadoC.post(`/api/tickets/${t.id}/reopen`, { reason: 'x' })).status, 403);
+  });
+});
+
+describe('Regresiones I1-I3: exportación, avisos y tickets terminales', () => {
+  it('I1: ticket.export sin ticket.view.all solo exporta tickets propios', async () => {
+    await conPermisos(['ticket.create', 'ticket.export'], async () => {
+      const propio = await newTicket(tecnicoC, { title: 'Exportación propia I1' });
+      const ajeno = await newTicket(adminC, { title: 'Exportación ajena I1' });
+
+      const res = await tecnicoC.get('/api/tickets/export?format=csv');
+      assert.equal(res.status, 200);
+      assert.match(res.text, new RegExp(propio.ticket_number), 'incluye el ticket del exportador');
+      assert.doesNotMatch(res.text, new RegExp(ajeno.ticket_number), 'no expone tickets ajenos');
+    });
+  });
+
+  it('I2/I3: un PATCH sobre un CANCELLED no lo modifica ni duplica sus avisos', async () => {
+    const ticket = await newTicket(empleadoC, { title: 'Cancelación única I2' });
+    const cancelled = await adminC.post(`/api/tickets/${ticket.id}/cancel`, { reason: 'Duplicado de prueba' });
+    assert.equal(cancelled.status, 200);
+
+    const emailsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM email_logs WHERE ticket_id = ?', ticket.id)).n;
+    const notificationsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
+    const patch = await adminC.patch(`/api/tickets/${ticket.id}`, { title: 'No debe cambiar' });
+    assert.equal(patch.status, 400);
+
+    const emailsAfter = (await db.queryOne('SELECT COUNT(*) AS n FROM email_logs WHERE ticket_id = ?', ticket.id)).n;
+    const notificationsAfter = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
+    assert.equal(emailsAfter, emailsBefore, 'no reenvía el correo de cancelación');
+    assert.equal(notificationsAfter, notificationsBefore, 'no duplica avisos in-app de cancelación');
+
+    const detail = await adminC.get(`/api/tickets/${ticket.id}`);
+    assert.equal(detail.body.ticket.status, 'CANCELLED');
+    assert.equal(detail.body.ticket.title, 'Cancelación única I2');
+  });
+
+  it('I2/I3: un PATCH sobre un CLOSED no lo modifica ni duplica sus avisos', async () => {
+    const ticket = await newTicket(empleadoC, { title: 'Cierre único I2' });
+    assert.equal((await adminC.post(`/api/tickets/${ticket.id}/resolve`, { resolution: 'Resuelto para cerrar' })).status, 200);
+    assert.equal((await adminC.post(`/api/tickets/${ticket.id}/close`, {})).status, 200);
+
+    const notificationsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
+    const patch = await adminC.patch(`/api/tickets/${ticket.id}`, { priority: 'CRITICAL' });
+    assert.equal(patch.status, 400);
+    const notificationsAfter = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
+    assert.equal(notificationsAfter, notificationsBefore, 'no duplica avisos de cierre');
+
+    const detail = await adminC.get(`/api/tickets/${ticket.id}`);
+    assert.equal(detail.body.ticket.status, 'CLOSED');
+    assert.equal(detail.body.ticket.priority, 'MEDIUM');
+  });
+
+  it('I3: un PATCH tampoco modifica campos de negocio de un RESOLVED', async () => {
+    const ticket = await newTicket(adminC, { title: 'Resuelto inmutable I3' });
+    assert.equal((await adminC.post(`/api/tickets/${ticket.id}/resolve`, { resolution: 'Solución final' })).status, 200);
+
+    const patch = await adminC.patch(`/api/tickets/${ticket.id}`, { description: 'No debe cambiar' });
+    assert.equal(patch.status, 400);
+    const detail = await adminC.get(`/api/tickets/${ticket.id}`);
+    assert.equal(detail.body.ticket.status, 'RESOLVED');
+    assert.equal(detail.body.ticket.description, 'Descripción de flujo');
+  });
+
+  it('I4: /:id/assign no reasigna un ticket terminal (misma inmutabilidad que el PATCH)', async () => {
+    const users = (await adminC.get('/api/users')).body.data;
+    const tecnico = users.find((u) => u.username === 'tecnico');
+    assert.ok(tecnico, 'el usuario técnico existe en el seed');
+
+    const ticket = await newTicket(empleadoC, { title: 'Terminal sin reasignar I4' });
+    assert.equal((await adminC.post(`/api/tickets/${ticket.id}/cancel`, { reason: 'Duplicado' })).status, 200);
+
+    const notificationsBefore = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
+    const assign = await adminC.post(`/api/tickets/${ticket.id}/assign`, { assigned_to_id: tecnico.id });
+    assert.equal(assign.status, 400, 'la asignación de un ticket terminal se rechaza');
+    assert.match(assign.body.error, /terminal/i);
+
+    const detail = await adminC.get(`/api/tickets/${ticket.id}`);
+    assert.equal(detail.body.ticket.assigned_to_id, null, 'no se reasigna el ticket terminal');
+    const notificationsAfter = (await db.queryOne('SELECT COUNT(*) AS n FROM notifications WHERE ticket_id = ?', ticket.id)).n;
+    assert.equal(notificationsAfter, notificationsBefore, 'no dispara avisos de asignación');
   });
 });
 

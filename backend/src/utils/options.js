@@ -1,43 +1,20 @@
-import db from '../db.js';
+import { getSetting } from './settingsStore.js';
 import { getSlaHours } from './sla.js';
+import {
+  DEFAULT_RESOLUTION_CATEGORIES,
+  DEFAULT_ROOT_CAUSES,
+  DEFAULT_PENDING_REASONS,
+} from './settings.js';
 
-// Valores por defecto de las listas configurables del flujo de resolución.
-export const DEFAULT_RESOLUTION_CATEGORIES = [
-  'Configuración',
-  'Reparación',
-  'Reemplazo',
-  'Instalación',
-  'Actualización',
-  'Capacitación',
-  'Otro',
-];
+export { DEFAULT_RESOLUTION_CATEGORIES, DEFAULT_ROOT_CAUSES, DEFAULT_PENDING_REASONS };
 
-export const DEFAULT_ROOT_CAUSES = [
-  'Falla de hardware',
-  'Configuración',
-  'Error de usuario',
-  'Problema de red',
-  'Software',
-  'Permisos',
-  'Desconocida',
-  'Otra',
-];
-
-export const DEFAULT_PENDING_REASONS = [
-  'Esperando usuario',
-  'Esperando proveedor',
-  'Esperando pieza/equipo',
-  'Esperando autorización',
-  'Otro',
-];
-
-function getSetting(key) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : null;
-}
-
-function listSetting(key, defaults) {
-  const raw = getSetting(key);
+// V1: todas las lecturas reciben la organización a la que se aplican. El
+// parámetro es SIEMPRE contexto de servidor (la organización del ticket o la
+// del usuario en sesión), nunca un dato de la petición. Sin organización
+// (SUPERADMIN global) se resuelve la capa global, que es el comportamiento
+// previo a la multiempresa.
+async function listSetting(key, defaults, organizationId) {
+  const raw = await getSetting(key, organizationId);
   if (!raw) return [...defaults];
   let parts = [];
   try {
@@ -51,51 +28,53 @@ function listSetting(key, defaults) {
   return clean.length ? clean : [...defaults];
 }
 
-export function getResolutionCategories() {
-  return listSetting('resolution_categories', DEFAULT_RESOLUTION_CATEGORIES);
+export async function getResolutionCategories(organizationId = null) {
+  return listSetting('resolution_categories', DEFAULT_RESOLUTION_CATEGORIES, organizationId);
 }
 
-export function getRootCauses() {
-  return listSetting('root_causes', DEFAULT_ROOT_CAUSES);
+export async function getRootCauses(organizationId = null) {
+  return listSetting('root_causes', DEFAULT_ROOT_CAUSES, organizationId);
 }
 
-export function getPendingReasons() {
-  return listSetting('pending_reasons', DEFAULT_PENDING_REASONS);
+export async function getPendingReasons(organizationId = null) {
+  return listSetting('pending_reasons', DEFAULT_PENDING_REASONS, organizationId);
 }
 
-export function requireResolutionToClose() {
-  const raw = getSetting('require_resolution_to_close');
+export async function requireResolutionToClose(organizationId = null) {
+  const raw = await getSetting('require_resolution_to_close', organizationId);
   if (raw === null || raw === undefined || raw === '') return true;
   return !['0', 'false', 'no', 'off'].includes(String(raw).toLowerCase());
 }
 
 // Configuración de reglas de escalación automática (con valores por defecto).
-export function getRuleSettings() {
-  const num = (key, fallback) => {
-    const n = parseInt(String(getSetting(key) ?? ''), 10);
+export async function getRuleSettings(organizationId = null) {
+  const num = async (key, fallback) => {
+    const n = parseInt(String((await getSetting(key, organizationId)) ?? ''), 10);
     return Number.isFinite(n) && n >= 0 ? n : fallback;
   };
   return {
-    rule_unassigned_hours: num('rule_unassigned_hours', 8),
-    rule_unassigned_priority: String(getSetting('rule_unassigned_priority') || 'HIGH').toUpperCase(),
-    rule_critical_hours: num('rule_critical_hours', 12),
+    rule_unassigned_hours: await num('rule_unassigned_hours', 8),
+    rule_unassigned_priority: String(
+      (await getSetting('rule_unassigned_priority', organizationId)) || 'HIGH',
+    ).toUpperCase(),
+    rule_critical_hours: await num('rule_critical_hours', 12),
   };
 }
 
-export function isCsatEnabled() {
-  const raw = getSetting('enable_csat');
+export async function isCsatEnabled(organizationId = null) {
+  const raw = await getSetting('enable_csat', organizationId);
   if (raw === null || raw === undefined || raw === '') return true;
   return !['0', 'false', 'no', 'off'].includes(String(raw).toLowerCase());
 }
 
-export function getWorkflowOptions() {
+export async function getWorkflowOptions(organizationId = null) {
   return {
-    resolution_categories: getResolutionCategories(),
-    root_causes: getRootCauses(),
-    pending_reasons: getPendingReasons(),
-    require_resolution_to_close: requireResolutionToClose(),
-    csat_enabled: isCsatEnabled(),
-    rules: getRuleSettings(),
-    sla_hours: getSlaHours(),
+    resolution_categories: await getResolutionCategories(organizationId),
+    root_causes: await getRootCauses(organizationId),
+    pending_reasons: await getPendingReasons(organizationId),
+    require_resolution_to_close: await requireResolutionToClose(organizationId),
+    csat_enabled: await isCsatEnabled(organizationId),
+    rules: await getRuleSettings(organizationId),
+    sla_hours: await getSlaHours(organizationId),
   };
 }

@@ -1,0 +1,113 @@
+================================================================================
+REPORTE DE CAMBIOS - SIFHA Ticket - Administración Multiempresa
+================================================================================
+Fecha: 2025-10-15
+Proyecto: D:\ticket
+Stack: React + Node.js + SQL Server (SIFHA_Tickets_DEV)
+
+================================================================================
+1. PROBLEMAS RESUELTOS
+================================================================================
+- Error "NaN-NaN de undefined" en tabla Empresas: paginación backend faltante
+- SUPERADMIN no podía crear administradores de empresa desde la UI
+- No había selector de empresa al crear usuarios (solo SUPERADMIN)
+- Aislamiento multinémpresa: validación solo en frontend, no en backend
+
+================================================================================
+2. ARCHIVOS MODIFICADOS
+================================================================================
+
+BACKEND:
+--------
+backend/src/routes/organizations.js
+  - GET /api/organizations: paginación completa (page, perPage, pages, total)
+  - Filtros: search (nombre/código), status (active/inactive)
+  - Corregido NaN-NaN: respuesta incluye {data, total, page, perPage, pages}
+
+backend/src/routes/users.js
+  - POST /api/users: acepta organization_id opcional
+  - Solo SUPERADMIN (req.user.is_superadmin) puede enviar organization_id
+  - Rol SUPERADMIN -> organization_id forzado a null
+  - Admin normal -> organization_id rechazado (400)
+  - Validación orgStateError: org debe existir y estar activa
+
+FRONTEND:
+---------
+frontend/src/pages/Organizations.jsx
+  - Botón "Crear administrador" en columna Acciones (solo SUPERADMIN, icono + tooltip)
+  - Modal "Crear administrador": nombre, apellidos, usuario, correo, contraseña (≥12), rol ADMIN fijo
+  - Fetch empresas activas: GET /api/organizations?perPage=100
+  - Mutación POST /api/users con role_id=ADMIN y organization_id de la empresa
+
+frontend/src/pages/Users.jsx
+  - Selector "Empresa" en modal "Nuevo usuario" (solo SUPERADMIN, is_superadmin=true)
+  - Opciones: "Sin empresa (usuario global)" + empresas activas del backend
+  - En edición NO se muestra selector (org no modificable)
+  - Mutación elimina organization_id si no es SUPERADMIN o está vacío
+
+TESTS:
+------
+backend/test/organization-isolation.test.js
+  - 6 tests nuevos: SUPERADMIN crea ADMIN org A/B, SUPERADMIN no crea SUPERADMIN con org_id,
+    admin normal rechazado, SUPERADMIN sin org_id falla (orgStateError),
+    admin creado inicia sesión y solo ve su org
+
+frontend/src/pages/Organizations.test.jsx
+  - 5 tests: botón solo SUPERADMIN, abre modal, valida obligatorios, valida contraseña ≥12,
+    crea admin y cierra modal
+
+frontend/src/pages/Users.test.jsx
+  - 4 tests: selector visible solo SUPERADMIN, no visible no-SUPERADMIN,
+    crea usuario con empresa, crea usuario sin empresa (global)
+
+================================================================================
+3. VERIFICACIÓN DE TESTS
+================================================================================
+Frontend: 1098 tests PASS (1098 pass, 0 fail)
+Backend:  910 tests PASS (910 pass, 0 fail)
+
+Datos existentes preservados:
+- Centro Médico UCE (código UCE)
+- Empresa Demo (código EMPRESA2)
+- Usuario admin y superadmin intactos
+- No tickets, empresas ni credenciales alterados
+
+================================================================================
+4. CÓMO CREAR ADMINISTRADOR DE EMPRESA DEMO
+================================================================================
+1. Iniciar sesión como SUPERADMIN (usuario: superadmin)
+2. Ir a menú "Empresas"
+3. Buscar "Empresa Demo" en la tabla
+4. En columna Acciones, clic en icono "+" (tooltip: "Crear administrador para esta empresa")
+5. Completar formulario:
+   - Nombre: [nombre]
+   - Apellidos: [apellidos]
+   - Usuario: [username único]
+   - Correo: [email único]
+   - Contraseña: [mínimo 12 caracteres]
+   - Rol: Administrador (fijo, solo opción)
+6. Clic "Crear administrador"
+7. El nuevo admin podrá entrar y solo verá/gestionará Empresa Demo
+
+================================================================================
+5. RECONSTRUCCIÓN DOCKER
+================================================================================
+NO ES NECESARIO reconstruir imágenes Docker.
+Los cambios son solo código fuente (JS/JSX).
+Si contenedores ya corren: docker compose restart app
+O reiniciar servicios backend/frontend manualmente.
+
+================================================================================
+6. RESTRICCIONES CUMPLIDAS
+================================================================================
+✅ No se eliminaron ni modificaron usuarios admin / superadmin
+✅ No se eliminaron empresas ni tickets
+✅ No se modificaron credenciales ni archivos .env
+✅ No se ejecutaron migraciones ni seeds en SQL Server
+✅ No se eliminaron ni recrearon contenedores Docker
+✅ Se reutilizaron componentes y estilos existentes
+✅ No se muestran contraseñas en logs ni resultados de pruebas
+
+================================================================================
+FIN DEL REPORTE
+================================================================================

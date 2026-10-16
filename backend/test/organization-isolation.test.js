@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createClient } from './helpers.js';
-import db, { nowIso } from '../src/db.js';
+import db from '../src/db/runtime.js';
+import { nowIso } from '../src/utils/time.js';
 import { hashPassword } from '../src/utils/password.js';
 import { saveDirectorySnapshot, restoreDirectorySnapshot } from '../src/directorySync.js';
 
@@ -27,18 +28,18 @@ let techA;
 let adminA;
 let adminB;
 
-function insertOrg(code, name) {
-  db.prepare('INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1)')
-    .run(code, name, 'Organización de prueba de aislamiento');
-  return db.prepare('SELECT id FROM organizations WHERE code = ?').get(code).id;
+async function insertOrg(code, name) {
+  await db.execute('INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1)', code, name, 'Organización de prueba de aislamiento');
+  const row = await db.queryOne('SELECT id FROM organizations WHERE code = ?', code);
+  return row.id;
 }
 
-function insertUser(orgId, username, roleCode, { dept = null, active = 1 } = {}) {
-  const roleId = db.prepare('SELECT id FROM roles WHERE code = ?').get(roleCode).id;
-  db.prepare(
+async function insertUser(orgId, username, roleCode, { dept = null, active = 1 } = {}) {
+  const role = await db.queryOne('SELECT id FROM roles WHERE code = ?', roleCode);
+  const roleId = role.id;
+  await db.execute(
     `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     `Nombre ${username}`,
     `Apellido ${username}`,
     username,
@@ -51,14 +52,15 @@ function insertUser(orgId, username, roleCode, { dept = null, active = 1 } = {})
     nowIso(),
     orgId
   );
-  return db.prepare('SELECT id FROM users WHERE username = ?').get(username).id;
+  const row = await db.queryOne('SELECT id FROM users WHERE username = ?', username);
+  return row.id;
 }
 
-before(() => {
-  ids.orgA = insertOrg(ORGA, 'Organización A de aislamiento');
-  ids.orgB = insertOrg(ORGB, 'Organización B de aislamiento');
-  adminA = insertUser(ids.orgA, 'admin_aisl_a', 'ADMIN');
-  adminB = insertUser(ids.orgB, 'admin_aisl_b', 'ADMIN');
+before(async () => {
+  ids.orgA = await insertOrg(ORGA, 'Organización A de aislamiento');
+  ids.orgB = await insertOrg(ORGB, 'Organización B de aislamiento');
+  adminA = await insertUser(ids.orgA, 'admin_aisl_a', 'ADMIN');
+  adminB = await insertUser(ids.orgB, 'admin_aisl_b', 'ADMIN');
 });
 
 describe('Departamentos aislados por organización (ETAPA 2)', () => {
@@ -81,7 +83,7 @@ describe('Departamentos aislados por organización (ETAPA 2)', () => {
     const ua = await cA.post('/api/users', {
       name: 'UsuarioA', last_name: 'Aislamiento', username: 'usuario_a_aisl', email: 'ua@aisl.test',
       password: 'Temporal1234!',
-      role_id: db.prepare('SELECT id FROM roles WHERE code = ?').get('EMPLOYEE').id,
+      role_id: (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'EMPLOYEE')).id,
       department_id: deptA,
     });
     assert.equal(ua.status, 201, JSON.stringify(ua.body));
@@ -91,7 +93,7 @@ describe('Departamentos aislados por organización (ETAPA 2)', () => {
     const ub = await cB.post('/api/users', {
       name: 'UsuarioB', last_name: 'Aislamiento', username: 'usuario_b_aisl', email: 'ub@aisl.test',
       password: 'Temporal1234!',
-      role_id: db.prepare('SELECT id FROM roles WHERE code = ?').get('EMPLOYEE').id,
+      role_id: (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'EMPLOYEE')).id,
       department_id: deptB,
     });
     assert.equal(ub.status, 201, JSON.stringify(ub.body));
@@ -101,7 +103,7 @@ describe('Departamentos aislados por organización (ETAPA 2)', () => {
     const ta = await cA.post('/api/users', {
       name: 'TecnicoA', last_name: 'Aislamiento', username: 'tecnico_a_aisl', email: 'ta@aisl.test',
       password: 'Temporal1234!',
-      role_id: db.prepare('SELECT id FROM roles WHERE code = ?').get('TECHNICIAN').id,
+      role_id: (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'TECHNICIAN')).id,
     });
     assert.equal(ta.status, 201, JSON.stringify(ta.body));
     techA = ta.body.user.id;
@@ -109,7 +111,7 @@ describe('Departamentos aislados por organización (ETAPA 2)', () => {
     const inactiveA = await cA.post('/api/users', {
       name: 'InactivoA', last_name: 'Aislamiento', username: 'inactivo_a_aisl', email: 'ia@aisl.test',
       password: 'Temporal1234!',
-      role_id: db.prepare('SELECT id FROM roles WHERE code = ?').get('EMPLOYEE').id,
+      role_id: (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'EMPLOYEE')).id,
     });
     assert.equal(inactiveA.status, 201);
     await cA.patch(`/api/users/${inactiveA.body.user.id}/status`, { active: false });
@@ -157,7 +159,7 @@ describe('Usuarios aislados por organización (ETAPA 2)', () => {
     const res = await c.post('/api/users', {
       name: 'Cruce', last_name: 'Fronterizo', username: 'cruce_aisl', email: 'cruce@aisl.test',
       password: 'Temporal1234!',
-      role_id: db.prepare('SELECT id FROM roles WHERE code = ?').get('EMPLOYEE').id,
+      role_id: (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'EMPLOYEE')).id,
       department_id: deptB,
     });
     assert.equal(res.status, 400);
@@ -228,7 +230,7 @@ describe('Usuarios aislados por organización (ETAPA 2)', () => {
     const res = await c.post('/api/users', {
       name: 'Forjado', last_name: 'Org', username: 'forja_aisl', email: 'forja@aisl.test',
       password: 'Temporal1234!',
-      role_id: db.prepare('SELECT id FROM roles WHERE code = ?').get('EMPLOYEE').id,
+      role_id: (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'EMPLOYEE')).id,
       organization_id: ids.orgB,
     });
     assert.equal(res.status, 400);
@@ -239,7 +241,7 @@ describe('Usuarios aislados por organización (ETAPA 2)', () => {
     await c.login('admin_aisl_a', pass('admin_aisl_a'));
     const res = await c.patch(`/api/users/${userA}`, { organization_id: ids.orgB });
     assert.equal(res.status, 400);
-    const org = db.prepare('SELECT organization_id FROM users WHERE id = ?').get(userA).organization_id;
+    const org = (await db.queryOne('SELECT organization_id FROM users WHERE id = ?', userA)).organization_id;
     assert.equal(org, ids.orgA, 'la organización no debe cambiar');
   });
 
@@ -273,15 +275,20 @@ describe('Usuarios aislados por organización (ETAPA 2)', () => {
 
     const adminRole = res.body.roles.find((r) => r.code === 'ADMIN');
     const empRole = res.body.roles.find((r) => r.code === 'EMPLOYEE');
-    const expectedAdminA = db.prepare(
-      'SELECT COUNT(*) AS n FROM users u WHERE u.role_id = (SELECT id FROM roles WHERE code = ?) AND u.organization_id = ?'
-    ).get('ADMIN', ids.orgA).n;
-    const expectedEmpA = db.prepare(
-      'SELECT COUNT(*) AS n FROM users u WHERE u.role_id = (SELECT id FROM roles WHERE code = ?) AND u.organization_id = ?'
-    ).get('EMPLOYEE', ids.orgA).n;
-    const globalAdmin = db.prepare(
-      'SELECT COUNT(*) AS n FROM users u WHERE u.role_id = (SELECT id FROM roles WHERE code = ?)'
-    ).get('ADMIN').n;
+    const expectedAdminA = (await db.queryOne(
+      'SELECT COUNT(*) AS n FROM users u WHERE u.role_id = (SELECT id FROM roles WHERE code = ?) AND u.organization_id = ?',
+      'ADMIN',
+      ids.orgA
+    )).n;
+    const expectedEmpA = (await db.queryOne(
+      'SELECT COUNT(*) AS n FROM users u WHERE u.role_id = (SELECT id FROM roles WHERE code = ?) AND u.organization_id = ?',
+      'EMPLOYEE',
+      ids.orgA
+    )).n;
+    const globalAdmin = (await db.queryOne(
+      'SELECT COUNT(*) AS n FROM users u WHERE u.role_id = (SELECT id FROM roles WHERE code = ?)',
+      'ADMIN'
+    )).n;
 
     assert.equal(adminRole.users, expectedAdminA, 'el conteo debe ser el de su organización');
     assert.equal(empRole.users, expectedEmpA);
@@ -293,8 +300,8 @@ describe('Usuarios aislados por organización (ETAPA 2)', () => {
 describe('SUPERADMIN sin bypass accidental (ETAPA 2)', () => {
   let superId;
   let c;
-  before(() => {
-    superId = insertUser(null, 'super_aisl', 'SUPERADMIN');
+  before(async () => {
+    superId = await insertUser(null, 'super_aisl', 'SUPERADMIN');
     c = createClient();
   });
 
@@ -323,7 +330,7 @@ describe('SUPERADMIN sin bypass accidental (ETAPA 2)', () => {
     // ETAPA 3: sin organización el SUPERADMIN no gestiona nada por id y el
     // LISTADO vuelve vacío: no existe vector de enumeración masiva ni acceso
     // individual. Un id inexistente responde 404 igual que uno real.
-    const inexistente = db.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS n FROM users').get().n;
+    const inexistente = (await db.queryOne('SELECT COALESCE(MAX(id), 0) + 1 AS n FROM users')).n;
     const res = await c.get(`/api/users/${inexistente}`);
     assert.equal(res.status, 404);
     const lista = await c.get('/api/users');
@@ -333,7 +340,7 @@ describe('SUPERADMIN sin bypass accidental (ETAPA 2)', () => {
   it('el SUPERADMIN no puede asociarse a un departamento (no pertenece a ninguno)', async () => {
     const res = await c.patch(`/api/users/${superId}`, { department_id: deptA });
     assert.equal(res.status, 400);
-    const dept = db.prepare('SELECT department_id FROM users WHERE id = ?').get(superId).department_id;
+    const dept = (await db.queryOne('SELECT department_id FROM users WHERE id = ?', superId)).department_id;
     assert.equal(dept, null);
   });
 });
@@ -371,8 +378,8 @@ describe('Rutas tenant de usuarios: SUPERADMIN y admins de organización (ETAPA 
       404
     );
 
-    const a = db.prepare('SELECT name, active FROM users WHERE id = ?').get(userA);
-    const b = db.prepare('SELECT name, active FROM users WHERE id = ?').get(userB);
+    const a = await db.queryOne('SELECT name, active FROM users WHERE id = ?', userA);
+    const b = await db.queryOne('SELECT name, active FROM users WHERE id = ?', userB);
     assert.notEqual(a.name, 'Intruso', 'el intento no cambia nada');
     assert.notEqual(b.name, 'Intruso', 'el intento no cambia nada');
   });
@@ -385,7 +392,7 @@ describe('Rutas tenant de usuarios: SUPERADMIN y admins de organización (ETAPA 
     assert.equal((await cSuper.post(`/api/users/${userB}/reset-password`, {})).status, 404);
 
     for (const [id, what] of [[userA, 'A'], [userB, 'B']]) {
-      const row = db.prepare('SELECT active, password_reset_token FROM users WHERE id = ?').get(id);
+      const row = await db.queryOne('SELECT active, password_reset_token FROM users WHERE id = ?', id);
       assert.equal(row.active, 1, `el usuario ${what} sigue activo`);
       assert.equal(row.password_reset_token, null, `no se generó token de reset para ${what}`);
     }
@@ -404,7 +411,7 @@ describe('Rutas tenant de usuarios: SUPERADMIN y admins de organización (ETAPA 
     assert.equal((await cA.post(`/api/users/${userA}/reset-password`, {})).status, 200);
     assert.equal((await cA.post(`/api/users/${userB}/reset-password`, {})).status, 404);
 
-    const b = db.prepare('SELECT active FROM users WHERE id = ?').get(userB);
+    const b = await db.queryOne('SELECT active FROM users WHERE id = ?', userB);
     assert.equal(b.active, 1, 'el admin A no pudo desactivar a B');
   });
 
@@ -421,7 +428,7 @@ describe('Rutas tenant de usuarios: SUPERADMIN y admins de organización (ETAPA 
     assert.equal((await cB.post(`/api/users/${userB}/reset-password`, {})).status, 200);
     assert.equal((await cB.post(`/api/users/${userA}/reset-password`, {})).status, 404);
 
-    const a = db.prepare('SELECT active FROM users WHERE id = ?').get(userA);
+    const a = await db.queryOne('SELECT active FROM users WHERE id = ?', userA);
     assert.equal(a.active, 1, 'el admin B no pudo desactivar a A');
   });
 
@@ -437,21 +444,20 @@ describe('Rutas tenant de usuarios: SUPERADMIN y admins de organización (ETAPA 
     assert.equal(resB.status, 200);
     assert.equal(resS.status, 200);
 
-    const count = (roleCode, org) =>
-      db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM users WHERE role_id = (SELECT id FROM roles WHERE code = ?) AND organization_id = ?`
-        )
-        .get(roleCode, org).n;
+    const count = async (roleCode, org) => (await db.queryOne(
+          `SELECT COUNT(*) AS n FROM users WHERE role_id = (SELECT id FROM roles WHERE code = ?) AND organization_id = ?`,
+          roleCode,
+          org
+        )).n;
 
     const adminRoleA = resA.body.roles.find((r) => r.code === 'ADMIN');
     const adminRoleB = resB.body.roles.find((r) => r.code === 'ADMIN');
     const empRoleA = resA.body.roles.find((r) => r.code === 'EMPLOYEE');
     const empRoleB = resB.body.roles.find((r) => r.code === 'EMPLOYEE');
-    assert.equal(adminRoleA.users, count('ADMIN', ids.orgA), 'ADMIN A cuenta solo su organización');
-    assert.equal(adminRoleB.users, count('ADMIN', ids.orgB), 'ADMIN B cuenta solo su organización');
-    assert.equal(empRoleA.users, count('EMPLOYEE', ids.orgA));
-    assert.equal(empRoleB.users, count('EMPLOYEE', ids.orgB));
+    assert.equal(adminRoleA.users, await count('ADMIN', ids.orgA), 'ADMIN A cuenta solo su organización');
+    assert.equal(adminRoleB.users, await count('ADMIN', ids.orgB), 'ADMIN B cuenta solo su organización');
+    assert.equal(empRoleA.users, await count('EMPLOYEE', ids.orgA));
+    assert.equal(empRoleB.users, await count('EMPLOYEE', ids.orgB));
 
     // SUPERADMIN sin contexto de organización: NO obtiene los conteos globales.
     for (const r of resS.body.roles) {
@@ -466,8 +472,8 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-aislamiento-'));
   const file = path.join(tmp, 'directory.json');
 
-  it('el snapshot lleva organization_code en usuarios y departamentos', () => {
-    assert.equal(saveDirectorySnapshot({ enabled: true, file }), true);
+  it('el snapshot lleva organization_code en usuarios y departamentos', async () => {
+    assert.equal(await saveDirectorySnapshot({ enabled: true, file }), true);
     const snapshot = JSON.parse(fs.readFileSync(file, 'utf8'));
     assert.equal(snapshot.version, 3);
     const depts = new Map(snapshot.departments.map((d) => [d.name, d.organization_code]));
@@ -479,21 +485,22 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
     assert.equal(porNombre.get('super_aisl'), null, 'el SUPERADMIN se guarda sin organización');
   });
 
-  it('restaurar borra y recrea debajo de una organización: ninguna cuenta queda huérfana', () => {
-    const userA = db.prepare('SELECT id FROM users WHERE username = ?').get('usuario_a_aisl');
-    db.prepare('DELETE FROM users WHERE id = ?').run(userA.id);
+  it('restaurar borra y recrea debajo de una organización: ninguna cuenta queda huérfana', async () => {
+    const userA = await db.queryOne('SELECT id FROM users WHERE username = ?', 'usuario_a_aisl');
+    await db.execute('DELETE FROM users WHERE id = ?', userA.id);
 
-    const resultado = restoreDirectorySnapshot({ enabled: true, file });
+    const resultado = await restoreDirectorySnapshot({ enabled: true, file });
     assert.equal(resultado.applied, true);
     assert.deepEqual(resultado.nuevas, ['usuario_a_aisl']);
 
-    const back = db.prepare(
-      'SELECT u.id, u.organization_id, o.code AS org FROM users u JOIN organizations o ON o.id = u.organization_id WHERE u.username = ?'
-    ).get('usuario_a_aisl');
+    const back = await db.queryOne(
+      'SELECT u.id, u.organization_id, o.code AS org FROM users u JOIN organizations o ON o.id = u.organization_id WHERE u.username = ?',
+      'usuario_a_aisl'
+    );
     assert.equal(back.org, ORGA, 'la cuenta restaurada vuelve a su organización');
   });
 
-  it('un snapshot con organización desconocida aborta sin ensuciar la base', () => {
+  it('un snapshot con organización desconocida aborta sin ensuciar la base', async () => {
     const malo = path.join(tmp, 'malo.json');
     fs.writeFileSync(
       malo,
@@ -509,13 +516,16 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
         ],
       })
     );
-    const antes = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-    assert.throws(() => restoreDirectorySnapshot({ enabled: true, file: malo }), /Organización desconocida/);
-    const despues = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+    const antes = (await db.queryOne('SELECT COUNT(*) AS n FROM users')).n;
+    await assert.rejects(
+      restoreDirectorySnapshot({ enabled: true, file: malo }),
+      /Organización desconocida/
+    );
+    const despues = (await db.queryOne('SELECT COUNT(*) AS n FROM users')).n;
     assert.equal(despues, antes, 'el restore fallido no debe dejar cuentas huérfanas');
   });
 
-  it('un departamento que no coincide con la organización no se impone', () => {
+  it('un departamento que no coincide con la organización no se impone', async () => {
     const malo = path.join(tmp, 'dept-malo.json');
     // Departamento "Depto A Aislamiento" pertenece a A; el usuario es de B: el
     // restore deja al usuario sin departamento y avisa.
@@ -533,9 +543,237 @@ describe('El directorio preserva la organización (ETAPA 2)', () => {
         ],
       })
     );
-    const resultado = restoreDirectorySnapshot({ enabled: true, file: malo });
+    const resultado = await restoreDirectorySnapshot({ enabled: true, file: malo });
     assert.ok(resultado.avisos.length >= 1, 'debe avisar del departamento descartado');
-    const row = db.prepare('SELECT department_id FROM users WHERE username = ?').get(resultado.nuevas[0]);
+    const row = await db.queryOne('SELECT department_id FROM users WHERE username = ?', resultado.nuevas[0]);
     assert.equal(row.department_id, null);
+  });
+
+  it('departamentos con el mismo nombre en organizaciones distintas no se mezclan', async () => {
+    // En SQLite `departments.name` es UNIQUE GLOBAL (el esquema MSSQL es
+    // UNIQUE(organization_id, name)). En cualquier caso, el departamento de A
+    // no puede terminar perteneciendo a B ni cambiar de descripción.
+    const comparte = `Compartido ${Date.now()}`;
+    await db.execute('INSERT INTO departments (name, description, active, organization_id) VALUES (?, ?, 1, ?)',
+      comparte, 'de A', ids.orgA);
+    const deptAId = (await db.queryOne('SELECT id FROM departments WHERE name = ?', comparte)).id;
+
+    const archivo = path.join(tmp, 'homonimo.json');
+    fs.writeFileSync(
+      archivo,
+      JSON.stringify({
+        version: 3,
+        departments: [{ name: comparte, description: 'de B', active: 1, organization_code: ORGB }],
+        users: [],
+      })
+    );
+
+    let aplicado = true;
+    try {
+      await restoreDirectorySnapshot({ enabled: true, file: archivo });
+    } catch {
+      aplicado = false;
+    }
+
+    const filaA = await db.queryOne('SELECT id, organization_id, description FROM departments WHERE id = ?', deptAId);
+    assert.equal(filaA.organization_id, ids.orgA, 'el departamento de A jamás se mueve a B');
+    assert.equal(filaA.description, 'de A', 'tampoco se sobrescribe su descripción');
+
+    const enB = (await db.queryOne('SELECT COUNT(*) AS n FROM departments WHERE name = ? AND organization_id = ?', comparte, ids.orgB)).n;
+    if (aplicado) {
+      // Motor con unicidad por organización: el homónimo existe como fila
+      // distinta, nunca como la de A reasignada.
+      assert.equal(enB, 1);
+    } else {
+      // SQLite: el nombre es único globalmente y la creación revierte entera.
+      assert.equal(enB, 0);
+    }
+  });
+
+  it('un correo ya usado por otra cuenta aborta la restauración sin fusionar cuentas', async () => {
+    const ts = Date.now();
+    const archivo = path.join(tmp, 'email-duplicado.json');
+    fs.writeFileSync(
+      archivo,
+      JSON.stringify({
+        version: 3,
+        departments: [],
+        users: [
+          {
+            name: 'Duplicado', last_name: 'Email', username: `duplicado_${ts}`, email: 'ua@aisl.test',
+            position: 'P', active: 1, role_code: 'EMPLOYEE', department_name: null,
+            organization_code: ORGB,
+          },
+        ],
+      })
+    );
+
+    // 'ua@aisl.test' pertenece a usuario_a_aisl: el restore no puede apropiárselo.
+    const antes = (await db.queryOne('SELECT COUNT(*) AS n FROM users')).n;
+    await assert.rejects(
+      restoreDirectorySnapshot({ enabled: true, file: archivo }),
+      /ya pertenece/
+    );
+    assert.equal((await db.queryOne('SELECT COUNT(*) AS n FROM users')).n, antes);
+    const emailOwner = await db.queryOne('SELECT username FROM users WHERE email = ?', 'ua@aisl.test');
+    assert.equal(emailOwner.username, 'usuario_a_aisl', 'el correo sigue en su dueño original');
+  });
+
+  it('un rol desconocido revierte por completo, incluido el departamento ya insertado', async () => {
+    const ts = Date.now();
+    const deptNuevo = `Rollback ${ts}`;
+    const archivo = path.join(tmp, 'rol-malo.json');
+    fs.writeFileSync(
+      archivo,
+      JSON.stringify({
+        version: 3,
+        departments: [{ name: deptNuevo, description: 'x', active: 1, organization_code: ORGA }],
+        users: [
+          {
+            name: 'SinRol', last_name: 'Rollback', username: `sinrol_${ts}`, email: `sinrol_${ts}@aisl.test`,
+            position: 'P', active: 1, role_code: 'ROL_QUE_NO_EXISTE', department_name: null,
+            organization_code: ORGA,
+          },
+        ],
+      })
+    );
+
+    const deptAntes = (await db.queryOne('SELECT COUNT(*) AS n FROM departments')).n;
+    const userAntes = (await db.queryOne('SELECT COUNT(*) AS n FROM users')).n;
+    await assert.rejects(
+      restoreDirectorySnapshot({ enabled: true, file: archivo }),
+      /Rol no encontrado/
+    );
+    assert.equal((await db.queryOne('SELECT COUNT(*) AS n FROM departments')).n, deptAntes, 'el departamento insertado se revierte');
+    const deptRow = await db.queryOne('SELECT id FROM departments WHERE name = ?', deptNuevo);
+    assert.equal(deptRow, undefined);
+    assert.equal((await db.queryOne('SELECT COUNT(*) AS n FROM users')).n, userAntes);
+  });
+
+  describe('SUPERADMIN crea administradores de organización (ETAPA 3)', () => {
+    let superadminClient;
+    let orgAId;
+    let orgBId;
+    let roleAdminId;
+
+    before(async () => {
+      // Usar las organizaciones ya creadas
+      orgAId = ids.orgA;
+      orgBId = ids.orgB;
+      roleAdminId = (await db.queryOne("SELECT id FROM roles WHERE code = 'ADMIN'")).id;
+
+      // Crear cliente SUPERADMIN
+      const { createSuperadminClient } = await import('./helpers.js');
+      superadminClient = await createSuperadminClient('superadmin_org_admin_test');
+    });
+
+    it('SUPERADMIN puede crear un ADMIN para organización A especificando organization_id', async () => {
+      const res = await superadminClient.post('/api/users', {
+        name: 'Admin',
+        last_name: 'OrgA',
+        username: 'admin_orgA_test',
+        email: 'admin_orga_test@organizacion.test',
+        password: 'AdminOrgA1234!',
+        role_id: roleAdminId,
+        organization_id: orgAId,
+      });
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      assert.equal(res.body.user.organization_id, orgAId);
+      assert.equal(res.body.user.role, 'ADMIN');
+      assert.equal(res.body.user.is_superadmin, false);
+    });
+
+    it('SUPERADMIN puede crear un ADMIN para organización B especificando organization_id', async () => {
+      const res = await superadminClient.post('/api/users', {
+        name: 'Admin',
+        last_name: 'OrgB',
+        username: 'admin_orgB_test',
+        email: 'admin_orgb_test@organizacion.test',
+        password: 'AdminOrgB1234!',
+        role_id: roleAdminId,
+        organization_id: orgBId,
+      });
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      assert.equal(res.body.user.organization_id, orgBId);
+      assert.equal(res.body.user.role, 'ADMIN');
+    });
+
+    it('SUPERADMIN NO puede crear SUPERADMIN con organization_id (debe ser null)', async () => {
+      const roleSuperId = (await db.queryOne("SELECT id FROM roles WHERE code = 'SUPERADMIN'")).id;
+      const res = await superadminClient.post('/api/users', {
+        name: 'Super',
+        last_name: 'Admin',
+        username: 'superadmin_test',
+        email: 'superadmin_test@organizacion.test',
+        password: 'SuperAdmin1234!',
+        role_id: roleSuperId,
+        organization_id: orgAId, // Debe ser ignorado y forzado a null
+      });
+      assert.equal(res.status, 201, JSON.stringify(res.body));
+      assert.equal(res.body.user.organization_id, null, 'SUPERADMIN debe tener organization_id null');
+      assert.equal(res.body.user.role, 'SUPERADMIN');
+    });
+
+    it('Administrador normal NO puede especificar organization_id al crear usuario', async () => {
+      const c = createClient();
+      assert.equal((await c.login('admin_aisl_a', pass('admin_aisl_a'))).status, 200);
+
+      const res = await c.post('/api/users', {
+        name: 'Forjado',
+        last_name: 'Org',
+        username: 'forja_admin_test',
+        email: 'forja_admin@organizacion.test',
+        password: 'Temporal1234!',
+        role_id: roleAdminId,
+        organization_id: orgBId,
+      });
+      assert.equal(res.status, 400, 'debe rechazar organization_id forjado');
+    });
+
+    it('SUPERADMIN sin organization_id crea usuario en organización por defecto (null para SUPERADMIN, su org para otros)', async () => {
+      const roleEmpId = (await db.queryOne("SELECT id FROM roles WHERE code = 'EMPLOYEE'")).id;
+
+      // Sin organization_id, SUPERADMIN crea EMPLOYEE sin org (fallará por orgStateError)
+      const res1 = await superadminClient.post('/api/users', {
+        name: 'Emp',
+        last_name: 'SinOrg',
+        username: 'emp_sinorg_test',
+        email: 'emp_sinorg@organizacion.test',
+        password: 'Empleado1234!',
+        role_id: roleEmpId,
+        // Sin organization_id
+      });
+      assert.equal(res1.status, 400, 'EMPLOYEE sin organización debe fallar');
+
+      // Con organization_id explícito, funciona
+      const res2 = await superadminClient.post('/api/users', {
+        name: 'Emp',
+        last_name: 'ConOrg',
+        username: 'emp_conorg_test',
+        email: 'emp_conorg@organizacion.test',
+        password: 'Empleado1234!',
+        role_id: roleEmpId,
+        organization_id: orgAId,
+      });
+      assert.equal(res2.status, 201, JSON.stringify(res2.body));
+      assert.equal(res2.body.user.organization_id, orgAId);
+    });
+
+    it('El administrador creado puede iniciar sesión y solo ve su organización', async () => {
+      const c = createClient();
+      assert.equal((await c.login('admin_orgA_test', 'AdminOrgA1234!')).status, 200);
+      const me = await c.get('/api/auth/me');
+      assert.equal(me.status, 200);
+      assert.equal(me.body.user.organization_id, orgAId);
+      assert.equal(me.body.user.organization_name, 'Organización A de aislamiento');
+      assert.equal(me.body.user.is_superadmin, false);
+
+      // El admin solo ve usuarios de su organización
+      const users = await c.get('/api/users');
+      assert.equal(users.status, 200);
+      for (const u of users.body.data) {
+        assert.equal(u.organization_id, orgAId, 'solo usuarios de su organización');
+      }
+    });
   });
 });

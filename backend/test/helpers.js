@@ -1,29 +1,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
 import request from 'supertest';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tf-test-'));
-process.env.DB_FILE = path.join(tmp, 'test.db');
-process.env.DATA_DIR = tmp;
-process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
-process.env.SESSION_SECRET = 'test-secret';
+// SQL Server es el único motor. La suite NO crea ni migra ninguna base: usa la
+// base de PRUEBAS configurada por entorno (ver test/setup.js). Aquí solo se
+// fijan rutas temporales y secretos de fixture.
+process.env.DB_CLIENT = 'mssql';
 process.env.NODE_ENV = 'test';
-// El seed exige pedir cada cuenta. Estas son las credenciales de fixture que
-// usa la suite; no hay ninguna contraseña por defecto en el código de producción.
-process.env.SEED_ADMIN_PASSWORD = '123456';
-process.env.SEED_DEMO_ACCOUNTS = 'true';
-process.env.SEED_DEMO_PASSWORD = 'Empleado1234!';
-process.env.SEED_TECH_PASSWORD = 'Tecnico1234!';
+process.env.UPLOAD_DIR = path.join(tmp, 'uploads');
+process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'test-secret';
 
-const { runMigrations } = await import('../src/db.js');
-const { seed } = await import('../src/seed.js');
+const { default: db } = await import('../src/db/runtime.js');
 const { createApp } = await import('../src/app.js');
+const { hashPassword } = await import('../src/utils/password.js');
 
-runMigrations();
-seed();
+export { db };
 
 export const app = createApp();
 
@@ -126,4 +119,35 @@ export function createClient() {
   }
 
   return { get, post, patch, put, del, postForm, postMultipart, login };
+}
+
+// Crea (si hace falta) una cuenta SUPERADMIN global de prueba y devuelve un
+// cliente YA autenticado con ella. Los canales reservados al SUPERADMIN no
+// deben depender de que otra suite haya creado la cuenta: cada archivo de
+// pruebas corre en su propio proceso y el seed no crea ninguna cuenta
+// SUPERADMIN. Requiere el rol SUPERADMIN y el esquema ya presentes en la base
+// de pruebas.
+const SUPERADMIN_TEST_PASSWORD = 'SuperClave123!';
+export async function createSuperadminClient(username = 'super_roles_test') {
+  const existing = await db.queryOne('SELECT id FROM users WHERE username = ?', username);
+  if (!existing) {
+    const role = await db.queryOne("SELECT id FROM roles WHERE code = 'SUPERADMIN'");
+    await db.insertAndGetId(
+      `INSERT INTO users (name, last_name, username, email, password_hash, role_id, active, last_password_change_at, organization_id)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, NULL)`,
+      'Super',
+      'Global',
+      username,
+      `${username}@organizacion.test`,
+      hashPassword(SUPERADMIN_TEST_PASSWORD),
+      role.id,
+      new Date().toISOString()
+    );
+  }
+  const client = createClient();
+  const login = await client.login(username, SUPERADMIN_TEST_PASSWORD);
+  if (login.status !== 200) {
+    throw new Error(`No se pudo iniciar sesión como SUPERADMIN de prueba (${login.status})`);
+  }
+  return client;
 }

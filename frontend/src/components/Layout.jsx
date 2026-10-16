@@ -64,6 +64,11 @@ const ICONS = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7.4 7.4 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.4 7.4 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5a7.4 7.4 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-1a7.4 7.4 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.4 7.4 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.1-.4.1-.8.1-1.2z" />
     </svg>
   ),
+  organizations: (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5m-4 0h4" />
+    </svg>
+  ),
   inbox: (
     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-2 4l-5 4-5-4" />
@@ -105,6 +110,7 @@ const TITLES = {
   '/app/knowledge': 'Base de conocimiento',
   '/app/knowledge/new': 'Nuevo artículo',
   '/app/knowledge/admin': 'Administrar conocimientos',
+  '/app/organizations': 'Empresas',
 };
 
 // El reloj es lo único que cambia cada segundo, así que vive aquí y no en
@@ -249,6 +255,7 @@ export default function Layout() {
   }
   if (can(user, 'settings.manage')) system.push({ to: '/app/settings', label: 'Configuración', icon: ICONS.settings });
   if (can(user, 'settings.manage')) system.push({ to: '/app/audit', label: 'Auditoría', icon: ICONS.audit });
+  if (can(user, 'organization.manage')) system.push({ to: '/app/organizations', label: 'Empresas', icon: ICONS.organizations });
 
   const sections = [
     { title: 'Principal', items: primary },
@@ -332,7 +339,7 @@ export default function Layout() {
             {initials}
           </span>
           <div className="min-w-0 flex-1 hidden md:block">
-            <p className="truncate text-sm font-semibold text-slate-800">
+            <p className="truncate text-sm font-semibold text-white">
               {user?.name} {user?.last_name}
             </p>
             <p className="truncate text-xs text-slate-400">{user?.role_name}</p>
@@ -371,7 +378,7 @@ export default function Layout() {
           <img src="/logo/TSIFHA-PNG.png" alt="SIFHA" className="hidden h-8 w-auto max-w-32 object-contain sm:block lg:hidden" />
           <button
             onClick={() => setOpen(true)}
-            className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 lg:hidden"
+            className="rounded-lg p-2 text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
             aria-label="Abrir menú"
           >
             <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -448,7 +455,7 @@ export default function Layout() {
                 <form onSubmit={onMobileSearchSubmit}>
                   <div className="relative">
                     <svg
-                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                      className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -530,7 +537,7 @@ export default function Layout() {
             <Tooltip text="Mi cuenta">
               <button
                 onClick={() => navigate('/app/profile')}
-                className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-100"
+                className="rounded-lg p-2 text-slate-400 transition hover:bg-white/10 hover:text-white"
                 aria-label="Mi cuenta"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">

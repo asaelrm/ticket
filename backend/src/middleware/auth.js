@@ -1,5 +1,5 @@
-import db from '../db.js';
-import { nowIso } from '../db.js';
+import runtime from '../db/runtime.js';
+import { nowIso } from '../utils/time.js';
 
 const USER_SQL = `
   SELECT u.id, u.name, u.last_name, u.username, u.email, u.department_id,
@@ -7,12 +7,13 @@ const USER_SQL = `
          u.organization_id,
          r.code AS role_code, r.name AS role_name,
          d.name AS department_name,
-         o.name AS organization_name
-  FROM users u
-  JOIN roles r ON r.id = u.role_id
-  LEFT JOIN departments d ON d.id = u.department_id
-  LEFT JOIN organizations o ON o.id = u.organization_id
-  WHERE u.id = ?
+         o.name AS organization_name,
+         o.active AS organization_active
+   FROM users u
+   JOIN roles r ON r.id = u.role_id
+   LEFT JOIN departments d ON d.id = u.department_id
+   LEFT JOIN organizations o ON o.id = u.organization_id
+   WHERE u.id = ?
 `;
 
 const PERMS_SQL = `
@@ -47,25 +48,34 @@ export function publicUser(row) {
   };
 }
 
-export function loadUser(request) {
+export async function loadUser(request) {
   const { userId } = request.session || {};
   if (!userId) return null;
-  const row = db.prepare(USER_SQL).get(userId);
+  const row = await runtime.queryOne(USER_SQL, userId);
   if (!row) return null;
-  if (!row.active) return { ...publicUser(row), inactive: true, permissions: [] };
-  const perms = db.prepare(PERMS_SQL).all(row.role_id).map((p) => p.code);
-  return { ...publicUser(row), inactive: false, permissions: perms };
+  // V4: una organización desactivada bloquea el acceso de SUS cuentas. Sin
+  // esta comprobación, `active` sería un campo decorativo (se podría apagar la
+  // empresa y sus usuarios seguirían entrando con su sesión). Un SUPERADMIN
+  // global no tiene organización, así que nunca queda atrapado aquí.
+  const orgDisabled = row.organization_id != null && row.organization_active != null && !Number(row.organization_active);
+  if (!row.active || orgDisabled) return { ...publicUser(row), inactive: true, permissions: [] };
+  const perms = await runtime.queryMany(PERMS_SQL, row.role_id);
+  return { ...publicUser(row), inactive: false, permissions: perms.map((p) => p.code) };
 }
 
-export function requireAuth(req, res, next) {
-  const user = loadUser(req);
-  if (!user) return res.status(401).json({ error: 'No autenticado' });
-  if (user.inactive) {
-    req.session.destroy(() => {});
-    return res.status(403).json({ error: 'Su cuenta está desactivada. Contacte a un administrador.' });
+export async function requireAuth(req, res, next) {
+  try {
+    const user = await loadUser(req);
+    if (!user) return res.status(401).json({ error: 'No autenticado' });
+    if (user.inactive) {
+      req.session.destroy(() => {});
+      return res.status(403).json({ error: 'Su cuenta está desactivada. Contacte a un administrador.' });
+    }
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
   }
-  req.user = user;
-  next();
 }
 
 export function requirePermission(permission) {
@@ -94,6 +104,6 @@ export function requireAnyPermission(permissions) {
   };
 }
 
-export function touchLastLogin(userId) {
-  db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(nowIso(), userId);
+export async function touchLastLogin(userId) {
+  await runtime.execute('UPDATE users SET last_login_at = ? WHERE id = ?', nowIso(), userId);
 }

@@ -9,7 +9,7 @@
 #
 # Antes de tocar este fichero, comprobar que sigue lo que el build necesita:
 #   backend/package*.json   -> npm ci de dependencias de produccion
-#   backend/src             -> el runtime (config.js, db.js, server.js...)
+#   backend/src             -> el runtime (config.js, db/runtime.js, server.js...)
 #   frontend/package*.json  -> npm ci del frontend
 #   frontend/src, public    -> entrada de `npm run build`
 #   frontend/index.html     -> plantilla de Vite
@@ -60,7 +60,7 @@ backend/dist/
 
 # --- Dependencias de desarrollo que tampoco hacen falta en la imagen ----------
 # npm ci ya corre dentro de la imagen; los tests se ejecutan en el host contra
-# una base de datos temporal, no dentro del contenedor.
+# un SQL Server de pruebas, no dentro del contenedor.
 backend/test/
 **/*.test.js
 **/*.spec.js

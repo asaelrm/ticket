@@ -1,9 +1,11 @@
 import express from 'express';
-import db, { nowIso } from '../db.js';
+import runtime from '../db/runtime.js';
+import { nowIso } from '../utils/time.js';
 import { safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js';
 import { currentOrgId, rejectClientOrg, requireOrg } from '../middleware/org.js';
 import { canViewTicket } from './tickets.js';
+import { insertKbArticleHistory, insertKbTicketArticle } from '../utils/kbTeamChildWrites.js';
 import {
   ARTICLE_STATUSES,
   normalizeKeywords,
@@ -172,12 +174,11 @@ function filterClauses(req) {
  * Cuenta y devuelve la página usando el MISMO where, para que el total nunca
  * incluya filas que el listado va a filtrar (fuga por paginación).
  */
-function runList(clauses, params, order, { page, perPage, offset }) {
+async function runList(clauses, params, order, { page, perPage, offset }) {
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM kb_articles a ${where}`).get(...params).n;
-  const data = db
-    .prepare(`${SUMMARY_SELECT} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
-    .all(...params, perPage, offset);
+  const totalRow = await runtime.queryOne(`SELECT COUNT(*) AS n FROM kb_articles a ${where}`, ...params);
+  const total = totalRow?.n ?? 0;
+  const data = await runtime.queryMany(`${SUMMARY_SELECT} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`, ...params, perPage, offset);
   return { data, total, page, perPage, pages: Math.ceil(total / perPage) };
 }
 
@@ -190,10 +191,11 @@ function preview(value) {
   return text.length > 120 ? `${text.slice(0, 117)}…` : text;
 }
 
-function recordHistory(articleId, userId, action, field, oldValue, newValue) {
-  db.prepare(
-    'INSERT INTO kb_article_history (article_id, user_id, action, field, old_value, new_value) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(articleId, userId, action, field, preview(oldValue), preview(newValue));
+async function recordHistory(articleId, userId, action, field, oldValue, newValue) {
+  // insertKbArticleHistory añade organization_id (derivada del artículo) y
+  // valida la relación con el usuario en MSSQL; en SQLite omite la columna
+  // porque esa tabla no la tiene. Nunca se inventa la organización.
+  await insertKbArticleHistory(articleId, userId, action, field, preview(oldValue), preview(newValue));
 }
 
 // ------------------------------------------------------------------ duplicados
@@ -207,16 +209,15 @@ function recordHistory(articleId, userId, action, field, oldValue, newValue) {
  * es legítimo; la base de conocimiento se orienta a la reutilización, no a la
  * deduplicación forzada.
  */
-function duplicateExists({ title, authorId, excludeId = null }) {
-  const row = db
-    .prepare(
-      `SELECT a.id FROM kb_articles a
-       WHERE a.author_id = ?
-         AND a.status IN ('DRAFT','PUBLISHED')
-         AND LOWER(a.title) = LOWER(?)
-         AND a.id != ?`
-    )
-    .get(authorId, title, excludeId ?? 0);
+async function duplicateExists({ title, authorId, excludeId = null }) {
+  const row = await runtime.queryOne(
+    `SELECT a.id FROM kb_articles a
+     WHERE a.author_id = ?
+       AND a.status IN ('DRAFT','PUBLISHED')
+       AND LOWER(a.title) = LOWER(?)
+       AND a.id != ?`,
+    authorId, title, excludeId ?? 0
+  );
   return Boolean(row);
 }
 
@@ -229,11 +230,11 @@ function duplicateExists({ title, authorId, excludeId = null }) {
  * ETAPA 3: la categoría debe pertenecer a la organización (del actor al crear,
  * del artículo al editar).
  */
-function resolveCategoryId(value, organizationId) {
+async function resolveCategoryId(value, organizationId) {
   if (value === null) return { ok: true, categoryId: null };
   const id = parseIntSafe(value);
   if (!id) return { ok: false, error: 'Categoría de conocimiento no válida' };
-  const row = db.prepare('SELECT id FROM kb_categories WHERE id = ? AND active = 1 AND organization_id = ?').get(id, organizationId);
+  const row = await runtime.queryOne('SELECT id FROM kb_categories WHERE id = ? AND active = 1 AND organization_id = ?', id, organizationId);
   if (!row) return { ok: false, error: 'La categoría de conocimiento no existe, está desactivada o no pertenece a su organización' };
   return { ok: true, categoryId: id };
 }
@@ -241,26 +242,34 @@ function resolveCategoryId(value, organizationId) {
 // ------------------------------------------------------------------- artículos
 
 /** Carga un artículo legible por el usuario, o null (el llamante responde 404). */
-function readableArticle(user, id) {
-  const row = db.prepare(`${DETAIL_SELECT} WHERE a.id = ? AND a.organization_id = ?`).get(id, currentOrgId(user));
+async function readableArticle(user, id) {
+  const row = await runtime.queryOne(`${DETAIL_SELECT} WHERE a.id = ? AND a.organization_id = ?`, id, currentOrgId(user));
   return canRead(user, row) ? row : null;
 }
 
-router.get('/mine', requirePermission('kb.create'), (req, res) => {
-  // Artículos propios en cualquier estado, incluidos los archivados: es la
-  // vista de trabajo del autor.
-  const filters = filterClauses(req);
-  if (filters.error) return res.status(400).json({ error: filters.error });
-  const clauses = ['a.author_id = ?', ...filters.clauses];
-  const params = [req.user.id, ...filters.params];
-  const page = pagination(req);
-  res.json(runList(clauses, params, 'a.updated_at DESC, a.id DESC', page));
+router.get('/mine', requirePermission('kb.create'), async (req, res) => {
+  try {
+    // Artículos propios en cualquier estado, incluidos los archivados: es la
+    // vista de trabajo del autor.
+    const filters = filterClauses(req);
+    if (filters.error) return res.status(400).json({ error: filters.error });
+    const clauses = ['a.author_id = ?', ...filters.clauses];
+    const params = [req.user.id, ...filters.params];
+    const page = pagination(req);
+    res.json(await runList(clauses, params, 'a.updated_at DESC, a.id DESC', page));
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
-router.get('/manage', requirePermission('kb.manage'), (req, res) => {
-  const filters = filterClauses(req);
-  if (filters.error) return res.status(400).json({ error: filters.error });
-  res.json(runList(filters.clauses, filters.params, sortClause(req.query.sort), pagination(req)));
+router.get('/manage', requirePermission('kb.manage'), async (req, res) => {
+  try {
+    const filters = filterClauses(req);
+    if (filters.error) return res.status(400).json({ error: filters.error });
+    res.json(await runList(filters.clauses, filters.params, sortClause(req.query.sort), pagination(req)));
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 /**
@@ -279,80 +288,91 @@ router.get('/manage', requirePermission('kb.manage'), (req, res) => {
  * así que el autor DEBE revisarlo antes de publicar; por eso el resultado es
  * siempre un borrador que nadie más ve.
  */
-router.get('/from-ticket/:ticketId', requirePermission('kb.create'), (req, res) => {
-  const ticketId = parseIntSafe(req.params.ticketId);
-  const ticket = ticketId
-    ? db
-        .prepare(
+router.get('/from-ticket/:ticketId', requirePermission('kb.create'), async (req, res) => {
+  try {
+    const ticketId = parseIntSafe(req.params.ticketId);
+    const ticket = ticketId
+      ? await runtime.queryOne(
           `SELECT t.id, t.ticket_number, t.title, t.description, t.resolution,
                   t.resolution_category, t.root_cause, t.category_id,
                   t.status, t.resolved_at, t.closed_at, t.reporter_id,
                   t.organization_id
-           FROM tickets t WHERE t.id = ?`
+           FROM tickets t WHERE t.id = ?`,
+          ticketId
         )
-        .get(ticketId)
-    : null;
+      : null;
 
-  if (!ticket || !canViewTicket(req.user, ticket)) {
-    return res.status(404).json({ error: 'Ticket no encontrado' });
-  }
+    if (!ticket || !canViewTicket(req.user, ticket)) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
 
-  // Un ticket reabierto conserva la resolución anterior (tickets.js lo hace
-  // explícito al limpiar), así que el filtro por estado es obligatorio: sin él
-  // se podría publicar una solución obsoleta.
-  if (!['RESOLVED', 'CLOSED'].includes(ticket.status)) {
-    return res.status(400).json({ error: 'Solo se puede crear un artículo desde un ticket resuelto o cerrado' });
-  }
-  if (!String(ticket.resolution ?? '').trim()) {
-    return res.status(400).json({ error: 'El ticket no tiene una solución registrada' });
-  }
+    // Un ticket reabierto conserva la resolución anterior (tickets.js lo hace
+    // explícito al limpiar), así que el filtro por estado es obligatorio: sin él
+    // se podría publicar una solución obsoleta.
+    if (!['RESOLVED', 'CLOSED'].includes(ticket.status)) {
+      return res.status(400).json({ error: 'Solo se puede crear un artículo desde un ticket resuelto o cerrado' });
+    }
+    if (!String(ticket.resolution ?? '').trim()) {
+      return res.status(400).json({ error: 'El ticket no tiene una solución registrada' });
+    }
 
-  res.json({
-    preview: {
-      title: ticket.title,
-      description: ticket.description,
-      solution: ticket.resolution,
-      keywords: '',
-      // `tickets.category_id` apunta a `categories` (tipo de incidencia), no a
-      // `kb_categories` (tema de documentación): son dominios distintos y sus
-      // identificadores no significan lo mismo. Prefijar aquí sugeriría una
-      // equivalencia que no existe y publicaría el artículo en la categoría
-      // equivocada, así que el autor elige la suya en el formulario.
-      category_id: null,
-      ticket_id: ticket.id,
-      ticket_number: ticket.ticket_number,
-      // Datos de contexto, nunca asignables a un artículo.
-      ticket_category_id: ticket.category_id,
-      resolution_category: ticket.resolution_category,
-      root_cause: ticket.root_cause,
-    },
-  });
+    res.json({
+      preview: {
+        title: ticket.title,
+        description: ticket.description,
+        solution: ticket.resolution,
+        keywords: '',
+        // `tickets.category_id` apunta a `categories` (tipo de incidencia), no a
+        // `kb_categories` (tema de documentación): son dominios distintos y sus
+        // identificadores no significan lo mismo. Prefijar aquí sugeriría una
+        // equivalencia que no existe y publicaría el artículo en la categoría
+        // equivocada, así que el autor elige la suya en el formulario.
+        category_id: null,
+        ticket_id: ticket.id,
+        ticket_number: ticket.ticket_number,
+        // Datos de contexto, nunca asignables a un artículo.
+        ticket_category_id: ticket.category_id,
+        resolution_category: ticket.resolution_category,
+        root_cause: ticket.root_cause,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 /** Listado público: solo artículos publicados. */
-router.get('/', requirePermission('kb.view'), (req, res) => {
-  const filters = filterClauses(req);
-  if (filters.error) return res.status(400).json({ error: filters.error });
-  // Se fuerza PUBLISHED aunque venga ?status= en la URL: el listado público no
-  // es un canal para leer borradores ajenos.
-  const clauses = ["a.status = 'PUBLISHED'", ...filters.clauses];
-  res.json(runList(clauses, filters.params, sortClause(req.query.sort), pagination(req)));
+router.get('/', requirePermission('kb.view'), async (req, res) => {
+  try {
+    const filters = filterClauses(req);
+    if (filters.error) return res.status(400).json({ error: filters.error });
+    // Se fuerza PUBLISHED aunque venga ?status= en la URL: el listado público no
+    // es un canal para leer borradores ajenos.
+    const clauses = ["a.status = 'PUBLISHED'", ...filters.clauses];
+    res.json(await runList(clauses, filters.params, sortClause(req.query.sort), pagination(req)));
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
-router.get('/:id', requirePermission('kb.view'), (req, res) => {
-  const id = parseIntSafe(req.params.id);
-  const article = readableArticle(req.user, id);
-  // 404 (no 403) para no confirmar la existencia de un borrador ajeno.
-  if (!article) return res.status(404).json({ error: 'Artículo no encontrado' });
+router.get('/:id', requirePermission('kb.view'), async (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id);
+    const article = await readableArticle(req.user, id);
+    // 404 (no 403) para no confirmar la existencia de un borrador ajeno.
+    if (!article) return res.status(404).json({ error: 'Artículo no encontrado' });
 
-  // El contador de visitas solo lo mueve el servidor, solo sobre artículos
-  // publicados y nunca cuando el autor relee su propio trabajo.
-  if (article.status === 'PUBLISHED' && article.author_id !== req.user.id) {
-    db.prepare('UPDATE kb_articles SET view_count = view_count + 1 WHERE id = ?').run(article.id);
-    article.view_count += 1;
+    // El contador de visitas solo lo mueve el servidor, solo sobre artículos
+    // publicados y nunca cuando el autor relee su propio trabajo.
+    if (article.status === 'PUBLISHED' && article.author_id !== req.user.id) {
+      await runtime.execute('UPDATE kb_articles SET view_count = view_count + 1 WHERE id = ?', article.id);
+      article.view_count += 1;
+    }
+
+    res.json({ article });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-
-  res.json({ article });
 });
 
 /**
@@ -362,37 +382,40 @@ router.get('/:id', requirePermission('kb.view'), (req, res) => {
  * cuerpo se IGNORAN: el autor sale de la sesión y el estado solo cambia por los
  * endpoints de transición. No hay ninguna publicación automática.
  */
-router.post('/', requirePermission('kb.create'), requireOrg, (req, res) => {
-  const body = req.body || {};
-  const rejected = rejectClientOrg(body);
-  if (rejected) return res.status(400).json({ error: rejected });
-  const organizationId = currentOrgId(req.user);
-  const title = safeStr(body.title);
-  const summary = safeStr(body.summary);
-  const description = typeof body.description === 'string' ? body.description.trim() : '';
-  const solution = typeof body.solution === 'string' ? body.solution.trim() : '';
-  const keywords = normalizeKeywords(body.keywords);
+router.post('/', requirePermission('kb.create'), requireOrg, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const rejected = rejectClientOrg(body);
+    if (rejected) return res.status(400).json({ error: rejected });
+    const organizationId = currentOrgId(req.user);
+    const title = safeStr(body.title);
+    const summary = safeStr(body.summary);
+    const description = typeof body.description === 'string' ? body.description.trim() : '';
+    const solution = typeof body.solution === 'string' ? body.solution.trim() : '';
+    const keywords = normalizeKeywords(body.keywords);
 
-  const check = validateArticleFields({ title, summary, description, solution });
-  if (!check.ok) return res.status(400).json({ error: 'Datos inválidos', fields: check.fields });
+    const check = validateArticleFields({ title, summary, description, solution });
+    if (!check.ok) return res.status(400).json({ error: 'Datos inválidos', fields: check.fields });
 
-  const category = resolveCategoryId(body.category_id === undefined ? null : body.category_id, organizationId);
-  if (!category.ok) return res.status(400).json({ error: category.error });
+    const category = await resolveCategoryId(body.category_id === undefined ? null : body.category_id, organizationId);
+    if (!category.ok) return res.status(400).json({ error: category.error });
 
-  if (duplicateExists({ title, authorId: req.user.id })) {
-    return res.status(409).json({ error: 'Ya tienes un artículo con ese título' });
-  }
+    if (await duplicateExists({ title, authorId: req.user.id })) {
+      return res.status(409).json({ error: 'Ya tienes un artículo con ese título' });
+    }
 
-  const info = db
-    .prepare(
+    const info = await runtime.insertAndGetId(
       `INSERT INTO kb_articles (title, summary, description, solution, keywords, category_id, author_id, organization_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    // author_id y organization_id SIEMPRE de la sesión; status queda en su DEFAULT 'DRAFT'.
-    .run(title, summary, description, solution, keywords, category.categoryId, req.user.id, organizationId);
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      title, summary, description, solution, keywords, category.categoryId, req.user.id, organizationId
+    );
 
-  recordHistory(info.lastInsertRowid, req.user.id, 'CREATED', null, null, title);
-  res.status(201).json({ article: db.prepare(`${DETAIL_SELECT} WHERE a.id = ?`).get(info.lastInsertRowid) });
+    await recordHistory(info.id, req.user.id, 'CREATED', null, null, title);
+    const article = await runtime.queryOne(`${DETAIL_SELECT} WHERE a.id = ?`, info.id);
+    res.status(201).json({ article });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 const EDITABLE_FIELDS = ['title', 'summary', 'description', 'solution', 'keywords', 'category_id'];
@@ -413,70 +436,79 @@ const FIELD_LABELS = {
  * published_at o is_featured, se ignoran. El estado solo cambia por /publish,
  * /unpublish y /archive.
  */
-router.patch('/:id', requirePermission('kb.create'), (req, res) => {
-  const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT * FROM kb_articles WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
-  // 404 en lugar de 403: no revelamos que existe un artículo ajeno.
-  if (!existing || !canEdit(req.user, existing)) {
-    return res.status(404).json({ error: 'Artículo no encontrado' });
-  }
-
-  const body = req.body || {};
-  const rejected = rejectClientOrg(body);
-  if (rejected) return res.status(400).json({ error: rejected });
-  const next = {
-    title: body.title === undefined ? existing.title : safeStr(body.title),
-    summary: body.summary === undefined ? existing.summary : safeStr(body.summary),
-    description: body.description === undefined ? existing.description : String(body.description).trim(),
-    solution: body.solution === undefined ? existing.solution : String(body.solution).trim(),
-    keywords: body.keywords === undefined ? existing.keywords : normalizeKeywords(body.keywords),
-  };
-
-  const check = validateArticleFields(next);
-  if (!check.ok) return res.status(400).json({ error: 'Datos inválidos', fields: check.fields });
-
-  if (body.category_id !== undefined) {
-    const category = resolveCategoryId(body.category_id, existing.organization_id);
-    if (!category.ok) return res.status(400).json({ error: category.error });
-    next.category_id = category.categoryId;
-  } else {
-    next.category_id = existing.category_id;
-  }
-
-  if (next.title !== existing.title && duplicateExists({ title: next.title, authorId: existing.author_id, excludeId: id })) {
-    return res.status(409).json({ error: 'Ya tienes un artículo con ese título' });
-  }
-
-  db.prepare(
-    `UPDATE kb_articles
-     SET title = ?, summary = ?, description = ?, solution = ?, keywords = ?, category_id = ?, updated_at = ?
-     WHERE id = ?`
-  ).run(next.title, next.summary, next.description, next.solution, next.keywords, next.category_id, nowIso(), id);
-
-  // Un cambio de contenido sobre un artículo publicado NO lo despublica: sigue
-  // visible hasta que el autor vuelva a publicarlo.
-  for (const field of EDITABLE_FIELDS) {
-    if (String(existing[field] ?? '') !== String(next[field] ?? '')) {
-      recordHistory(id, req.user.id, 'UPDATED', FIELD_LABELS[field], existing[field], next[field]);
+router.patch('/:id', requirePermission('kb.create'), async (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id);
+    const existing = await runtime.queryOne('SELECT * FROM kb_articles WHERE id = ? AND organization_id = ?', id, currentOrgId(req.user));
+    // 404 en lugar de 403: no revelamos que existe un artículo ajeno.
+    if (!existing || !canEdit(req.user, existing)) {
+      return res.status(404).json({ error: 'Artículo no encontrado' });
     }
-  }
 
-  res.json({ article: db.prepare(`${DETAIL_SELECT} WHERE a.id = ?`).get(id) });
+    const body = req.body || {};
+    const rejected = rejectClientOrg(body);
+    if (rejected) return res.status(400).json({ error: rejected });
+    const next = {
+      title: body.title === undefined ? existing.title : safeStr(body.title),
+      summary: body.summary === undefined ? existing.summary : safeStr(body.summary),
+      description: body.description === undefined ? existing.description : String(body.description).trim(),
+      solution: body.solution === undefined ? existing.solution : String(body.solution).trim(),
+      keywords: body.keywords === undefined ? existing.keywords : normalizeKeywords(body.keywords),
+    };
+
+    const check = validateArticleFields(next);
+    if (!check.ok) return res.status(400).json({ error: 'Datos inválidos', fields: check.fields });
+
+    if (body.category_id !== undefined) {
+      const category = await resolveCategoryId(body.category_id, existing.organization_id);
+      if (!category.ok) return res.status(400).json({ error: category.error });
+      next.category_id = category.categoryId;
+    } else {
+      next.category_id = existing.category_id;
+    }
+
+    if (next.title !== existing.title && await duplicateExists({ title: next.title, authorId: existing.author_id, excludeId: id })) {
+      return res.status(409).json({ error: 'Ya tienes un artículo con ese título' });
+    }
+
+    await runtime.execute(
+      `UPDATE kb_articles
+       SET title = ?, summary = ?, description = ?, solution = ?, keywords = ?, category_id = ?, updated_at = ?
+       WHERE id = ?`,
+      next.title, next.summary, next.description, next.solution, next.keywords, next.category_id, nowIso(), id
+    );
+
+    // Un cambio de contenido sobre un artículo publicado NO lo despublica: sigue
+    // visible hasta que el autor vuelva a publicarlo.
+    for (const field of EDITABLE_FIELDS) {
+      if (String(existing[field] ?? '') !== String(next[field] ?? '')) {
+        await recordHistory(id, req.user.id, 'UPDATED', FIELD_LABELS[field], existing[field], next[field]);
+      }
+    }
+
+    const article = await runtime.queryOne(`${DETAIL_SELECT} WHERE a.id = ?`, id);
+    res.json({ article });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 /** Guard común de las transiciones: valida permiso y estado de origen. */
 function transition(fromStatuses, action, apply) {
-  return (req, res) => {
-    const id = parseIntSafe(req.params.id);
-    const existing = db.prepare('SELECT * FROM kb_articles WHERE id = ? AND organization_id = ?')
-      .get(id, currentOrgId(req.user));
-    if (!existing || !canTransition(req.user, existing)) {
-      return res.status(404).json({ error: 'Artículo no encontrado' });
+  return async (req, res) => {
+    try {
+      const id = parseIntSafe(req.params.id);
+      const existing = await runtime.queryOne('SELECT * FROM kb_articles WHERE id = ? AND organization_id = ?', id, currentOrgId(req.user));
+      if (!existing || !canTransition(req.user, existing)) {
+        return res.status(404).json({ error: 'Artículo no encontrado' });
+      }
+      if (fromStatuses && !fromStatuses.includes(existing.status)) {
+        return res.status(400).json({ error: `El artículo está en estado ${existing.status} y no admite esta acción` });
+      }
+      await apply(existing, req, res, id, action);
+    } catch (err) {
+      res.status(500).json({ error: 'Error interno' });
     }
-    if (fromStatuses && !fromStatuses.includes(existing.status)) {
-      return res.status(400).json({ error: `El artículo está en estado ${existing.status} y no admite esta acción` });
-    }
-    apply(existing, req, res, id, action);
   };
 }
 
@@ -485,66 +517,71 @@ const TRANSITION_GUARD = requireAnyPermission(['kb.publish', 'kb.manage']);
 router.post(
   '/:id/publish',
   TRANSITION_GUARD,
-  transition(['DRAFT', 'ARCHIVED'], 'PUBLISHED', (existing, req, res, id, action) => {
-    if (duplicateExists({ title: existing.title, authorId: existing.author_id, excludeId: id })) {
+  transition(['DRAFT', 'ARCHIVED'], 'PUBLISHED', async (existing, req, res, id, action) => {
+    if (await duplicateExists({ title: existing.title, authorId: existing.author_id, excludeId: id })) {
       return res.status(409).json({ error: 'Ya tienes un artículo con ese título' });
     }
     const stamp = nowIso();
-    db.prepare('UPDATE kb_articles SET status = ?, published_at = ?, updated_at = ? WHERE id = ?').run(
-      'PUBLISHED', stamp, stamp, id
-    );
-    recordHistory(id, req.user.id, action, 'Estado', existing.status, 'PUBLISHED');
-    return res.json({ article: db.prepare(`${DETAIL_SELECT} WHERE a.id = ?`).get(id) });
+    await runtime.execute('UPDATE kb_articles SET status = ?, published_at = ?, updated_at = ? WHERE id = ?', 'PUBLISHED', stamp, stamp, id);
+    await recordHistory(id, req.user.id, action, 'Estado', existing.status, 'PUBLISHED');
+    const article = await runtime.queryOne(`${DETAIL_SELECT} WHERE a.id = ?`, id);
+    return res.json({ article });
   })
 );
 
 router.post(
   '/:id/unpublish',
   TRANSITION_GUARD,
-  transition(['PUBLISHED'], 'UNPUBLISHED', (existing, req, res, id, action) => {
-    db.prepare('UPDATE kb_articles SET status = ?, updated_at = ? WHERE id = ?').run('DRAFT', nowIso(), id);
-    recordHistory(id, req.user.id, action, 'Estado', existing.status, 'DRAFT');
-    return res.json({ article: db.prepare(`${DETAIL_SELECT} WHERE a.id = ?`).get(id) });
+  transition(['PUBLISHED'], 'UNPUBLISHED', async (existing, req, res, id, action) => {
+    await runtime.execute('UPDATE kb_articles SET status = ?, updated_at = ? WHERE id = ?', 'DRAFT', nowIso(), id);
+    await recordHistory(id, req.user.id, action, 'Estado', existing.status, 'DRAFT');
+    const article = await runtime.queryOne(`${DETAIL_SELECT} WHERE a.id = ?`, id);
+    return res.json({ article });
   })
 );
 
 router.post(
   '/:id/archive',
   TRANSITION_GUARD,
-  transition(['DRAFT', 'PUBLISHED'], 'ARCHIVED', (existing, req, res, id, action) => {
-    db.prepare('UPDATE kb_articles SET status = ?, updated_at = ? WHERE id = ?').run('ARCHIVED', nowIso(), id);
-    recordHistory(id, req.user.id, action, 'Estado', existing.status, 'ARCHIVED');
-    return res.json({ article: db.prepare(`${DETAIL_SELECT} WHERE a.id = ?`).get(id) });
+  transition(['DRAFT', 'PUBLISHED'], 'ARCHIVED', async (existing, req, res, id, action) => {
+    await runtime.execute('UPDATE kb_articles SET status = ?, updated_at = ? WHERE id = ?', 'ARCHIVED', nowIso(), id);
+    await recordHistory(id, req.user.id, action, 'Estado', existing.status, 'ARCHIVED');
+    const article = await runtime.queryOne(`${DETAIL_SELECT} WHERE a.id = ?`, id);
+    return res.json({ article });
   })
 );
 
 router.post(
   '/:id/feature',
   TRANSITION_GUARD,
-  transition(null, null, (existing, req, res, id) => {
+  transition(null, null, async (existing, req, res, id) => {
     const featured = existing.is_featured ? 0 : 1;
-    db.prepare('UPDATE kb_articles SET is_featured = ? WHERE id = ?').run(featured, id);
-    recordHistory(id, req.user.id, featured ? 'FEATURED' : 'UNFEATURED', 'Destacado', existing.is_featured, featured);
-    return res.json({ article: db.prepare(`${DETAIL_SELECT} WHERE a.id = ?`).get(id) });
+    await runtime.execute('UPDATE kb_articles SET is_featured = ? WHERE id = ?', featured, id);
+    await recordHistory(id, req.user.id, featured ? 'FEATURED' : 'UNFEATURED', 'Destacado', existing.is_featured, featured);
+    const article = await runtime.queryOne(`${DETAIL_SELECT} WHERE a.id = ?`, id);
+    return res.json({ article });
   })
 );
 
-router.get('/:id/history', requireAnyPermission(['kb.create', 'kb.manage']), (req, res) => {
-  const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT id, author_id FROM kb_articles WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
-  if (!existing || !canEdit(req.user, existing)) {
-    return res.status(404).json({ error: 'Artículo no encontrado' });
-  }
-  const rows = db
-    .prepare(
+router.get('/:id/history', requireAnyPermission(['kb.create', 'kb.manage']), async (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id);
+    const existing = await runtime.queryOne('SELECT id, author_id FROM kb_articles WHERE id = ? AND organization_id = ?', id, currentOrgId(req.user));
+    if (!existing || !canEdit(req.user, existing)) {
+      return res.status(404).json({ error: 'Artículo no encontrado' });
+    }
+    const rows = await runtime.queryMany(
       `SELECT h.*, u.name || ' ' || u.last_name AS user_name
        FROM kb_article_history h
        LEFT JOIN users u ON u.id = h.user_id
        WHERE h.article_id = ?
-       ORDER BY h.id ASC`
-    )
-    .all(id);
-  res.json({ data: rows });
+       ORDER BY h.id ASC`,
+      id
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 // ------------------------------------------------------- relación con tickets
@@ -554,23 +591,26 @@ router.get('/:id/history', requireAnyPermission(['kb.create', 'kb.manage']), (re
  * reporter_id se usa para canViewTicket pero NUNCA se devuelve: se elimina
  * antes de responder.
  */
-router.get('/:id/tickets', requirePermission('kb.view'), (req, res) => {
-  const id = parseIntSafe(req.params.id);
-  if (!readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
+router.get('/:id/tickets', requirePermission('kb.view'), async (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id);
+    if (!await readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
 
-  const rows = db
-    .prepare(
+    const rows = await runtime.queryMany(
       `SELECT t.id, t.ticket_number, t.title, t.status, t.created_at, t.reporter_id,
               t.organization_id, kba.created_at AS linked_at
        FROM kb_ticket_articles kba
        JOIN tickets t ON t.id = kba.ticket_id
        WHERE kba.article_id = ?
-       ORDER BY kba.created_at DESC`
-    )
-    .all(id);
+       ORDER BY kba.created_at DESC`,
+      id
+    );
 
-  const data = rows.filter((t) => canViewTicket(req.user, t)).map(({ reporter_id, ...rest }) => rest);
-  res.json({ data, total: data.length });
+    const data = rows.filter((t) => canViewTicket(req.user, t)).map(({ reporter_id, ...rest }) => rest);
+    res.json({ data, total: data.length });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
 });
 
 /**
@@ -579,37 +619,44 @@ router.get('/:id/tickets', requirePermission('kb.view'), (req, res) => {
  * contenido de un ticket, lo que contradice el resto del módulo (editar exige
  * kb.create, publicar exige kb.publish).
  */
-router.post('/:id/tickets/:ticketId', requirePermission('kb.create'), (req, res) => {
-  const id = parseIntSafe(req.params.id);
-  const ticketId = parseIntSafe(req.params.ticketId);
-  if (!readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
+router.post('/:id/tickets/:ticketId', requirePermission('kb.create'), async (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id);
+    const ticketId = parseIntSafe(req.params.ticketId);
+    if (!await readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
 
-  const ticket = ticketId ? db.prepare('SELECT id, reporter_id, organization_id FROM tickets WHERE id = ?').get(ticketId) : null;
-  if (!ticket || !canViewTicket(req.user, ticket)) {
-    return res.status(404).json({ error: 'Ticket no encontrado' });
-  }
+    const ticket = ticketId ? await runtime.queryOne('SELECT id, reporter_id, organization_id FROM tickets WHERE id = ?', ticketId) : null;
+    if (!ticket || !canViewTicket(req.user, ticket)) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
 
-  if (db.prepare('SELECT 1 AS x FROM kb_ticket_articles WHERE article_id = ? AND ticket_id = ?').get(id, ticketId)) {
-    return res.status(409).json({ error: 'El artículo ya está enlazado a este ticket' });
+    const exists = await runtime.queryOne('SELECT 1 AS x FROM kb_ticket_articles WHERE article_id = ? AND ticket_id = ?', id, ticketId);
+    if (exists) {
+      return res.status(409).json({ error: 'El artículo ya está enlazado a este ticket' });
+    }
+    await insertKbTicketArticle(id, ticketId, req.user.id);
+    res.status(201).json({ data: { article_id: id, ticket_id: ticketId } });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-  db.prepare('INSERT INTO kb_ticket_articles (article_id, ticket_id, created_by) VALUES (?, ?, ?)').run(
-    id, ticketId, req.user.id
-  );
-  res.status(201).json({ data: { article_id: id, ticket_id: ticketId } });
 });
 
-router.delete('/:id/tickets/:ticketId', requirePermission('kb.create'), (req, res) => {
-  const id = parseIntSafe(req.params.id);
-  const ticketId = parseIntSafe(req.params.ticketId);
-  if (!readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
+router.delete('/:id/tickets/:ticketId', requirePermission('kb.create'), async (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id);
+    const ticketId = parseIntSafe(req.params.ticketId);
+    if (!await readableArticle(req.user, id)) return res.status(404).json({ error: 'Artículo no encontrado' });
 
-  const ticket = ticketId ? db.prepare('SELECT id, reporter_id, organization_id FROM tickets WHERE id = ?').get(ticketId) : null;
-  if (!ticket || !canViewTicket(req.user, ticket)) {
-    return res.status(404).json({ error: 'Ticket no encontrado' });
+    const ticket = ticketId ? await runtime.queryOne('SELECT id, reporter_id, organization_id FROM tickets WHERE id = ?', ticketId) : null;
+    if (!ticket || !canViewTicket(req.user, ticket)) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
+
+    await runtime.execute('DELETE FROM kb_ticket_articles WHERE article_id = ? AND ticket_id = ?', id, ticketId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-
-  db.prepare('DELETE FROM kb_ticket_articles WHERE article_id = ? AND ticket_id = ?').run(id, ticketId);
-  res.json({ ok: true });
 });
 
 /**
@@ -617,22 +664,21 @@ router.delete('/:id/tickets/:ticketId', requirePermission('kb.create'), (req, re
  * routes/tickets.js lo reutilice en GET /:id/articles aplicando la MISMA regla
  * de visibilidad, en vez de duplicar la consulta.
  */
-export function visibleArticlesForTicket(user, ticketId) {
-  return db
-    .prepare(
-      `SELECT a.id, a.title, a.summary, a.keywords, a.status, a.category_id,
-              a.author_id, a.is_featured, a.view_count, a.published_at,
-              a.created_at, a.updated_at,
-              u.name || ' ' || u.last_name AS author_name,
-              c.name AS category_name, c.color AS category_color
-       FROM kb_ticket_articles kba
-       JOIN kb_articles a ON a.id = kba.article_id
-       LEFT JOIN users u ON u.id = a.author_id
-       LEFT JOIN kb_categories c ON c.id = a.category_id
-       WHERE kba.ticket_id = ? AND a.status = 'PUBLISHED'
-         AND a.organization_id = ?`
-    )
-    .all(ticketId, currentOrgId(user));
+export async function visibleArticlesForTicket(user, ticketId) {
+  return runtime.queryMany(
+    `SELECT a.id, a.title, a.summary, a.keywords, a.status, a.category_id,
+            a.author_id, a.is_featured, a.view_count, a.published_at,
+            a.created_at, a.updated_at,
+            u.name || ' ' || u.last_name AS author_name,
+            c.name AS category_name, c.color AS category_color
+     FROM kb_ticket_articles kba
+     JOIN kb_articles a ON a.id = kba.article_id
+     LEFT JOIN users u ON u.id = a.author_id
+     LEFT JOIN kb_categories c ON c.id = a.category_id
+     WHERE kba.ticket_id = ? AND a.status = 'PUBLISHED'
+       AND a.organization_id = ?`,
+    ticketId, currentOrgId(user)
+  );
 }
 
 // No existe DELETE /:id: archivar es la baja, para no destruir view_count ni el

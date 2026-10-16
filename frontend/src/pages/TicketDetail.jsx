@@ -343,6 +343,10 @@ export default function TicketDetail() {
       setCloseOpen(true);
       return;
     }
+    if (value === 'CANCELLED' && can.cancel) {
+      setCancelOpen(true);
+      return;
+    }
     if (value === 'PENDING') {
       setPendingOpen(true);
       return;
@@ -562,11 +566,11 @@ export default function TicketDetail() {
                 inercia al lado de "Cerrar". */}
             {can.cancel && !['CLOSED', 'CANCELLED', 'RESOLVED'].includes(t.status) && (
               <>
-                <span aria-hidden="true" className="hidden h-6 w-px bg-white/10 sm:block" />
-                {/* red-400, no red-600: el tema solo reescribe el token `text-red-600`
-                    sin `!`, así que `!text-red-600` dejaba el texto en un rojo
-                    oscuro que no cumplía AA sobre el botón. */}
-                <button type="button" className="btn-secondary !text-red-400" onClick={() => setCancelOpen(true)}>
+                <span aria-hidden="true" className="hidden h-6 w-px bg-slate-200 sm:block" />
+                {/* red-400 y no red-600: en tema oscuro es el rojo claro estándar
+                    sobre el botón, y en tema claro el puente de index.css lo alinea
+                    con --danger, que sí cumple AA sobre la superficie del botón. */}
+                <button type="button" className="btn-secondary text-red-400" onClick={() => setCancelOpen(true)}>
                   Cancelar ticket
                 </button>
               </>
@@ -608,7 +612,7 @@ export default function TicketDetail() {
         </div>
         {/* Quién atiende el ticket es lo primero que se consulta al abrirlo, así
             que vive en la cabecera y el panel lateral solo ofrece el control. */}
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Asignación</span>
           {t.assigned_name ? (
             <span className="inline-flex items-center gap-1.5 text-sm">
@@ -804,7 +808,7 @@ export default function TicketDetail() {
                 {message.length > MAX_COMMENT_LENGTH - 400 && (
                   <p
                     className={`text-xs ${
-                      message.length > MAX_COMMENT_LENGTH ? 'font-semibold text-red-400' : 'text-cyan-200/70'
+                      message.length > MAX_COMMENT_LENGTH ? 'font-semibold text-red-400' : 'text-slate-500'
                     }`}
                   >
                     {message.length}/{MAX_COMMENT_LENGTH} caracteres
@@ -1040,7 +1044,7 @@ export default function TicketDetail() {
           <button className="btn-secondary" onClick={() => setCancelOpen(false)}>
             Volver
           </button>
-          <button className="btn-secondary !text-red-400" onClick={submitCancel} disabled={saving || !cancelReason.trim()}>
+          <button className="btn-secondary text-red-400" onClick={submitCancel} disabled={saving || !cancelReason.trim()}>
             {saving && <Spinner className="h-4 w-4 text-red-600" />}
             Cancelar ticket
           </button>

@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - integracion-casa-oficina-11oct
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (pruebas unitarias, sin base de datos)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      # SQL Server es el único motor: la suite completa (`npm test`) y la de
+      # integración (`npm run test:mssql`) requieren un SQL Server de pruebas y
+      # sus credenciales MSSQL_TEST_*; se ejecutan aparte, no en este job.
+      - name: Pruebas unitarias
+        run: npm run test:unit
+
+  frontend:
+    name: Frontend (vitest + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Pruebas frontend
+        run: npx vitest run
+      - name: Build de produccion
+        run: npm run build

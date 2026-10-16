@@ -2,7 +2,7 @@ import { describe, it, before, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createClient } from './helpers.js';
 import { sentEmails, sendMail } from '../src/utils/mailer.js';
-import db from '../src/db.js';
+import db from '../src/db/runtime.js';
 
 let adminC;
 let empleadoC;
@@ -237,12 +237,12 @@ describe('Notificaciones por correo', () => {
   });
 
   it('un fallo al registrar en email_logs no hace fallar la creación del ticket', async () => {
-    const original = db.prepare;
-    db.prepare = function (sql) {
+    const original = db.insertAndGetId;
+    db.insertAndGetId = async function (sql, ...params) {
       if (typeof sql === 'string' && sql.includes('INSERT INTO email_logs')) {
         throw new Error('fallo forzado de email_logs');
       }
-      return original.call(this, sql);
+      return original(sql, ...params);
     };
     try {
       const res = await adminC.post('/api/tickets', {
@@ -254,7 +254,7 @@ describe('Notificaciones por correo', () => {
       assert.equal(res.status, 201);
       assert.ok(res.body.ticket.id, 'el ticket debe crearse igualmente');
     } finally {
-      db.prepare = original;
+      db.insertAndGetId = original;
     }
   });
 

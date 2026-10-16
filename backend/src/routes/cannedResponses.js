@@ -1,5 +1,6 @@
 import express from 'express';
-import db, { nowIso } from '../db.js';
+import runtime from '../db/runtime.js';
+import { nowIso } from '../utils/time.js';
 import { safeStr, parseIntSafe } from '../utils/validation.js';
 import { requireAuth, requireAnyPermission, requirePermission } from '../middleware/auth.js';
 import { currentOrgId, rejectClientOrg, requireOrg } from '../middleware/org.js';
@@ -98,227 +99,256 @@ function likePattern(term) {
  * Se exporta para que routes/tickets.js valide el contador de uso al comentar
  * sin duplicar la regla de visibilidad.
  */
-export function visibleTemplateFor(user, id) {
+export async function visibleTemplateFor(user, id) {
   const templateId = parseIntSafe(id);
   if (!templateId || !canUseTemplates(user)) return null;
-  return db.prepare(`${LIST_SELECT} WHERE c.id = ? AND ${VISIBLE_SQL}`).get(templateId, currentOrgId(user), user.id, user.id);
+  return runtime.queryOne(`${LIST_SELECT} WHERE c.id = ? AND ${VISIBLE_SQL}`, templateId, currentOrgId(user), user.id, user.id);
 }
 
 /** Plantilla propia (incluye inactivas) para la gestión del perfil. */
-router.get('/mine', (req, res) => {
-  if (!canUseTemplates(req.user)) {
-    return res.status(403).json({ error: 'No tiene permiso para usar respuestas rápidas' });
+router.get('/mine', async (req, res) => {
+  try {
+    if (!canUseTemplates(req.user)) {
+      return res.status(403).json({ error: 'No tiene permiso para usar respuestas rápidas' });
+    }
+    const rows = await runtime.queryMany(
+      `${LIST_SELECT} WHERE c.scope = 'PERSONAL' AND c.owner_id = ? AND c.organization_id = ? ORDER BY c.title ASC`,
+      req.user.id, currentOrgId(req.user)
+    );
+    res.json({ data: rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-  const rows = db
-    .prepare(`${LIST_SELECT} WHERE c.scope = 'PERSONAL' AND c.owner_id = ? AND c.organization_id = ? ORDER BY c.title ASC`)
-    .all(req.user.id, currentOrgId(req.user));
-  res.json({ data: rows });
 });
 
 /** Listado administrativo: globales y de equipo, con su estado real. */
-router.get('/manage', requireAnyPermission(['settings.manage', 'team.manage']), (req, res) => {
-  // Este listado es SIEMPRE de globales y de equipo. Las plantillas PERSONALES
-  // son privadas de su dueño y se gestionan desde /mine, así que quedan
-  // excluidas siempre, no solo cuando se pasa ?scope=: sin esta cláusula un
-  // usuario con team.manage (sin settings.manage) recibía el cuerpo de las
-  // personales de todos los usuarios.
-  const clauses = ["c.scope IN ('GLOBAL','TEAM')", 'c.organization_id = ?'];
-  const params = [currentOrgId(req.user)];
+router.get('/manage', requireAnyPermission(['settings.manage', 'team.manage']), async (req, res) => {
+  try {
+    // Este listado es SIEMPRE de globales y de equipo. Las plantillas PERSONALES
+    // son privadas de su dueño y se gestionan desde /mine, así que quedan
+    // excluidas siempre, no solo cuando se pasa ?scope=: sin esta cláusula un
+    // usuario con team.manage (sin settings.manage) recibía el cuerpo de las
+    // personales de todos los usuarios.
+    const clauses = ["c.scope IN ('GLOBAL','TEAM')", 'c.organization_id = ?'];
+    const params = [currentOrgId(req.user)];
 
-  const scope = req.query.scope ? String(req.query.scope).toUpperCase() : '';
-  if (scope) {
-    if (!SCOPES.includes(scope) || scope === 'PERSONAL') {
-      return res.status(400).json({ error: 'Ámbito no válido' });
+    const scope = req.query.scope ? String(req.query.scope).toUpperCase() : '';
+    if (scope) {
+      if (!SCOPES.includes(scope) || scope === 'PERSONAL') {
+        return res.status(400).json({ error: 'Ámbito no válido' });
+      }
+      clauses.push('c.scope = ?');
+      params.push(scope);
     }
-    clauses.push('c.scope = ?');
-    params.push(scope);
+
+    const teamId = parseIntSafe(req.query.team_id);
+    if (teamId) {
+      clauses.push('c.team_id = ?');
+      params.push(teamId);
+    }
+
+    const q = safeStr(req.query.q);
+    if (q) {
+      clauses.push("(LOWER(c.title) LIKE ? ESCAPE '\\' OR LOWER(c.body) LIKE ? ESCAPE '\\')");
+      const pattern = likePattern(q);
+      params.push(pattern, pattern);
+    }
+
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const order = sortClause(req.query.sort);
+    const total = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM canned_responses c ${where}`, ...params)).n;
+    const rows = await runtime.queryMany(
+      `${LIST_SELECT} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`,
+      ...params, 200, 0
+    );
+
+    res.json({ data: rows, total, page: 1, limit: 200 });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-
-  const teamId = parseIntSafe(req.query.team_id);
-  if (teamId) {
-    clauses.push('c.team_id = ?');
-    params.push(teamId);
-  }
-
-  const q = safeStr(req.query.q);
-  if (q) {
-    clauses.push("(LOWER(c.title) LIKE ? ESCAPE '\\' OR LOWER(c.body) LIKE ? ESCAPE '\\')");
-    const pattern = likePattern(q);
-    params.push(pattern, pattern);
-  }
-
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const order = sortClause(req.query.sort);
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM canned_responses c ${where}`).get(...params).n;
-  const rows = db
-    .prepare(`${LIST_SELECT} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
-    .all(...params, 200, 0);
-
-  res.json({ data: rows, total, page: 1, limit: 200 });
 });
 
 /** Listado para el selector del ticket: solo visibles y activas. */
-router.get('/', (req, res) => {
-  if (!canUseTemplates(req.user)) {
-    return res.status(403).json({ error: 'No tiene permiso para usar respuestas rápidas' });
+router.get('/', async (req, res) => {
+  try {
+    if (!canUseTemplates(req.user)) {
+      return res.status(403).json({ error: 'No tiene permiso para usar respuestas rápidas' });
+    }
+
+    const clauses = [VISIBLE_SQL];
+    const params = [currentOrgId(req.user), req.user.id, req.user.id];
+
+    const scope = req.query.scope ? String(req.query.scope).toUpperCase() : '';
+    if (scope) {
+      if (!SCOPES.includes(scope)) return res.status(400).json({ error: 'Ámbito no válido' });
+      clauses.push('c.scope = ?');
+      params.push(scope);
+    }
+
+    const teamId = parseIntSafe(req.query.team_id);
+    if (teamId) {
+      clauses.push('c.team_id = ?');
+      params.push(teamId);
+    }
+
+    const q = safeStr(req.query.q);
+    if (q) {
+      clauses.push("(LOWER(c.title) LIKE ? ESCAPE '\\' OR LOWER(c.body) LIKE ? ESCAPE '\\')");
+      const pattern = likePattern(q);
+      params.push(pattern, pattern);
+    }
+
+    const where = `WHERE ${clauses.join(' AND ')}`;
+    const order = sortClause(req.query.sort);
+    const limit = Math.min(Math.max(parseIntSafe(req.query.limit) || 25, 1), 100);
+    const page = Math.max(parseIntSafe(req.query.page) || 1, 1);
+
+    const total = (await runtime.queryOne(`SELECT COUNT(*) AS n FROM canned_responses c ${where}`, ...params)).n;
+    const rows = await runtime.queryMany(
+      `${LIST_SELECT} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`,
+      ...params, limit, (page - 1) * limit
+    );
+
+    res.json({ data: rows, total, page, limit });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
+});
 
-  const clauses = [VISIBLE_SQL];
-  const params = [currentOrgId(req.user), req.user.id, req.user.id];
+router.get('/:id', async (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id);
+    const row = await runtime.queryOne(`${LIST_SELECT} WHERE c.id = ? AND c.organization_id = ?`, id, currentOrgId(req.user));
+    // 404 (no 403) para no confirmar la existencia de plantillas ajenas.
+    if (!row || (!row.is_active && !canEdit(req.user, row)) || (row.is_active && !canUseTemplates(req.user))) {
+      return res.status(404).json({ error: 'Plantilla no encontrada' });
+    }
+    if (row.is_active && !(await visibleTemplateFor(req.user, id))) {
+      return res.status(404).json({ error: 'Plantilla no encontrada' });
+    }
+    res.json({ template: row });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
 
-  const scope = req.query.scope ? String(req.query.scope).toUpperCase() : '';
-  if (scope) {
+router.post('/', requireAnyPermission(['ticket.comment', 'ticket.note']), requireOrg, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const rejected = rejectClientOrg(body);
+    if (rejected) return res.status(400).json({ error: rejected });
+    const organizationId = currentOrgId(req.user);
+    const title = safeStr(body.title);
+    const scope = String(body.scope || 'PERSONAL').toUpperCase();
+    const templateBody = typeof body.body === 'string' ? body.body.trim() : '';
+    const teamId = parseIntSafe(body.team_id);
+    const isActive = body.is_active === undefined ? 1 : body.is_active ? 1 : 0;
+
     if (!SCOPES.includes(scope)) return res.status(400).json({ error: 'Ámbito no válido' });
-    clauses.push('c.scope = ?');
-    params.push(scope);
+    if (!title) return res.status(400).json({ error: 'El título es obligatorio' });
+    if (title.length > MAX_TEMPLATE_TITLE) {
+      return res.status(400).json({ error: `El título no debe exceder ${MAX_TEMPLATE_TITLE} caracteres` });
+    }
+    if (!canManageScope(req.user, scope)) {
+      return res.status(403).json({ error: 'No tiene permiso para crear plantillas de este ámbito' });
+    }
+
+    const check = validateTemplateBody(templateBody);
+    if (!check.ok) return res.status(400).json({ error: check.fields.body });
+
+    // owner_id siempre proviene de la sesión: nunca del cuerpo de la petición.
+    let ownerId = null;
+    let resolvedTeamId = null;
+    if (scope === 'PERSONAL') {
+      ownerId = req.user.id;
+    } else if (scope === 'TEAM') {
+      if (!teamId) return res.status(400).json({ error: 'Debe indicar el equipo de la plantilla' });
+      const team = await runtime.queryOne('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?', teamId, organizationId);
+      if (!team) return res.status(400).json({ error: 'El equipo no existe, está desactivado o no pertenece a su organización' });
+      resolvedTeamId = teamId;
+    } else if (body.team_id) {
+      return res.status(400).json({ error: 'Las plantillas globales no pertenecen a un equipo' });
+    }
+
+    if (isActive && await duplicateExists({ title, scope, ownerId, teamId: resolvedTeamId, organizationId })) {
+      return res.status(409).json({ error: 'Ya existe una plantilla activa con ese título en este ámbito' });
+    }
+
+    const result = await runtime.insertAndGetId(
+      'INSERT INTO canned_responses (title, body, scope, owner_id, team_id, is_active, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      title, templateBody, scope, ownerId, resolvedTeamId, isActive, organizationId
+    );
+    res.status(201).json({ template: await runtime.queryOne(`${LIST_SELECT} WHERE c.id = ?`, result.id) });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-
-  const teamId = parseIntSafe(req.query.team_id);
-  if (teamId) {
-    clauses.push('c.team_id = ?');
-    params.push(teamId);
-  }
-
-  const q = safeStr(req.query.q);
-  if (q) {
-    clauses.push("(LOWER(c.title) LIKE ? ESCAPE '\\' OR LOWER(c.body) LIKE ? ESCAPE '\\')");
-    const pattern = likePattern(q);
-    params.push(pattern, pattern);
-  }
-
-  const where = `WHERE ${clauses.join(' AND ')}`;
-  const order = sortClause(req.query.sort);
-  const limit = Math.min(Math.max(parseIntSafe(req.query.limit) || 25, 1), 100);
-  const page = Math.max(parseIntSafe(req.query.page) || 1, 1);
-
-  const total = db.prepare(`SELECT COUNT(*) AS n FROM canned_responses c ${where}`).get(...params).n;
-  const rows = db
-    .prepare(`${LIST_SELECT} ${where} ORDER BY ${order} LIMIT ? OFFSET ?`)
-    .all(...params, limit, (page - 1) * limit);
-
-  res.json({ data: rows, total, page, limit });
 });
 
-router.get('/:id', (req, res) => {
-  const id = parseIntSafe(req.params.id);
-  const row = db.prepare(`${LIST_SELECT} WHERE c.id = ? AND c.organization_id = ?`).get(id, currentOrgId(req.user));
-  // 404 (no 403) para no confirmar la existencia de plantillas ajenas.
-  if (!row || (!row.is_active && !canEdit(req.user, row)) || (row.is_active && !canUseTemplates(req.user))) {
-    return res.status(404).json({ error: 'Plantilla no encontrada' });
+router.patch('/:id', async (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id);
+    const existing = await runtime.queryOne('SELECT * FROM canned_responses WHERE id = ? AND organization_id = ?', id, currentOrgId(req.user));
+    if (!existing || !canEdit(req.user, existing)) {
+      return res.status(404).json({ error: 'Plantilla no encontrada' });
+    }
+
+    const body = req.body || {};
+    const rejected = rejectClientOrg(body);
+    if (rejected) return res.status(400).json({ error: rejected });
+    const organizationId = existing.organization_id;
+    const title = body.title === undefined ? existing.title : safeStr(body.title);
+    const templateBody = body.body === undefined ? existing.body : String(body.body).trim();
+    const isActive = body.is_active === undefined ? existing.is_active : body.is_active ? 1 : 0;
+    const scope = body.scope === undefined ? existing.scope : String(body.scope).toUpperCase();
+    const requestedTeamId = body.team_id === undefined ? existing.team_id : parseIntSafe(body.team_id);
+
+    if (!SCOPES.includes(scope)) return res.status(400).json({ error: 'Ámbito no válido' });
+    if (!title) return res.status(400).json({ error: 'El título es obligatorio' });
+    if (title.length > MAX_TEMPLATE_TITLE) {
+      return res.status(400).json({ error: `El título no debe exceder ${MAX_TEMPLATE_TITLE} caracteres` });
+    }
+
+    // Cambiar de ámbito exige permiso sobre el ámbito actual y el nuevo: nadie
+    // puede promover su plantilla personal a global sin settings.manage.
+    if ((scope !== existing.scope || requestedTeamId !== existing.team_id) && !canManageScope(req.user, scope)) {
+      return res.status(403).json({ error: 'No tiene permiso para mover la plantilla a ese ámbito' });
+    }
+
+    const check = validateTemplateBody(templateBody);
+    if (!check.ok) return res.status(400).json({ error: check.fields.body });
+
+    let ownerId = existing.owner_id;
+    let teamId = existing.team_id;
+    if (scope === 'PERSONAL') {
+      ownerId = req.user.id;
+      teamId = null;
+    } else if (scope === 'TEAM') {
+      if (!requestedTeamId) return res.status(400).json({ error: 'Debe indicar el equipo de la plantilla' });
+      const team = await runtime.queryOne('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?', requestedTeamId, organizationId);
+      if (!team) return res.status(400).json({ error: 'El equipo no existe o está desactivado' });
+      ownerId = null;
+      teamId = requestedTeamId;
+    } else {
+      ownerId = null;
+      teamId = null;
+    }
+
+    if (
+      isActive &&
+      await duplicateExists({ title, scope, ownerId, teamId, excludeId: id, organizationId })
+    ) {
+      return res.status(409).json({ error: 'Ya existe una plantilla activa con ese título en este ámbito' });
+    }
+
+    await runtime.execute(
+      'UPDATE canned_responses SET title = ?, body = ?, scope = ?, owner_id = ?, team_id = ?, is_active = ?, updated_at = ? WHERE id = ?',
+      title, templateBody, scope, ownerId, teamId, isActive, nowIso(), id
+    );
+
+    res.json({ template: await runtime.queryOne(`${LIST_SELECT} WHERE c.id = ?`, id) });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
   }
-  if (row.is_active && !visibleTemplateFor(req.user, id)) {
-    return res.status(404).json({ error: 'Plantilla no encontrada' });
-  }
-  res.json({ template: row });
-});
-
-router.post('/', requireAnyPermission(['ticket.comment', 'ticket.note']), requireOrg, (req, res) => {
-  const body = req.body || {};
-  const rejected = rejectClientOrg(body);
-  if (rejected) return res.status(400).json({ error: rejected });
-  const organizationId = currentOrgId(req.user);
-  const title = safeStr(body.title);
-  const scope = String(body.scope || 'PERSONAL').toUpperCase();
-  const templateBody = typeof body.body === 'string' ? body.body.trim() : '';
-  const teamId = parseIntSafe(body.team_id);
-  const isActive = body.is_active === undefined ? 1 : body.is_active ? 1 : 0;
-
-  if (!SCOPES.includes(scope)) return res.status(400).json({ error: 'Ámbito no válido' });
-  if (!title) return res.status(400).json({ error: 'El título es obligatorio' });
-  if (title.length > MAX_TEMPLATE_TITLE) {
-    return res.status(400).json({ error: `El título no debe exceder ${MAX_TEMPLATE_TITLE} caracteres` });
-  }
-  if (!canManageScope(req.user, scope)) {
-    return res.status(403).json({ error: 'No tiene permiso para crear plantillas de este ámbito' });
-  }
-
-  const check = validateTemplateBody(templateBody);
-  if (!check.ok) return res.status(400).json({ error: check.fields.body });
-
-  // owner_id siempre proviene de la sesión: nunca del cuerpo de la petición.
-  let ownerId = null;
-  let resolvedTeamId = null;
-  if (scope === 'PERSONAL') {
-    ownerId = req.user.id;
-  } else if (scope === 'TEAM') {
-    if (!teamId) return res.status(400).json({ error: 'Debe indicar el equipo de la plantilla' });
-    const team = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?').get(teamId, organizationId);
-    if (!team) return res.status(400).json({ error: 'El equipo no existe, está desactivado o no pertenece a su organización' });
-    resolvedTeamId = teamId;
-  } else if (body.team_id) {
-    return res.status(400).json({ error: 'Las plantillas globales no pertenecen a un equipo' });
-  }
-
-  if (isActive && duplicateExists({ title, scope, ownerId, teamId: resolvedTeamId, organizationId })) {
-    return res.status(409).json({ error: 'Ya existe una plantilla activa con ese título en este ámbito' });
-  }
-
-  const info = db
-    .prepare('INSERT INTO canned_responses (title, body, scope, owner_id, team_id, is_active, organization_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(title, templateBody, scope, ownerId, resolvedTeamId, isActive, organizationId);
-  res.status(201).json({ template: db.prepare(`${LIST_SELECT} WHERE c.id = ?`).get(info.lastInsertRowid) });
-});
-
-router.patch('/:id', (req, res) => {
-  const id = parseIntSafe(req.params.id);
-  const existing = db.prepare('SELECT * FROM canned_responses WHERE id = ? AND organization_id = ?').get(id, currentOrgId(req.user));
-  if (!existing || !canEdit(req.user, existing)) {
-    return res.status(404).json({ error: 'Plantilla no encontrada' });
-  }
-
-  const body = req.body || {};
-  const rejected = rejectClientOrg(body);
-  if (rejected) return res.status(400).json({ error: rejected });
-  const organizationId = existing.organization_id;
-  const title = body.title === undefined ? existing.title : safeStr(body.title);
-  const templateBody = body.body === undefined ? existing.body : String(body.body).trim();
-  const isActive = body.is_active === undefined ? existing.is_active : body.is_active ? 1 : 0;
-  const scope = body.scope === undefined ? existing.scope : String(body.scope).toUpperCase();
-  const requestedTeamId = body.team_id === undefined ? existing.team_id : parseIntSafe(body.team_id);
-
-  if (!SCOPES.includes(scope)) return res.status(400).json({ error: 'Ámbito no válido' });
-  if (!title) return res.status(400).json({ error: 'El título es obligatorio' });
-  if (title.length > MAX_TEMPLATE_TITLE) {
-    return res.status(400).json({ error: `El título no debe exceder ${MAX_TEMPLATE_TITLE} caracteres` });
-  }
-
-  // Cambiar de ámbito exige permiso sobre el ámbito actual y el nuevo: nadie
-  // puede promover su plantilla personal a global sin settings.manage.
-  if ((scope !== existing.scope || requestedTeamId !== existing.team_id) && !canManageScope(req.user, scope)) {
-    return res.status(403).json({ error: 'No tiene permiso para mover la plantilla a ese ámbito' });
-  }
-
-  const check = validateTemplateBody(templateBody);
-  if (!check.ok) return res.status(400).json({ error: check.fields.body });
-
-  let ownerId = existing.owner_id;
-  let teamId = existing.team_id;
-  if (scope === 'PERSONAL') {
-    ownerId = req.user.id;
-    teamId = null;
-  } else if (scope === 'TEAM') {
-    if (!requestedTeamId) return res.status(400).json({ error: 'Debe indicar el equipo de la plantilla' });
-    const team = db.prepare('SELECT id FROM teams WHERE id = ? AND active = 1 AND organization_id = ?').get(requestedTeamId, organizationId);
-    if (!team) return res.status(400).json({ error: 'El equipo no existe o está desactivado' });
-    ownerId = null;
-    teamId = requestedTeamId;
-  } else {
-    ownerId = null;
-    teamId = null;
-  }
-
-  if (
-    isActive &&
-    duplicateExists({ title, scope, ownerId, teamId, excludeId: id, organizationId })
-  ) {
-    return res.status(409).json({ error: 'Ya existe una plantilla activa con ese título en este ámbito' });
-  }
-
-  db.prepare(
-    'UPDATE canned_responses SET title = ?, body = ?, scope = ?, owner_id = ?, team_id = ?, is_active = ?, updated_at = ? WHERE id = ?'
-  ).run(title, templateBody, scope, ownerId, teamId, isActive, nowIso(), id);
-
-  res.json({ template: db.prepare(`${LIST_SELECT} WHERE c.id = ?`).get(id) });
 });
 
 // Sin endpoint de borrado: la baja es lógica (is_active = 0) para no destruir
@@ -329,7 +359,7 @@ router.patch('/:id', (req, res) => {
 export default router;
 
 /** Unicidad de título por ámbito y organización, solo entre plantillas activas. */
-function duplicateExists({ title, scope, ownerId, teamId, excludeId = null, organizationId = null }) {
+async function duplicateExists({ title, scope, ownerId, teamId, excludeId = null, organizationId = null }) {
   const clause =
     scope === 'PERSONAL'
       ? "c.scope = 'PERSONAL' AND c.owner_id = ?"
@@ -340,11 +370,10 @@ function duplicateExists({ title, scope, ownerId, teamId, excludeId = null, orga
   const params = key === null
     ? [organizationId, title, excludeId ?? 0]
     : [organizationId, key, title, excludeId ?? 0];
-  const row = db
-    .prepare(
-      `SELECT c.id FROM canned_responses c
-       WHERE c.organization_id = ? AND ${clause} AND c.is_active = 1 AND LOWER(c.title) = LOWER(?) AND c.id != ?`
-    )
-    .get(...params);
+  const row = await runtime.queryOne(
+    `SELECT c.id FROM canned_responses c
+       WHERE c.organization_id = ? AND ${clause} AND c.is_active = 1 AND LOWER(c.title) = LOWER(?) AND c.id != ?`,
+    ...params
+  );
   return Boolean(row);
 }

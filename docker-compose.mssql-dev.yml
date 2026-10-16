@@ -1,0 +1,14 @@
+services:
+  app:
+    environment:
+      DB_CLIENT: mssql
+      MSSQL_RUNTIME: "true"
+      DB_SERVER: "100.100.4.60"
+      DB_PORT: "1433"
+      DB_INSTANCE: "SIFHADEV"
+      DB_DATABASE: "SIFHA_Tickets_DEV"
+      DB_USER: "${DB_USER:?define DB_USER}"
+      DB_PASSWORD: "${DB_PASSWORD:?define DB_PASSWORD}"
+      DB_ENCRYPT: "true"
+      DB_TRUST_SERVER_CERTIFICATE: "true"
+      JOBS_ENABLED: "false"

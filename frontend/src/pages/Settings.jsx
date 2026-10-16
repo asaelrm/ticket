@@ -7,7 +7,13 @@ import Select from '../components/Select';
 
 export default function Settings() {
   const queryClient = useQueryClient();
-  const { setAppName } = useAuth();
+  const { setAppName, user } = useAuth();
+  // V1: `app_name` y `ticket_prefix` son configuración GLOBAL, no de la
+  // organización: las toca un solo SUPERADMIN. El formulario los deja en solo
+  // lectura para un administrador de organización para no prometerle lo que el
+  // servidor va a rechazar con 403. Sin contexto de sesión (aún sin login o en
+  // pruebas) se deja pasar: la garantía real es la comprobación del backend.
+  const canEditGlobal = !user || !!user.is_superadmin;
   const [form, setForm] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -116,7 +122,19 @@ export default function Settings() {
         <form onSubmit={onSave} className="space-y-5 px-6 py-5" noValidate>
           <div>
             <label className="label">Nombre del sistema</label>
-            <input className="input" value={form.app_name || ''} onChange={(e) => set('app_name', e.target.value)} maxLength={120} />
+            <input
+              className="input"
+              value={form.app_name || ''}
+              onChange={(e) => set('app_name', e.target.value)}
+              maxLength={120}
+              disabled={!canEditGlobal}
+              aria-label="Nombre del sistema"
+            />
+            {!canEditGlobal && (
+              <p className="mt-1 text-xs text-slate-400">
+                Configuración global de la plataforma: sólo un superadministrador puede cambiarla.
+              </p>
+            )}
           </div>
           <div>
             <label className="label">Nombre de la empresa</label>
@@ -124,8 +142,19 @@ export default function Settings() {
           </div>
           <div>
             <label className="label">Prefijo de tickets</label>
-            <input className="input" value={form.ticket_prefix || ''} onChange={(e) => set('ticket_prefix', e.target.value)} maxLength={10} />
-            <p className="mt-1 text-xs text-slate-400">Se usa al generar números nuevos (ej. TCK-000001).</p>
+            <input
+              className="input"
+              value={form.ticket_prefix || ''}
+              onChange={(e) => set('ticket_prefix', e.target.value)}
+              maxLength={10}
+              disabled={!canEditGlobal}
+              aria-label="Prefijo de tickets"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              {canEditGlobal
+                ? 'Se usa al generar números nuevos (ej. TCK-000001).'
+                : 'Se usa al generar números nuevos (ej. TCK-000001). Prefijo global: sólo lo cambia un superadministrador.'}
+            </p>
           </div>
           <div>
             <label className="label">Texto del pie de página</label>

@@ -1,6 +1,10 @@
 # Ticket
 
-Sistema empresarial de gestión de tickets e incidencias. Backend `Node.js (Express)` + `SQLite`, frontend `React (Vite) + Tailwind`.
+Sistema empresarial de gestión de tickets e incidencias. Backend `Node.js (Express)` + `SQL Server`, frontend `React (Vite) + Tailwind`.
+
+> Entrega a infraestructura (requisitos, variables de entorno, migración MSSQL,
+> seguridad multiempresa, health check y limitaciones):
+> [`ENTREGA-INFRAESTRUCTURA.md`](ENTREGA-INFRAESTRUCTURA.md).
 
 ## Características
 
@@ -19,10 +23,14 @@ Sistema empresarial de gestión de tickets e incidencias. Backend `Node.js (Expr
 - **Filtros combinados** (fecha, período, categoría, departamento, usuario, prioridad, estado, búsqueda).
 - **Exportación CSV, Excel (XLSX) y PDF** de tickets y reportes CSV.
 - Recuperación de contraseña por token (en modo desarrollo se muestra el token en pantalla).
+- **Multiempresa**: organizaciones con usuarios, roles, catálogos, tickets,
+  notificaciones, configuración y trabajos de escalación aislados por
+  `organization_id`. API de organizaciones (`/api/organizations`) exclusiva de
+  SUPERADMIN: alta, edición y desactivación (sin borrado físico).
 
 ## Requisitos
 
-- Node.js **>= 22.5** (usa `node:sqlite`, se recomienda 24+)
+- Node.js **>= 22.12** (Vite 7 exige 20.19+/22.12+; se recomienda 24+) y un **SQL Server** accesible (SQL Server es el único motor de base de datos)
 
 ## Instalación (desarrollo)
 
@@ -137,24 +145,38 @@ contraseña que está escrita en el repositorio.
 | `npm run dev:frontend`| Frontend Vite con proxy a `/api`          |
 | `npm run build`      | Compila el frontend a `frontend/dist`      |
 | `npm start`          | Sirve API + `frontend/dist` en producción  |
-| `npm test`           | Ejecuta los tests del backend              |
+| `npm test`           | Suite completa del backend (requiere SQL Server de pruebas) |
 
 ### Backend
-| Comando                  | Descripción                       |
-| ------------------------ | --------------------------------- |
-| `npm run db:migrate`     | Aplica migraciones (idempotente)  |
-| `npm run db:seed`        | Siembra roles, permisos y datos   |
+| Comando                  | Descripción                                    |
+| ------------------------ | ---------------------------------------------- |
+| `npm run test:unit`      | Pruebas sin base de datos (lo que corre en CI) |
+| `npm run test:mssql`     | Integración contra un SQL Server de pruebas    |
+| `npm run db:migrate`     | Valida el esquema MSSQL (solo lectura)         |
+| `npm run db:seed`        | Siembra roles, permisos y datos                |
 
 ### Tests del backend
 
-`npm test` carga [`backend/test/setup.js`](backend/test/setup.js), que crea una
-base de datos **temporal**, la migra, la siembra y la borra al terminar. Por eso
-la suite nunca escribe en `backend/data/tickets.db`, aunque se ejecute desde
-cualquier carpeta.
+SQL Server es el único motor: la suite **no** crea ninguna base temporal. Los
+tests que necesitan base de datos se ejecutan contra un SQL Server de **pruebas**
+indicado por variables de entorno (`DB_*` o sus alias `MSSQL_TEST_*`).
 
-Lance siempre los tests con `npm test`. Si los arranca a mano con
-`node --test test/loquesea.test.js` **sin** el `--import`, los archivos que no
-usan `test/helpers.js` se conectan con la base de datos real.
+- `npm run test:unit` ejecuta las pruebas que **no** necesitan base de datos
+  (traducción SQLite→T-SQL, contrato MSSQL, validador de esquema, arranque,
+  migrador, etc.). Es lo que corre en CI.
+- `npm test` es la suite completa; requiere un SQL Server de pruebas.
+- `npm run test:mssql` es la suite de integración contra una base aislada
+  autorizada (`backend/test/mssql/`, requiere `.env.mssql-test`, ver
+  `.env.mssql-test.example`).
+
+Lance siempre los tests con un script de npm. Si los arranca a mano con
+`node --test test/loquesea.test.js` **sin** `--import ./test/setup.js`, la
+configuración de entorno de pruebas no se carga y la prueba se conectará a la
+base que tenga configurada.
+
+Han quedado pendientes de conversión al runtime asíncrono de MSSQL varias suites
+de integración que usaban la API síncrona de SQLite (`db.prepare`); se listan en
+el informe de la fase de eliminación de SQLite. Ver también `docs/ESTADO-ENTREGA.md`.
 
 ## Producción
 
@@ -267,10 +289,11 @@ ticket/
 ├── backend/
 │   ├── src/
 │   │   ├── app.js            # Configuración de Express, sesiones, CSRF, rate limit
-│   │   ├── server.js         # Bootstrap: migraciones + seed + jobs + listener
+│   │   ├── server.js         # Bootstrap: valida el esquema MSSQL + jobs + listener
 │   │   ├── config.js         # Variables de entorno
-│   │   ├── db.js             # SQLite (node:sqlite), migraciones, transacciones
-│   │   ├── schema.sql        # Esquema de base de datos (sinónimo de db.js)
+│   │   ├── db/runtime.js    # Fachada única de SQL: traduce y ejecuta sobre SQL Server
+│   │   ├── db/dialect.js    # Traductor SQLite → T-SQL (se conserva temporalmente)
+│   │   ├── db/mssql/        # Contrato mssql, esquema canónico y validador
 │   │   ├── seed.js           # Roles, permisos, categorías, departamentos, usuarios
 │   │   ├── middleware/       # auth (RBAC), csrf, upload, errors
 │   │   ├── routes/           # auth, users, roles, tickets, categories,
@@ -328,5 +351,4 @@ Los valores se configuran en **Configuración → Escalación automática** (`0`
 
 ## Extensibilidad
 
-La arquitectura queda lista para: flujos de aprobación, encuestas avanzadas, inventario, integración LDAP/AD y multiempresa sin rehacer el núcleo.
-<!-- Prueba auto-push 09/20/2026 23:18:30 -->
+La arquitectura queda lista para: flujos de aprobación, encuestas avanzadas, inventario e integración LDAP/AD. El multiempresa ya está implementado (ver arriba).

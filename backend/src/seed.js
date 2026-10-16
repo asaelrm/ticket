@@ -1,9 +1,16 @@
 import bcrypt from 'bcryptjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import db, { transaction } from './db.js';
+import runtime from './db/runtime.js';
 import config from './config.js';
 import { unusablePassword } from './utils/password.js';
+import { INITIAL_ORGANIZATION } from './orgConstants.js';
+
+// El seed se ejecuta sobre SQL Server a través de la fachada de runtime (async).
+// Las sentencias se escriben en dialecto SQLite y src/db/dialect.js las traduce
+// a T-SQL. En MSSQL el arranque NO ejecuta el seed automáticamente: el esquema y
+// los datos base ya existen (migrados o aprovisionados). Este script queda
+// disponible para el aprovisionamiento explícito (`npm run db:seed`).
 
 function boolEnv(value) {
   if (value === undefined || value === null || value === '') return false;
@@ -81,14 +88,9 @@ const ROLES = {
   },
 };
 
-// Organización inicial (ETAPA 1A). Es la organización a la que se asocian los
-// datos existentes sin pérdida de información. Las siguientes organizaciones
-// llegarán en etapas posteriores, no en esta.
-export const INITIAL_ORGANIZATION = {
-  code: 'UCE',
-  name: 'Centro Médico UCE',
-  description: 'Organización inicial del sistema',
-};
+// Organización inicial (ETAPA 1A). Se conserva como reexport por compatibilidad;
+// su definición vive en orgConstants.js, que no depende de ningún motor.
+export { INITIAL_ORGANIZATION };
 
 /**
  * Taxonomía propia de la base de conocimiento. NO se reutiliza `categories`
@@ -130,54 +132,68 @@ const INITIAL_DEPARTMENTS = [
   'Administración',
 ];
 
-function seedPermissionsAndRoles() {
-  const insertPerm = db.prepare(
-    'INSERT OR IGNORE INTO permissions (code, description) VALUES (?, ?)'
-  );
-  for (const [code, desc] of PERMISSIONS) insertPerm.run(code, desc);
-
-  const insertRole = db.prepare(
-    'INSERT INTO roles (code, name, description) VALUES (?, ?, ?) ON CONFLICT(code) DO UPDATE SET name = excluded.name, description = excluded.description'
-  );
-  const getRole = db.prepare('SELECT id FROM roles WHERE code = ?');
-  const getPerm = db.prepare('SELECT id FROM permissions WHERE code = ?');
-  const link = db.prepare(
-    'INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)'
-  );
+async function seedPermissionsAndRoles(db) {
+  for (const [code, desc] of PERMISSIONS) {
+    await db.execute('INSERT OR IGNORE INTO permissions (code, description) VALUES (?, ?)', code, desc);
+  }
 
   for (const [code, role] of Object.entries(ROLES)) {
-    const existingRole = getRole.get(code);
-    insertRole.run(code, role.name, role.description);
-    const roleId = getRole.get(code).id;
+    const existingRole = await db.queryOne('SELECT id FROM roles WHERE code = ?', code);
+    await db.execute(
+      'INSERT INTO roles (code, name, description) VALUES (?, ?, ?) ON CONFLICT(code) DO UPDATE SET name = excluded.name, description = excluded.description',
+      code,
+      role.name,
+      role.description,
+    );
+    const roleRow = await db.queryOne('SELECT id FROM roles WHERE code = ?', code);
     // Los permisos iniciales solo se asignan al crear el rol; una configuración
     // modificada desde la UI no debe revertirse al reiniciar el servidor.
-    if (existingRole && code !== 'ADMIN') continue;
+    if (existingRole) continue;
     for (const perm of role.permissions) {
-      const permRow = getPerm.get(perm);
-      if (permRow) link.run(roleId, permRow.id);
+      const permRow = await db.queryOne('SELECT id FROM permissions WHERE code = ?', perm);
+      if (permRow) {
+        await db.execute(
+          'INSERT OR IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)',
+          roleRow.id,
+          permRow.id,
+        );
+      }
     }
   }
 }
 
-function seedBaseData(organizationId) {
-  const insertCat = db.prepare(
-    'INSERT INTO categories (name, description, color, organization_id) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
-  );
-  for (const [name, desc, color] of INITIAL_CATEGORIES) insertCat.run(name, desc, color, organizationId);
+async function seedBaseData(db, organizationId) {
+  for (const [name, desc, color] of INITIAL_CATEGORIES) {
+    await db.execute(
+      'INSERT INTO categories (name, description, color, organization_id) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color',
+      name,
+      desc,
+      color,
+      organizationId,
+    );
+  }
 
   // ETAPA 2: los departamentos iniciales nacen ya asociados a la organización
   // inicial (UCE). Mismo criterio que las cuentas demo.
-  const insertDept = db.prepare(
-    'INSERT INTO departments (name, organization_id) VALUES (?, ?) ON CONFLICT(name) DO NOTHING'
-  );
-  for (const name of INITIAL_DEPARTMENTS) insertDept.run(name, organizationId);
+  for (const name of INITIAL_DEPARTMENTS) {
+    await db.execute(
+      'INSERT INTO departments (name, organization_id) VALUES (?, ?) ON CONFLICT(name) DO NOTHING',
+      name,
+      organizationId,
+    );
+  }
 
   // ETAPA 3: la taxonomía de la base de conocimiento también nace asociada a la
   // organización inicial (mismo criterio que categories).
-  const insertKbCat = db.prepare(
-    'INSERT INTO kb_categories (name, description, color, organization_id) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color'
-  );
-  for (const [name, desc, color] of INITIAL_KB_CATEGORIES) insertKbCat.run(name, desc, color, organizationId);
+  for (const [name, desc, color] of INITIAL_KB_CATEGORIES) {
+    await db.execute(
+      'INSERT INTO kb_categories (name, description, color, organization_id) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET description = excluded.description, color = excluded.color',
+      name,
+      desc,
+      color,
+      organizationId,
+    );
+  }
 }
 
 // Organización inicial (ETAPA 1A): crea UCE si no existe y asocia a UCE los
@@ -186,56 +202,47 @@ function seedBaseData(organizationId) {
 // global (organization_id NULL) nunca debe ser arrastrada a una organización
 // por una reejecución del seed.
 // ETAPA 2: el mismo backfill alcanza a los departamentos huérfanos: los
-// registros pre-multiempresa pertenecen a la organización inicial (se crearon
-// antes de que existiera el concepto de organización).
-function ensureOrganizations() {
-  db.prepare(
-    'INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1) ON CONFLICT(code) DO NOTHING'
-  ).run(INITIAL_ORGANIZATION.code, INITIAL_ORGANIZATION.name, INITIAL_ORGANIZATION.description);
+// registros pre-multiempresa pertenecen a la organización inicial.
+async function ensureOrganizations(db) {
+  await db.execute(
+    'INSERT INTO organizations (code, name, description, active) VALUES (?, ?, ?, 1) ON CONFLICT(code) DO NOTHING',
+    INITIAL_ORGANIZATION.code,
+    INITIAL_ORGANIZATION.name,
+    INITIAL_ORGANIZATION.description,
+  );
 
-  const uce = db.prepare('SELECT id FROM organizations WHERE code = ?').get(INITIAL_ORGANIZATION.code);
+  const uce = await db.queryOne('SELECT id FROM organizations WHERE code = ?', INITIAL_ORGANIZATION.code);
   if (!uce) throw new Error('No se pudo resolver la organización inicial');
 
-  db.prepare(`
+  await db.execute(`
     UPDATE users SET organization_id = ?
     WHERE organization_id IS NULL
       AND role_id NOT IN (SELECT id FROM roles WHERE code = 'SUPERADMIN')
-  `).run(uce.id);
+  `, uce.id);
 
-  db.prepare(`
-    UPDATE departments SET organization_id = ?
-    WHERE organization_id IS NULL
-  `).run(uce.id);
+  await db.execute('UPDATE departments SET organization_id = ? WHERE organization_id IS NULL', uce.id);
 
-  // ETAPA 3: mismo criterio que departments/users. Todos los registros
-  // pre-multiempresa de tickets y de los dominios que cuelgan de la
-  // organización (categorías, equipos, respuestas rápidas, KB) se asocian a la
-  // organización inicial (UCE). Los registros nuevos nacen ya con org desde las
-  // rutas. Las tablas hijas (ticket_comments, ticket_attachments,
-  // ticket_history, team_members, kb_ticket_articles, kb_article_history) se
-  // aíslan a través de su padre y no necesitan columna propia.
-  db.prepare('UPDATE tickets SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
-  db.prepare('UPDATE categories SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
-  db.prepare('UPDATE teams SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
-  db.prepare('UPDATE canned_responses SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
-  db.prepare('UPDATE kb_categories SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
-  db.prepare('UPDATE kb_articles SET organization_id = ? WHERE organization_id IS NULL').run(uce.id);
+  // ETAPA 3: mismo criterio que departments/users.
+  await db.execute('UPDATE tickets SET organization_id = ? WHERE organization_id IS NULL', uce.id);
+  await db.execute('UPDATE categories SET organization_id = ? WHERE organization_id IS NULL', uce.id);
+  await db.execute('UPDATE teams SET organization_id = ? WHERE organization_id IS NULL', uce.id);
+  await db.execute('UPDATE canned_responses SET organization_id = ? WHERE organization_id IS NULL', uce.id);
+  await db.execute('UPDATE kb_categories SET organization_id = ? WHERE organization_id IS NULL', uce.id);
+  await db.execute('UPDATE kb_articles SET organization_id = ? WHERE organization_id IS NULL', uce.id);
 
   // Continuidad de numeración tras la migración: si existía la secuencia global
   // legacy `ticket_number` y la clave por organización de UCE aún no, la clave
-  // por organización "hereda" el valor convergente a lo alto de ambos (la nueva
-  // numeración UCE continúa desde el máximo para no repetir números ni saltar
-  // hacia atrás). La clave legacy se conserva intacta.
-  db.prepare(`
+  // por organización "hereda" el valor convergente a lo alto de ambos.
+  await db.execute(`
     INSERT INTO sequences (name, value)
     SELECT ?, value FROM sequences WHERE name = 'ticket_number'
     ON CONFLICT(name) DO UPDATE SET value = MAX(value, excluded.value)
-  `).run(`ticket_number:${uce.id}`);
+  `, `ticket_number:${uce.id}`);
 
   return uce.id;
 }
 
-function ensureUsers(options = {}, organizationId = null) {
+async function ensureUsers(db, options = {}, organizationId = null) {
   const {
     env = config.env,
     seedAdminPassword = process.env.SEED_ADMIN_PASSWORD || '',
@@ -245,33 +252,26 @@ function ensureUsers(options = {}, organizationId = null) {
     techPassword = process.env.SEED_TECH_PASSWORD || '',
   } = options;
 
-  const getDept = db.prepare('SELECT id FROM departments WHERE name = ?');
-  const getRole = db.prepare('SELECT id FROM roles WHERE code = ?');
-  const getBy = db.prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)');
+  const deptTech = await db.queryOne('SELECT id FROM departments WHERE name = ?', 'Tecnología');
+  const deptRh = await db.queryOne('SELECT id FROM departments WHERE name = ?', 'Recursos Humanos');
+  const roleAdmin = (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'ADMIN')).id;
+  const roleEmployee = (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'EMPLOYEE')).id;
+  const roleTechnician = (await db.queryOne('SELECT id FROM roles WHERE code = ?', 'TECHNICIAN')).id;
 
-  const deptTech = getDept.get('Tecnología');
-  const deptRh = getDept.get('Recursos Humanos');
-  const roleAdmin = getRole.get('ADMIN').id;
-  const roleEmployee = getRole.get('EMPLOYEE').id;
-  const roleTechnician = getRole.get('TECHNICIAN').id;
+  const getBy = (username, email) =>
+    db.queryOne('SELECT id FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?)', username, email);
 
   const isProduction = env === 'production';
   const adminUsername = process.env.SEED_ADMIN_USERNAME || 'admin';
   const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@empresa.com';
 
-  // El administrador SOLO nace si alguien define su contraseña. Antes se creaba
-  // con una contraseña de ejemplo de seis dígitos en cualquier entorno que no
-  // fuese exactamente 'production', así que un despliegue con NODE_ENV sin
-  // definir o mal escrito salía con una cuenta pública. Aquí no queda ninguna
-  // contraseña en el código: o la define quien instala, o el administrador no
-  // se crea.
+  // El administrador SOLO nace si alguien define su contraseña.
   if (seedAdminPassword) {
-    const admin = getBy.get(adminUsername, adminEmail);
+    const admin = await getBy(adminUsername, adminEmail);
     if (!admin) {
-      db.prepare(
+      await db.execute(
         `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-      ).run(
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
         process.env.SEED_ADMIN_NAME || 'Administrador',
         process.env.SEED_ADMIN_LAST_NAME || 'Sistema',
         adminUsername,
@@ -281,57 +281,49 @@ function ensureUsers(options = {}, organizationId = null) {
         'Administrador del sistema',
         roleAdmin,
         new Date().toISOString(),
-        organizationId
+        organizationId,
       );
     } else if (forceAdminPassword) {
-      // Única vía para recuperar el acceso: hay que pedirla explícitamente con
-      // SEED_ADMIN_FORCE_PASSWORD=true. Sin ella, una variable que se quedó en
-      // el entorno no vuelve a imponer una contraseña conocida en cada arranque.
-      db.prepare('UPDATE users SET password_hash = ?, last_password_change_at = ? WHERE id = ?').run(
+      // Única vía para recuperar el acceso: hay que pedirla explícitamente.
+      await db.execute('UPDATE users SET password_hash = ?, last_password_change_at = ? WHERE id = ?',
         bcrypt.hashSync(seedAdminPassword, 12),
         new Date().toISOString(),
-        admin.id
+        admin.id,
       );
       console.warn(
         '[seed] SEED_ADMIN_FORCE_PASSWORD=true: se ha cambiado la contraseña del administrador ' +
-          `("${adminUsername}"). Desactive las dos variables en cuanto pueda.`
+          `("${adminUsername}"). Desactive las dos variables en cuanto pueda.`,
       );
-    } else if (seedAdminPassword) {
+    } else {
       console.warn(
         `[seed] SEED_ADMIN_PASSWORD está definido y el administrador "${adminUsername}" ya existe: ` +
           'NO se ha aplicado. Para restablecerla de verdad, defina además ' +
           'SEED_ADMIN_FORCE_PASSWORD=true (una sola vez) o use el restablecimiento con token. ' +
-          'En cuanto el acceso esté comprobado, quite SEED_ADMIN_PASSWORD del entorno.'
+          'En cuanto el acceso esté comprobado, quite SEED_ADMIN_PASSWORD del entorno.',
       );
     }
   }
 
   // Cuentas de demostración: exigen SEED_DEMO_ACCOUNTS=true y nunca en
-  // producción. Que NODE_ENV no sea 'production' ya NO basta: un despliegue con
-  // NODE_ENV=staging, o sin definir, también es una instalación real y no debe
-  // nacer con cuentas de contraseña conocida.
+  // producción.
   if (seedDemoAccounts && isProduction) {
     console.error(
       '[seed] SEED_DEMO_ACCOUNTS=true se ha ignorado: las cuentas de demostración no se '
-      + 'crean en producción. Si las necesita, levante ese entorno con NODE_ENV=development.'
+      + 'crean en producción. Si las necesita, levante ese entorno con NODE_ENV=development.',
     );
     return;
   }
   if (!seedDemoAccounts) return;
 
-  // Sin contraseña definida, la cuenta se crea con una aleatoria e
-  // inutilizable: es preferible a darle una contraseña que está escrita en el
-  // repositorio. Mismo criterio que el directorio de usuarios.
   const sinContrasenaConocida = [];
 
-  const emp = getBy.get('empleado', 'empleado@empresa.com');
+  const emp = await getBy('empleado', 'empleado@empresa.com');
   if (!emp) {
     const password = demoPassword || unusablePassword();
     if (!demoPassword) sinContrasenaConocida.push('empleado');
-    db.prepare(
+    await db.execute(
       `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-    ).run(
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       'Empleado',
       'Demo',
       'empleado',
@@ -341,18 +333,17 @@ function ensureUsers(options = {}, organizationId = null) {
       'Analista',
       roleEmployee,
       new Date().toISOString(),
-      organizationId
+      organizationId,
     );
   }
 
-  const tech = getBy.get('tecnico', 'tecnico@empresa.com');
+  const tech = await getBy('tecnico', 'tecnico@empresa.com');
   if (!tech) {
     const password = techPassword || unusablePassword();
     if (!techPassword) sinContrasenaConocida.push('tecnico');
-    db.prepare(
+    await db.execute(
       `INSERT INTO users (name, last_name, username, email, password_hash, department_id, position, role_id, active, last_password_change_at, organization_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-    ).run(
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
       'Técnico',
       'Soporte',
       'tecnico',
@@ -362,7 +353,7 @@ function ensureUsers(options = {}, organizationId = null) {
       'Soporte Técnico',
       roleTechnician,
       new Date().toISOString(),
-      organizationId
+      organizationId,
     );
   }
 
@@ -370,36 +361,38 @@ function ensureUsers(options = {}, organizationId = null) {
     console.warn(
       `[seed] Cuentas demo creadas SIN contraseña conocida: ${sinContrasenaConocida.join(', ')}. `
       + 'Para poder entrar con ellas, defina SEED_DEMO_PASSWORD y SEED_TECH_PASSWORD antes del '
-      + 'primer arranque, o haga que un administrador las restablezca.'
+      + 'primer arranque, o haga que un administrador las restablezca.',
     );
   }
 }
 
-export function seed(options = {}) {
-  return transaction(() => {
-    seedPermissionsAndRoles();
+export async function seed(options = {}) {
+  return runtime.transaction(async (tx) => {
+    await seedPermissionsAndRoles(tx);
     // La organización inicial debe existir ANTES que categorías, departamentos
-    // y cuentas para que los registros nuevos nazcan ya asociados a UCE (ETAPA
-    // 1A + 2). El orden correcto es: permisos/roles → organizaciones → datos
-    // base → cuentas.
-    const organizationId = ensureOrganizations();
-    seedBaseData(organizationId);
+    // y cuentas para que los registros nuevos nazcan ya asociados a UCE.
+    const organizationId = await ensureOrganizations(tx);
+    await seedBaseData(tx, organizationId);
     // ensureUsers decide internamente qué cuentas crear según el entorno.
-    ensureUsers(options, organizationId);
+    await ensureUsers(tx, options, organizationId);
+    const orgs = await tx.queryOne('SELECT COUNT(*) AS n FROM organizations');
     return {
       ok: true,
       roles: Object.keys(ROLES).length,
       categories: INITIAL_CATEGORIES.length,
       departments: INITIAL_DEPARTMENTS.length,
       kb_categories: INITIAL_KB_CATEGORIES.length,
-      organizations: db.prepare('SELECT COUNT(*) AS n FROM organizations').get().n,
+      organizations: orgs.n,
     };
   });
 }
 
-// Solo se ejecuta directamente como `node src/seed.js`, no al importarlo desde
-// `src/scripts/seed.js`, que primero aplica las migraciones.
+// Solo se ejecuta directamente como `node src/seed.js`.
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  seed();
-  console.log('Seed completado.');
+  seed()
+    .then(() => console.log('Seed completado.'))
+    .catch((error) => {
+      console.error(`[seed] ${error.message}`);
+      process.exitCode = 1;
+    });
 }

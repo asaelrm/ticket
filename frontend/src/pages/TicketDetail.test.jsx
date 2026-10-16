@@ -278,6 +278,20 @@ describe('TicketDetail', () => {
     await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/tickets/1', { status: 'IN_PROGRESS' }));
   });
 
+  // Cancelar exige un motivo y avisa al reportante por POST /:id/cancel; el PATCH
+  // genérico responde 400 ante un cambio de estado a CANCELLED. Por eso elegir
+  // "Cancelado" en el selector debe abrir el modal dedicado, no enviar el PATCH.
+  it('elegir "Cancelado" abre el modal de cancelación sin enviar PATCH', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
+    await screen.findByText('PC no enciende');
+
+    await pickField(user, 'Estado', 'Cancelado');
+
+    expect(await screen.findByRole('dialog', { name: 'Cancelar ticket' })).toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   it('actualiza la prioridad del ticket', async () => {
     const user = userEvent.setup();
     renderWithProviders(<TicketDetail />, { route: '/app/tickets/1', path: '/app/tickets/:id' });
