@@ -104,6 +104,62 @@ CREATE TABLE dbo.users (
   CONSTRAINT FK_users_role FOREIGN KEY (role_id) REFERENCES dbo.roles(id) ON DELETE NO ACTION
 );
 
+-- Asignaciones acumulativas de una cuenta a varias empresas y soporte central.
+CREATE TABLE dbo.user_organizations (
+  user_id INT NOT NULL,
+  organization_id INT NOT NULL,
+  role_id INT NOT NULL,
+  active BIT NOT NULL CONSTRAINT DF_user_organizations_active DEFAULT (1),
+  assigned_by INT NULL,
+  assigned_at DATETIME2(3) NOT NULL CONSTRAINT DF_user_organizations_assigned_at DEFAULT (SYSUTCDATETIME()),
+  revoked_at DATETIME2(3) NULL,
+  CONSTRAINT PK_user_organizations PRIMARY KEY CLUSTERED (user_id, organization_id),
+  CONSTRAINT FK_user_organizations_user FOREIGN KEY (user_id) REFERENCES dbo.users(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_organizations_org FOREIGN KEY (organization_id) REFERENCES dbo.organizations(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_organizations_role FOREIGN KEY (role_id) REFERENCES dbo.roles(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_organizations_assigned_by FOREIGN KEY (assigned_by) REFERENCES dbo.users(id) ON DELETE NO ACTION
+);
+
+CREATE TABLE dbo.user_organization_history (
+  id INT IDENTITY(1,1) NOT NULL,
+  user_id INT NOT NULL,
+  organization_id INT NOT NULL,
+  role_id INT NULL,
+  action NVARCHAR(30) NOT NULL,
+  changed_by INT NOT NULL,
+  changed_at DATETIME2(3) NOT NULL CONSTRAINT DF_user_organization_history_changed_at DEFAULT (SYSUTCDATETIME()),
+  CONSTRAINT PK_user_organization_history PRIMARY KEY CLUSTERED (id),
+  CONSTRAINT FK_user_organization_history_user FOREIGN KEY (user_id) REFERENCES dbo.users(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_organization_history_org FOREIGN KEY (organization_id) REFERENCES dbo.organizations(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_organization_history_role FOREIGN KEY (role_id) REFERENCES dbo.roles(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_organization_history_changed_by FOREIGN KEY (changed_by) REFERENCES dbo.users(id) ON DELETE NO ACTION
+);
+
+CREATE TABLE dbo.user_support_permissions (
+  user_id INT NOT NULL,
+  permission_code NVARCHAR(100) NOT NULL,
+  active BIT NOT NULL CONSTRAINT DF_user_support_permissions_active DEFAULT (1),
+  granted_by INT NOT NULL,
+  granted_at DATETIME2(3) NOT NULL CONSTRAINT DF_user_support_permissions_granted_at DEFAULT (SYSUTCDATETIME()),
+  revoked_at DATETIME2(3) NULL,
+  CONSTRAINT PK_user_support_permissions PRIMARY KEY CLUSTERED (user_id, permission_code),
+  CONSTRAINT FK_user_support_permissions_user FOREIGN KEY (user_id) REFERENCES dbo.users(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_support_permissions_granted_by FOREIGN KEY (granted_by) REFERENCES dbo.users(id) ON DELETE NO ACTION
+);
+
+CREATE TABLE dbo.user_sifha_organizations (
+  user_id INT NOT NULL,
+  organization_id INT NOT NULL,
+  active BIT NOT NULL CONSTRAINT DF_user_sifha_organizations_active DEFAULT (1),
+  granted_by INT NOT NULL,
+  granted_at DATETIME2(3) NOT NULL CONSTRAINT DF_user_sifha_organizations_granted_at DEFAULT (SYSUTCDATETIME()),
+  revoked_at DATETIME2(3) NULL,
+  CONSTRAINT PK_user_sifha_organizations PRIMARY KEY CLUSTERED (user_id, organization_id),
+  CONSTRAINT FK_user_sifha_organizations_user FOREIGN KEY (user_id) REFERENCES dbo.users(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_sifha_organizations_org FOREIGN KEY (organization_id) REFERENCES dbo.organizations(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_user_sifha_organizations_granted_by FOREIGN KEY (granted_by) REFERENCES dbo.users(id) ON DELETE NO ACTION
+);
+
 CREATE TABLE dbo.teams (
   id INT IDENTITY(1,1) NOT NULL,
   organization_id INT NOT NULL,

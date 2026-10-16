@@ -48,18 +48,19 @@ function parseSchema() {
 
 const schema = parseSchema();
 const sorted = (values) => [...values].sort();
+const m5Tables = new Set(TABLES);
 
 test('M5 COLUMNS replica exactamente las columnas de cada tabla en schema.sql', () => {
-  assert.deepEqual(sorted(Object.keys(COLUMNS)), sorted(Object.keys(schema.columns)));
-  assert.deepEqual(sorted(TABLES), sorted(Object.keys(schema.columns)), 'TABLES debe ser el inventario completo del destino');
-  assert.equal(TABLES.length, 24, 'el destino tiene 24 tablas');
+  assert.deepEqual(sorted(Object.keys(COLUMNS)), sorted(TABLES));
+  assert.deepEqual(sorted(TABLES), sorted(Object.keys(schema.columns).filter((table) => m5Tables.has(table))), 'TABLES debe ser el inventario M5');
+  assert.equal(TABLES.length, 24, 'el inventario M5 tiene 24 tablas');
   for (const table of TABLES) {
     assert.deepEqual(sorted(COLUMNS[table]), sorted(schema.columns[table]), `COLUMNS.${table} no coincide con schema.sql`);
   }
 });
 
 test('M5 IDENTITY_TABLES coincide con las tablas IDENTITY del esquema', () => {
-  assert.deepEqual(sorted(IDENTITY_TABLES), sorted(schema.identities));
+  assert.deepEqual(sorted(IDENTITY_TABLES), sorted([...schema.identities].filter((table) => m5Tables.has(table))));
 });
 
 test('M5 preflight obtiene seed e increment desde sys.identity_columns', () => {
@@ -76,7 +77,7 @@ test('M5 preflight obtiene seed e increment desde sys.identity_columns', () => {
 
 test('M5 TENANT_FKS se deriva de todas las FKs definidas en schema.sql', () => {
   const expected = [];
-  for (const { table, columns, parent } of schema.foreignKeys) {
+  for (const { table, columns, parent } of schema.foreignKeys.filter((fk) => m5Tables.has(fk.table))) {
     if (columns.length === 1 && columns[0] === 'organization_id') continue; // ya cubierta por el chequeo dedicado
     if (columns.length === 1) { expected.push([table, columns[0], parent, false]); continue; }
     assert.equal(columns[0], 'organization_id', `${table}: FK compuesta inesperada (${columns.join(', ')})`);
@@ -118,8 +119,8 @@ function parseUniqueKeys() {
 }
 
 test('M5 UNIQUE_KEYS cubre exactamente las restricciones UNIQUE y PRIMARY KEY de schema.sql', () => {
-  const schemaKeys = parseUniqueKeys();
-  assert.deepEqual(sorted(Object.keys(schemaKeys)), sorted(TABLES), 'el DDL declara claves para cada tabla');
+  const schemaKeys = Object.fromEntries(Object.entries(parseUniqueKeys()).filter(([table]) => m5Tables.has(table)));
+  assert.deepEqual(sorted(Object.keys(schemaKeys)), sorted(TABLES), 'el DDL declara claves para cada tabla M5');
   for (const table of TABLES) {
     const declared = sorted((UNIQUE_KEYS[table] || []).map((key) => key.columns.join('+')));
     assert.deepEqual(declared, schemaKeys[table],

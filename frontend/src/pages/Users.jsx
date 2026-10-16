@@ -102,12 +102,25 @@ export default function Users() {
   const invalidateUsers = () => queryClient.invalidateQueries({ queryKey: ['users'] });
 
   async function openAssignments(target) {
-    const [orgs, sifha, history] = await Promise.all([
-      api.get(`/api/users/${target.id}/organizations`),
-      api.get(`/api/users/${target.id}/sifha-support`),
-      api.get(`/api/users/${target.id}/organization-history`),
-    ]);
-    setAssignmentModal({ user: target, assignments: orgs.organizations || [], initialAssignmentIds: (orgs.organizations || []).map((a) => Number(a.organization_id)), sifha: sifha.organizations || [], initialSifhaIds: (sifha.organizations || []).filter((a) => a.active).map((a) => Number(a.organization_id)), history: history.history || [], error: '' });
+    try {
+      const [orgs, sifha, history] = await Promise.all([
+        api.get(`/api/users/${target.id}/organizations`),
+        api.get(`/api/users/${target.id}/sifha-support`),
+        api.get(`/api/users/${target.id}/organization-history`),
+      ]);
+      const activeSifhaIds = (sifha.organizations || []).filter((a) => a.active).map((a) => Number(a.organization_id));
+      setAssignmentModal({
+        user: target,
+        assignments: orgs.organizations || [],
+        initialAssignmentIds: (orgs.organizations || []).filter((a) => a.active).map((a) => Number(a.organization_id)),
+        sifha: organizationsForUser.map((o) => ({ organization_id: o.id, name: o.name, active: activeSifhaIds.includes(Number(o.id)) })),
+        initialSifhaIds: activeSifhaIds,
+        history: history.history || [],
+        error: '',
+      });
+    } catch (err) {
+      setError(err.message || 'No se pudieron cargar las asignaciones');
+    }
   }
 
   async function saveAssignments() {
@@ -499,8 +512,16 @@ export default function Users() {
                 </select>
               </div>;
             })}
-            <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={assignmentModal.sifha.some((a) => a.active)} onChange={(e) => setAssignmentModal((m) => ({ ...m, sifha: organizationsForUser.map((o) => ({ organization_id: o.id, name: o.name, active: e.target.checked })) }))} /> Pertenece al soporte central SIFHA</label>
-            <p className="text-xs text-slate-500">Las empresas marcadas habilitan los tickets SIFHA de esas empresas; no conceden acceso a sus tickets internos.</p>
+            <section className="space-y-2 border-t border-slate-200 pt-4">
+              <h3 className="text-sm font-semibold text-slate-800">Soporte central SIFHA</h3>
+              <p className="text-xs text-slate-500">Marque cada empresa cuyos tickets SIFHA podrá atender. No concede acceso a tickets internos.</p>
+              {assignmentModal.sifha.map((item) => (
+                <label key={item.organization_id} className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={!!item.active} onChange={(e) => setAssignmentModal((m) => ({ ...m, sifha: m.sifha.map((entry) => Number(entry.organization_id) === Number(item.organization_id) ? { ...entry, active: e.target.checked } : entry) }))} />
+                  {item.name}
+                </label>
+              ))}
+            </section>
             <div className="flex justify-end gap-2 border-t border-slate-200 pt-4"><button className="btn-secondary" onClick={() => setAssignmentModal(null)} disabled={assignmentSaving}>Cancelar</button><button className="btn-primary" onClick={saveAssignments} disabled={assignmentSaving}>{assignmentSaving ? 'Guardando…' : 'Guardar asignaciones'}</button></div>
             <section className="border-t border-slate-200 pt-4">
               <h3 className="text-sm font-semibold text-slate-800">Historial de asignaciones</h3>

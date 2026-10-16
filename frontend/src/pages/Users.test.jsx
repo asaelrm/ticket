@@ -609,4 +609,34 @@ describe('Users · Selector de empresa para SUPERADMIN', () => {
       }))
     );
   });
+
+  it('guarda revocaciones SIFHA de forma individual sin perder las asignaciones', async () => {
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/users?page=')) return Promise.resolve(listResp());
+      if (url === '/api/users/roles') return Promise.resolve({ roles: ROLES });
+      if (url === '/api/departments?active=1') return Promise.resolve(DEPARTMENTS);
+      if (url.startsWith('/api/organizations?perPage=100')) return Promise.resolve(mockOrganizationsForUser);
+      if (url === '/api/users/2/organizations') return Promise.resolve({ organizations: [{ organization_id: 1, role_id: 1, active: 1 }] });
+      if (url === '/api/users/2/sifha-support') return Promise.resolve({ organizations: [{ organization_id: 1, name: 'Centro MÃ©dico UCE', active: 1 }, { organization_id: 2, name: 'Empresa Demo', active: 1 }] });
+      if (url === '/api/users/2/organization-history') return Promise.resolve({ history: [] });
+      return Promise.reject(new Error(`404 ${url}`));
+    });
+    api.put.mockResolvedValue({});
+    const user = userEvent.setup();
+    renderWithProviders(<Users />, { route: '/app/users' });
+    await screen.findByText('Ada Lovelace');
+    await user.click(screen.getByRole('button', { name: 'Empresas' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Empresas y soporte SIFHA' });
+    await user.click(within(dialog).getByLabelText('Empresa Demo'));
+    await user.click(within(dialog).getByRole('button', { name: 'Guardar asignaciones' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/api/users/2/sifha-support', {
+      organization_ids: [1],
+      revoked_organization_ids: [2],
+    }));
+    expect(api.put).toHaveBeenCalledWith('/api/users/2/organizations', {
+      assignments: [{ organization_id: 1, role_id: 1 }],
+      revoked_organization_ids: [],
+    });
+  });
 });
