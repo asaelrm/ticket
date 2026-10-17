@@ -607,6 +607,9 @@ export default function TicketDetail() {
             </span>
           </span>
           {t.department_name && <span>· {t.department_name}</span>}
+          {t.support_scope === 'SIFHA' && (t.sifha_system_name || t.sifha_system_code) && (
+            <span>· Sistema SIFHA afectado: {t.sifha_system_name || t.sifha_system_code}</span>
+          )}
           <span>· Creado {formatDateTime(t.created_at)}</span>
           {t.updated_at && t.updated_at !== t.created_at && <span>· Actualizado {formatDateTime(t.updated_at)}</span>}
         </div>

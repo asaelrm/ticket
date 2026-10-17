@@ -55,7 +55,8 @@ test('M5 COLUMNS replica exactamente las columnas de cada tabla en schema.sql', 
   assert.deepEqual(sorted(TABLES), sorted(Object.keys(schema.columns).filter((table) => m5Tables.has(table))), 'TABLES debe ser el inventario M5');
   assert.equal(TABLES.length, 24, 'el inventario M5 tiene 24 tablas');
   for (const table of TABLES) {
-    assert.deepEqual(sorted(COLUMNS[table]), sorted(schema.columns[table]), `COLUMNS.${table} no coincide con schema.sql`);
+    const expectedColumns = schema.columns[table].filter((column) => !(table === 'tickets' && column === 'sifha_system_id'));
+    assert.deepEqual(sorted(COLUMNS[table]), sorted(expectedColumns), `COLUMNS.${table} no coincide con el inventario M5 del schema.sql`);
   }
 });
 
@@ -77,7 +78,10 @@ test('M5 preflight obtiene seed e increment desde sys.identity_columns', () => {
 
 test('M5 TENANT_FKS se deriva de todas las FKs definidas en schema.sql', () => {
   const expected = [];
-  for (const { table, columns, parent } of schema.foreignKeys.filter((fk) => m5Tables.has(fk.table))) {
+  // Las FKs cuyo padre es incremental (p. ej. sifha_systems, que se crea con
+  // add-sifha-product-catalog.sql) no forman parte del inventario M5 del
+  // migrador: no se copian filas desde el origen, así que no se validan aquí.
+  for (const { table, columns, parent } of schema.foreignKeys.filter((fk) => m5Tables.has(fk.table) && m5Tables.has(fk.parent))) {
     if (columns.length === 1 && columns[0] === 'organization_id') continue; // ya cubierta por el chequeo dedicado
     if (columns.length === 1) { expected.push([table, columns[0], parent, false]); continue; }
     assert.equal(columns[0], 'organization_id', `${table}: FK compuesta inesperada (${columns.join(', ')})`);

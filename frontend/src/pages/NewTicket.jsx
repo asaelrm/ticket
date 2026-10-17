@@ -20,17 +20,19 @@ const REQUIRED_MESSAGE = {
   title: 'Título es obligatorio',
   category: 'Categoría es obligatorio',
   description: 'Descripción es obligatorio',
+  sifha_system_id: 'Producto SIFHA es obligatorio',
 };
 
 // Orden en el que se revisan los campos: el foco salta al primero que falte.
-const FIELD_ORDER = ['title', 'category', 'description'];
+const FIELD_ORDER = ['title', 'category', 'sifha_system_id', 'description'];
 
-function validateRequired({ title: t, categoryId, description: d }) {
+function validateRequired({ title: t, categoryId, description: d, supportScope, sifhaSystemId }) {
   const errors = {};
   if (!t.trim()) errors.title = REQUIRED_MESSAGE.title;
   // La categoría viaja como texto del <Select>; vacío significa "sin elegir",
   // que es justo lo que el backend rechaza.
   if (!categoryId) errors.category = REQUIRED_MESSAGE.category;
+  if (supportScope === 'SIFHA' && !sifhaSystemId) errors.sifha_system_id = REQUIRED_MESSAGE.sifha_system_id;
   if (!d.trim()) errors.description = REQUIRED_MESSAGE.description;
   return errors;
 }
@@ -51,10 +53,12 @@ export default function NewTicket() {
   const [priority, setPriority] = useState('MEDIUM');
   const [departmentId, setDepartmentId] = useState('');
   const [files, setFiles] = useState([]);
+  const [supportScope, setSupportScope] = useState('INTERNAL');
+  const [sifhaSystemId, setSifhaSystemId] = useState('');
 
   const titleRef = useRef(null);
   const descriptionRef = useRef(null);
-  const fieldRefs = { title: titleRef, description: descriptionRef };
+  const fieldRefs = { title: titleRef, description: descriptionRef, sifha_system_id: descriptionRef };
 
   function focusField(key) {
     if (key === 'category') {
@@ -97,6 +101,13 @@ export default function NewTicket() {
   const categories = categoriesQuery.data || [];
   const departments = departmentsQuery.data || [];
 
+  const sifhaSystemsQuery = useQuery({
+    queryKey: ['sifha-systems-available'],
+    queryFn: () => api.get('/api/sifha-systems/available').then((d) => d.data?.systems || d.systems || []),
+    enabled: supportScope === 'SIFHA',
+    retry: false,
+  });
+
   // "Sin departamento" era una `<option>` vacía seleccionable, así que se
   // conserva como opción real. En cambio la de categoría venía `disabled`, de
   // modo que no se podía elegir: eso equivale a un `placeholder`.
@@ -109,6 +120,26 @@ export default function NewTicket() {
     [departments]
   );
   const priorityOptions = useMemo(() => PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] })), []);
+  const sifhaSystemOptions = useMemo(
+    () => (sifhaSystemsQuery.data || []).map((s) => ({ value: s.id, label: `${s.code} — ${s.name}` })),
+    [sifhaSystemsQuery.data]
+  );
+
+  useEffect(() => {
+    if (supportScope !== 'SIFHA') {
+      setSifhaSystemId('');
+    }
+  }, [supportScope]);
+
+  useEffect(() => {
+    if (sifhaSystemOptions.length === 1 && !sifhaSystemId) {
+      setSifhaSystemId(String(sifhaSystemOptions[0].value));
+    }
+  }, [sifhaSystemOptions, sifhaSystemId]);
+
+  useEffect(() => {
+    setSifhaSystemId('');
+  }, [user?.organization_id]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -117,6 +148,10 @@ export default function NewTicket() {
       fd.append('description', description.trim());
       fd.append('category_id', categoryId);
       fd.append('priority', priority);
+      fd.append('support_scope', supportScope);
+      if (supportScope === 'SIFHA' && sifhaSystemId) {
+        fd.append('sifha_system_id', sifhaSystemId);
+      }
       if (departmentId) fd.append('department_id', departmentId);
       for (const f of files) fd.append('files', f);
       return api.post('/api/tickets', null, fd);
@@ -197,7 +232,7 @@ export default function NewTicket() {
 
   function onSubmit(e) {
     e.preventDefault();
-    const found = validateRequired({ title, categoryId, description });
+    const found = validateRequired({ title, categoryId, description, supportScope, sifhaSystemId });
     setFieldErrors(found);
     const first = FIELD_ORDER.find((k) => found[k]);
     if (first) {
@@ -276,6 +311,53 @@ export default function NewTicket() {
               <Select id="priority" options={priorityOptions} value={priority} onChange={setPriority} />
             </div>
           </div>
+
+          <div>
+            <label className="label" htmlFor="support_scope">
+              Tipo de soporte
+            </label>
+            <select
+              id="support_scope"
+              className="input"
+              value={supportScope}
+              onChange={(e) => setSupportScope(e.target.value)}
+            >
+              <option value="INTERNAL">Interno</option>
+              <option value="SIFHA">SIFHA</option>
+            </select>
+          </div>
+
+          {supportScope === 'SIFHA' && (
+            <div>
+              <label className="label" htmlFor="sifha_system_id">
+                Sistema SIFHA afectado *
+              </label>
+              <Select
+                id="sifha_system_id"
+                placeholder={sifhaSystemsQuery.isLoading ? 'Cargando...' : 'Seleccione…'}
+                options={sifhaSystemOptions}
+                value={sifhaSystemId}
+                onChange={(v) => {
+                  setSifhaSystemId(v);
+                  clearFieldError('sifha_system_id');
+                }}
+                disabled={sifhaSystemsQuery.isLoading}
+                aria-invalid={fieldErrors.sifha_system_id ? 'true' : undefined}
+                aria-describedby={fieldErrors.sifha_system_id ? 'sifha_system_id-error' : undefined}
+              />
+              {sifhaSystemsQuery.isError && (
+                <p className="mt-1 text-xs text-red-600">No se pudieron cargar los productos SIFHA</p>
+              )}
+              {sifhaSystemsQuery.isSuccess && sifhaSystemOptions.length === 0 && (
+                <p className="mt-1 text-xs text-slate-500">No hay productos SIFHA habilitados para su empresa</p>
+              )}
+              {fieldErrors.sifha_system_id && (
+                <p id="sifha_system_id-error" className="mt-1 text-xs text-red-600">
+                  {fieldErrors.sifha_system_id}
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="label" htmlFor="department">

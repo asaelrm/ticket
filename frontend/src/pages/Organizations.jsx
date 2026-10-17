@@ -20,6 +20,12 @@ const ADMIN_EMPTY = {
   password: '',
 };
 
+const SIFHA_EMPTY = {
+  code: '',
+  name: '',
+  description: '',
+};
+
 export default function Organizations() {
   const queryClient = useQueryClient();
   const [filters, setFilters] = useState({ page: 1, perPage: 15 });
@@ -27,6 +33,8 @@ export default function Organizations() {
   const [loadingModal, setLoadingModal] = useState(false);
   const [modal, setModal] = useState(null); // null | { mode: 'create'|'edit', form, id }
   const [adminModal, setAdminModal] = useState(null); // null | { orgId, orgName, form, loading }
+  const [sifhaModal, setSifhaModal] = useState(null); // null | { mode: 'list'|'create'|'edit', id, form }
+  const [sifhaAssign, setSifhaAssign] = useState(null); // null | { orgId, orgName, available: [], assigned: [] }
   const { user } = useAuth();
 
   const isSuperadmin = user?.is_superadmin === true;
@@ -86,6 +94,12 @@ export default function Organizations() {
     enabled: isSuperadmin,
   });
 
+  const sifhaListQuery = useQuery({
+    queryKey: ['sifha-systems'],
+    queryFn: () => api.get('/api/sifha-systems').then((d) => d.systems || d.data || []),
+    enabled: isSuperadmin && sifhaModal?.mode === 'list',
+  });
+
   const createAdminMutation = useMutation({
     mutationFn: (m) => api.post('/api/users', {
       ...m.form,
@@ -140,12 +154,60 @@ export default function Organizations() {
       setError('El nombre es obligatorio');
       return;
     }
-    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{1,19}$/.test(m.form.code)) {
+    if (m.mode === 'create' && !/^[A-Za-z0-9][A-Za-z0-9_-]{1,19}$/.test(m.form.code)) {
       setError('El código debe tener entre 2 y 20 caracteres (letras, números, guion bajo o guion) y empezar por alfanumérico');
       return;
     }
     saveMutation.mutate(m);
   }
+
+  function onSaveSifha(e) {
+    e.preventDefault();
+    const m = sifhaModal;
+    if (!m) return;
+    if (m.mode === 'create' && !m.form.code) { setError('El código es obligatorio'); return; }
+    if (!m.form.name) { setError('El nombre es obligatorio'); return; }
+    saveSifhaMutation.mutate(m);
+  }
+
+  const saveSifhaMutation = useMutation({
+    mutationFn: (m) => {
+      const body = { name: m.form.name, description: m.form.description };
+      return m.mode === 'create'
+        ? api.post('/api/sifha-systems', { ...m.form, code: m.form.code })
+        : api.patch(`/api/sifha-systems/${m.id}`, body);
+    },
+    onMutate: () => { setLoadingModal(true); setError(''); },
+    onSuccess: () => { setSifhaModal(null); queryClient.invalidateQueries({ queryKey: ['sifha-systems'] }); queryClient.invalidateQueries({ queryKey: ['sifha-systems-available'] }); },
+    onError: (err) => { if (err.fields) setError(Object.values(err.fields).join('. ')); else setError(err.message || 'No se pudo guardar el producto SIFHA'); },
+    onSettled: () => { setLoadingModal(false); },
+  });
+
+  const toggleSifhaActiveMutation = useMutation({
+    mutationFn: (s) => api.patch(`/api/sifha-systems/${s.id}`, { active: !s.active }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['sifha-systems'] }); },
+    onError: (err) => setError(err.message || 'No se pudo cambiar el estado'),
+  });
+
+  const loadSifhaAssignments = useMutation({
+    mutationFn: async (org) => {
+      const [available, assigned] = await Promise.all([
+        api.get('/api/sifha-systems').then((d) => d.systems || d.data || []),
+        api.get(`/api/sifha-systems/organizations/${org.id}`).then((d) => d.systems || d.data || []),
+      ]);
+      setSifhaAssign({ orgId: org.id, orgName: org.name, available, assigned });
+    },
+    onError: (err) => setError(err.message || 'No se pudieron cargar los productos SIFHA'),
+  });
+
+  const saveSifhaAssignments = useMutation({
+    mutationFn: async (data) => {
+      const ids = data.assigned.map((s) => s.id);
+      await api.put(`/api/sifha-systems/organizations/${data.orgId}`, { sifha_system_ids: ids });
+    },
+    onSuccess: () => { setSifhaAssign(null); queryClient.invalidateQueries({ queryKey: ['organizations'] }); },
+    onError: (err) => setError(err.message || 'No se pudieron guardar las asignaciones'),
+  });
 
   function toggleActive(org) {
     toggleActiveMutation.mutate(org);
@@ -239,6 +301,11 @@ export default function Organizations() {
         <button className="btn-primary" onClick={openCreate}>
           + Nueva empresa
         </button>
+        {isSuperadmin && (
+          <button type="button" className="btn-ghost ml-2" onClick={() => { setError(''); setSifhaModal({ mode: 'list' }); }}>
+            Productos SIFHA
+          </button>
+        )}
       </div>
 
       {(showError || queryError) && (
@@ -300,6 +367,19 @@ export default function Organizations() {
                                 <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                                   <path d="M12 4v16m8-8H4" strokeLinecap="round" strokeLinejoin="round" />
                                   <path d="M18 12a6 6 0 0 1-6 6 6 6 0 0 1-6-6H4" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </button>
+                            </Tooltip>
+                          )}
+                          {isSuperadmin && (
+                            <Tooltip text="Asignar productos SIFHA">
+                              <button
+                                className="btn-ghost !px-2 !py-1 text-xs"
+                                onClick={() => loadSifhaAssignments.mutate(org)}
+                                aria-label={"Asignar productos SIFHA a " + org.name}
+                              >
+                                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                                  <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
                               </button>
                             </Tooltip>

@@ -29,12 +29,12 @@ function catalogQuery(catalog) {
 describe('validador de esquema MSSQL: parser del DDL canónico', () => {
   it('extrae las 24 tablas y las columnas de cada una, en paridad con el migrador', () => {
     const schema = parseMssqlSchema(ddl);
-    const incremental = ['user_organizations', 'user_organization_history', 'user_support_permissions', 'user_sifha_organizations'];
-    assert.equal(schema.size, 28);
+    const incremental = ['user_organizations', 'user_organization_history', 'user_support_permissions', 'user_sifha_organizations', 'sifha_systems', 'organization_sifha_systems'];
+    assert.equal(schema.size, 30);
     assert.deepEqual(sorted([...schema.keys()]), sorted([...TABLES, ...incremental]));
     for (const table of TABLES) {
       assert.deepEqual(
-        sorted([...schema.get(table).columns.keys()]),
+        sorted([...schema.get(table).columns.keys()].filter((column) => !(table === 'tickets' && column === 'sifha_system_id'))),
         sorted(COLUMNS[table]),
         `columnas de ${table}`,
       );
@@ -64,7 +64,7 @@ describe('validador de esquema MSSQL: compatibilidad', () => {
     const result = await validateMssqlSchema(catalogQuery(catalog));
     assert.equal(result.ok, true);
     assert.deepEqual(result.errors, []);
-    assert.equal(result.counts.tables, 28);
+    assert.equal(result.counts.tables, 30);
   });
 
   it('funciona a través de la fachada de runtime (traduce las consultas de catálogo)', async () => {

@@ -160,6 +160,31 @@ CREATE TABLE dbo.user_sifha_organizations (
   CONSTRAINT FK_user_sifha_organizations_granted_by FOREIGN KEY (granted_by) REFERENCES dbo.users(id) ON DELETE NO ACTION
 );
 
+CREATE TABLE dbo.sifha_systems (
+  id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_sifha_systems PRIMARY KEY,
+  code NVARCHAR(80) NOT NULL,
+  name NVARCHAR(200) NOT NULL,
+  description NVARCHAR(MAX) NULL,
+  active BIT NOT NULL CONSTRAINT DF_sifha_systems_active DEFAULT (1),
+  created_at DATETIME2(3) NOT NULL CONSTRAINT DF_sifha_systems_created_at DEFAULT (SYSUTCDATETIME()),
+  updated_at DATETIME2(3) NULL,
+  CONSTRAINT UQ_sifha_systems_code UNIQUE (code)
+);
+
+CREATE TABLE dbo.organization_sifha_systems (
+  id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_organization_sifha_systems PRIMARY KEY,
+  organization_id INT NOT NULL,
+  sifha_system_id INT NOT NULL,
+  active BIT NOT NULL CONSTRAINT DF_organization_sifha_systems_active DEFAULT (1),
+  assigned_by INT NULL,
+  created_at DATETIME2(3) NOT NULL CONSTRAINT DF_organization_sifha_systems_created_at DEFAULT (SYSUTCDATETIME()),
+  updated_at DATETIME2(3) NULL,
+  CONSTRAINT UQ_organization_sifha_systems_pair UNIQUE (organization_id, sifha_system_id),
+  CONSTRAINT FK_organization_sifha_systems_org FOREIGN KEY (organization_id) REFERENCES dbo.organizations(id),
+  CONSTRAINT FK_organization_sifha_systems_system FOREIGN KEY (sifha_system_id) REFERENCES dbo.sifha_systems(id),
+  CONSTRAINT FK_organization_sifha_systems_assigned_by FOREIGN KEY (assigned_by) REFERENCES dbo.users(id)
+);
+
 CREATE TABLE dbo.teams (
   id INT IDENTITY(1,1) NOT NULL,
   organization_id INT NOT NULL,
@@ -216,6 +241,7 @@ CREATE TABLE dbo.tickets (
   pending_reason NVARCHAR(500) NULL,
   resolution_notified BIT NOT NULL CONSTRAINT DF_tickets_resolution_notified DEFAULT (0),
   support_scope NVARCHAR(16) NOT NULL CONSTRAINT DF_tickets_support_scope DEFAULT (N'INTERNAL'),
+  sifha_system_id INT NULL,
   cancel_reason NVARCHAR(MAX) NULL,
   cancelled_by INT NULL,
   cancelled_at DATETIME2(3) NULL,
@@ -233,6 +259,7 @@ CREATE TABLE dbo.tickets (
   CONSTRAINT CK_tickets_time_spent CHECK (time_spent_minutes IS NULL OR time_spent_minutes >= 0),
   CONSTRAINT CK_tickets_csat_rating CHECK (csat_rating IS NULL OR csat_rating BETWEEN 1 AND 5),
   CONSTRAINT FK_tickets_organization FOREIGN KEY (organization_id) REFERENCES dbo.organizations(id) ON DELETE NO ACTION,
+  CONSTRAINT FK_tickets_sifha_system FOREIGN KEY (sifha_system_id) REFERENCES dbo.sifha_systems(id) ON DELETE NO ACTION,
   CONSTRAINT FK_tickets_reporter_same_org FOREIGN KEY (organization_id, reporter_id) REFERENCES dbo.users(organization_id, id) ON DELETE NO ACTION,
   CONSTRAINT FK_tickets_assigned_user_same_org FOREIGN KEY (organization_id, assigned_to_id) REFERENCES dbo.users(organization_id, id) ON DELETE NO ACTION,
   CONSTRAINT FK_tickets_team_same_org FOREIGN KEY (organization_id, assigned_team_id) REFERENCES dbo.teams(organization_id, id) ON DELETE NO ACTION,

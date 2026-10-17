@@ -77,6 +77,7 @@ const TICKET_SQL = `
     COALESCE(te.name, '') AS team_name,
     c.name AS category_name, c.color AS category_color,
     d.name AS department_name,
+    ss.code AS sifha_system_code, ss.name AS sifha_system_name,
     CASE WHEN t.sla_due_at IS NOT NULL
               AND t.status IN ('OPEN', 'ASSIGNED', 'IN_PROGRESS', 'PENDING')
               AND t.sla_due_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -92,6 +93,7 @@ const TICKET_SQL = `
   LEFT JOIN teams te ON te.id = t.assigned_team_id
   LEFT JOIN categories c ON c.id = t.category_id
   LEFT JOIN departments d ON d.id = t.department_id
+  LEFT JOIN sifha_systems ss ON ss.id = t.sifha_system_id
   WHERE t.id = ?
 `;
 
@@ -662,6 +664,8 @@ router.post(
     const description = safeStr(body.description);
     const categoryId = parseIntSafe(body.category_id);
     const priority = body.priority || 'MEDIUM';
+    const supportScope = body.support_scope === 'SIFHA' ? 'SIFHA' : 'INTERNAL';
+    const sifhaSystemId = supportScope === 'SIFHA' ? parseIntSafe(body.sifha_system_id) : null;
     let departmentId = body.department_id == null || body.department_id === '' ? null : parseIntSafe(body.department_id);
     if (departmentId === null && req.user.department_id) departmentId = req.user.department_id;
 
@@ -670,7 +674,13 @@ router.post(
       description: rules.required(description, 'Descripción') + rules.max(description, 10000, 'Descripción'),
       category: rules.required(categoryId, 'Categoría'),
       priority: rules.oneOf(priority, PRIORITIES, 'Prioridad'),
+      ...(supportScope === 'SIFHA' ? { sifha_system_id: rules.required(sifhaSystemId, 'Producto SIFHA') } : {}),
     });
+
+    if (supportScope === 'SIFHA') {
+      const allowed = await runtime.queryOne(`SELECT s.id FROM sifha_systems s JOIN organization_sifha_systems os ON os.sifha_system_id = s.id WHERE s.id = ? AND s.active = 1 AND os.organization_id = ? AND os.active = 1`, sifhaSystemId, org);
+      if (!allowed) return res.status(400).json({ error: 'Producto SIFHA inválido o no habilitado para la empresa' });
+    }
 
     const category = await runtime.queryOne('SELECT id FROM categories WHERE id = ? AND organization_id = ?', categoryId, org);
     if (!category) return res.status(400).json({ error: 'Categoría inválida' });
@@ -693,9 +703,9 @@ router.post(
 
     const number = await nextTicketNumber(org);
     const info = await runtime.insertAndGetId(
-      `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, department_id, priority, sla_due_at, organization_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      number, title, description, req.user.id, categoryId, departmentId, priority, await computeSlaDue(priority, new Date(), org), org
+      `INSERT INTO tickets (ticket_number, title, description, reporter_id, category_id, department_id, priority, sla_due_at, organization_id, support_scope, sifha_system_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      number, title, description, req.user.id, categoryId, departmentId, priority, await computeSlaDue(priority, new Date(), org), org, supportScope, sifhaSystemId
     );
     const ticketId = info.id;
 

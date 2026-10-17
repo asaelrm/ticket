@@ -28,6 +28,7 @@ import settingsRoutes from './routes/settings.js';
 import notificationsRoutes from './routes/notifications.js';
 import auditRoutes from './routes/audit.js';
 import organizationsRoutes from './routes/organizations.js';
+import sifhaSystemsRoutes from './routes/sifhaSystems.js';
 
 export function createApp(options = {}) {
   const app = express();
@@ -165,6 +166,7 @@ export function createApp(options = {}) {
   // (requirePermission('organization.manage') + requireSuperadmin dentro del
   // router); un administrador de empresa o un empleado reciben 403.
   app.use('/api/organizations', wrapAsyncRouter(organizationsRoutes));
+  app.use('/api/sifha-systems', wrapAsyncRouter(sifhaSystemsRoutes));
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 
