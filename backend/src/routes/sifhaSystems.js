@@ -54,7 +54,7 @@ router.get('/organizations/:organizationId', requirePermission('organization.man
 router.put('/organizations/:organizationId', requirePermission('organization.manage'), requireSuperadmin, async (req, res) => {
   const org = parseIntSafe(req.params.organizationId);
   const ids = [...new Set((req.body?.sifha_system_ids || []).map(parseIntSafe).filter(Boolean))];
-  await runtime.transactionAsync(async (tx) => {
+  await runtime.transaction(async (tx) => {
     for (const id of ids) {
       if (!await tx.queryOne('SELECT id FROM sifha_systems WHERE id = ?', id)) continue;
       await tx.execute(`MERGE organization_sifha_systems AS target USING (SELECT ? AS organization_id, ? AS sifha_system_id) AS source ON target.organization_id = source.organization_id AND target.sifha_system_id = source.sifha_system_id WHEN MATCHED THEN UPDATE SET active = 1, updated_at = SYSUTCDATETIME(), assigned_by = ? WHEN NOT MATCHED THEN INSERT (organization_id, sifha_system_id, active, assigned_by) VALUES (source.organization_id, source.sifha_system_id, 1, ?);`, org, id, req.user.id, req.user.id);
